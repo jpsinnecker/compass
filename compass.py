@@ -61,6 +61,7 @@ import matplotlib.patches as mpatches
 import matplotlib.cm as cm
 from matplotlib.animation import FuncAnimation
 import argparse
+import time
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CONSTANTES FÍSICAS (Sistema Internacional — SI)
@@ -317,31 +318,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if B >= 1e-4: return f"B={B*1e3:.3f} mT"
         return            f"B={B*1e6:.1f} µT"
 
-    def _draw_clock(ax, t_now, needle_len, stop_label=None):
+    def _draw_clock(ax, wall_elapsed, needle_len, stop_label=None):
         """
-        Desenha um cronômetro digital no canto superior esquerdo do eixo.
+        Desenha um cronômetro no canto superior esquerdo do eixo mostrando
+        o tempo REAL de integração (tempo de relógio desde o início do loop).
 
         Elementos:
-          - Texto grande: "t = X.XXXX s" (tempo atual, limitado a t_sim)
-          - Texto menor:  "/ X.XXX s"    (tempo total, à direita da barra)
-          - Barra de progresso horizontal: verde → amarelo → vermelho
-          - Marcador branco na posição atual da barra
+          - Texto grande: tempo decorrido em mm:ss.ss ou ss.ss s
+          - Barra de progresso baseada em passos concluídos / n_steps
+          - Rótulo de parada quando a simulação termina antes do tempo
           - Caixa semitransparente de fundo
-          - Se stop_label fornecido: linha extra indicando motivo de parada
-
-        Nota: t_now é limitado a t_sim para não ultrapassar o tempo solicitado
-        mesmo que o integrador execute alguns passos extras nos critérios de parada.
         """
-        # ── CORREÇÃO PRINCIPAL: nunca exibir além do tempo solicitado ─────
-        t_display = min(t_now, t_sim)
-
         xlim  = ax.get_xlim()
         ylim  = ax.get_ylim()
         xspan = xlim[1] - xlim[0]
         yspan = ylim[1] - ylim[0]
-
-        # fração de progresso [0, 1] — baseada em t_display, nunca > 1
-        frac  = min(t_display / t_sim, 1.0) if t_sim > 0 else 0.0
 
         # posição do painel — canto superior esquerdo
         px    = xlim[0] + 0.02 * xspan
@@ -351,7 +342,6 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         bar_h = 0.018 * yspan
         bar_y = py - 0.085 * yspan
 
-        # altura extra se houver rótulo de parada
         extra_h = 0.030 * yspan if stop_label else 0.0
 
         # caixa de fundo semitransparente
@@ -363,50 +353,61 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             linewidth=0.8, alpha=0.80, zorder=19,
             transform=ax.transData))
 
-        # trilha da barra (cinza escuro)
+        # ── barra de progresso baseada em passos (não em tempo de relógio) ─
+        # usa n_frames como proxy do progresso — avança a cada frame salvo
+        frac = min(n_frames / max(n_steps // frame_every, 1), 1.0)
+
+        # trilha cinza
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w, bar_h,
             facecolor='#252540', edgecolor='none',
             zorder=20, transform=ax.transData))
 
-        # preenchimento colorido: verde → amarelo → vermelho
-        r_col     = min(2.0 * frac, 1.0)
-        g_col     = min(2.0 * (1.0 - frac), 1.0)
-        bar_color = (r_col, g_col, 0.15)
+        # preenchimento: verde → amarelo → vermelho
         if frac > 0:
+            r_col = min(2.0 * frac, 1.0)
+            g_col = min(2.0 * (1.0 - frac), 1.0)
             ax.add_patch(plt.Rectangle(
                 (px, bar_y), bar_w * frac, bar_h,
-                facecolor=bar_color, edgecolor='none',
+                facecolor=(r_col, g_col, 0.15), edgecolor='none',
                 zorder=21, transform=ax.transData))
 
-        # borda da barra
+        # borda
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w, bar_h,
             facecolor='none', edgecolor='#5A5A8A',
             linewidth=0.7, zorder=22, transform=ax.transData))
 
-        # marcador branco na posição atual
+        # marcador branco
         if 0 < frac < 1.0:
             mx = px + bar_w * frac
             ax.plot([mx, mx], [bar_y, bar_y + bar_h],
                     color='white', lw=1.2, zorder=24,
                     transform=ax.transData)
 
-        # texto principal: tempo atual (limitado a t_sim)
+        # ── texto do cronômetro ────────────────────────────────────────────
+        # formata: mm:ss.ss se >= 60 s, senão ss.ssss s
+        if wall_elapsed >= 60.0:
+            mins = int(wall_elapsed // 60)
+            secs = wall_elapsed - mins * 60
+            time_str = f"{mins:02d}:{secs:05.2f}"
+        else:
+            time_str = f"{wall_elapsed:07.4f} s"
+
         ax.text(px + pad * 0.2, py,
-                f"t = {t_display:.4f} s",
+                time_str,
                 color='#E8E8FF', fontsize=11, fontweight='bold',
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        # texto secundário: tempo total
-        ax.text(px + bar_w, bar_y - 0.006 * yspan,
-                f"/ {t_sim:.4f} s",
-                color='#7070AA', fontsize=7,
-                fontfamily='monospace', va='top', ha='right',
+        # rótulo "tempo real" abaixo do número
+        ax.text(px + pad * 0.2, py - 0.032 * yspan,
+                "tempo de integração",
+                color='#5555AA', fontsize=6,
+                fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        # rótulo de parada (S=1, interrompido, etc.)
+        # rótulo de parada
         if stop_label:
             ax.text(px + pad * 0.2,
                     bar_y - pad * 0.5 - extra_h * 0.3,
@@ -417,10 +418,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     def _save_frame(step, th, om, stop_label=None):
         nonlocal n_frames
-        # limita o tempo exibido a t_sim — o integrador pode dar alguns passos
-        # extras nos critérios de parada, mas o cronômetro não deve ultrapassar
-        # o tempo total solicitado pelo usuário
-        t_now  = min(step * dt, t_sim)
+        wall_elapsed = time.time() - _wall_start   # tempo real desde o início [s]
         S      = np.abs(np.mean(np.exp(1j * th)))
         om_max = np.max(np.abs(om))
         b_str  = _fmt_B(B_ext)
@@ -432,13 +430,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                              B_ext=B_ext, phi_ext_deg=phi_ext_deg)
         plt.tight_layout()
 
-        # cronômetro com tempo limitado e rótulo de parada se aplicável
-        _draw_clock(ax, t_now, needle_len, stop_label=stop_label)
+        # cronômetro com tempo real de integração
+        _draw_clock(ax, wall_elapsed, needle_len, stop_label=stop_label)
 
         fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
         plt.savefig(fpath, dpi=100, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig)
         n_frames += 1
+
+    _wall_start = time.time()   # marca o início real da integração
 
     if frame_dir is not None:
         _save_frame(0, theta_cur, omega_cur)
