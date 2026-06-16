@@ -45,14 +45,17 @@ PARÂMETROS DE LINHA DE COMANDO
 │                                                            │
 │  --damping   float Amortecimento viscoso do ar [N·m·s/rad] │
 │                    Controla o fator de qualidade Q:        │
-│                    Q = ω₀·I/b  (Q alto → mais oscilações) │
+│                    Q = omega_0·I/b  (Q alto → mais oscilações) │
 │                    Padrão: 5e-8 (Q≈25, bússola realista)   │
 │                    Para B_ext=0.1T suave: use 8e-6 (Q≈4)  │
 │                                                            │
-│  --t_sim     float Tempo total de simulação [s].           │
-│                    Passos calculados automaticamente.       │
-│                    A sim. para antes se S=1.00 ou repouso. │
-│                    Padrão: 2.0 s                           │
+│  --t_sim     float Tempo físico total de simulação [s].     │
+│                    É a soma de todos os passos dt integrados │
+│                    — equivalente ao que um cronômetro real   │
+│                    marcaria observando as agulhas se mover.  │
+│                    O vídeo exibe esse tempo físico.          │
+│                    A sim. para antes se S=1.00 ou repouso.  │
+│                    Padrão: 2.0 s                            │
 │                                                            │
 │  --dt_factor float Fração do período natural T₀ usada      │
 │                    como passo de integração (0.02–0.10).   │
@@ -179,10 +182,10 @@ INERTIA_DEFAULT = 1.0e-7  # kg·m²
 #
 # Amortecimento viscoso (resistência do ar ao giro da agulha).
 # O Q efetivo depende do campo dominante B_eff = max(B_dipolar, B_externo):
-#   Q = ω₀·I/b   onde  ω₀ = sqrt(m·B_eff/I)
+#   Q = omega_0·I/b   onde  omega_0 = sqrt(m·B_eff/I)
 #
-# Com B_ext = 0.1 T:   ω₀ ≈ 316 rad/s  →  b = 8e-6 dá Q ≈ 4  (suave)
-# Com B_ext = 0  :     ω₀ ≈  13 rad/s  →  b = 5e-8 dá Q ≈ 25 (bússola)
+# Com B_ext = 0.1 T:   omega_0 ≈ 316 rad/s  →  b = 8e-6 dá Q ≈ 4  (suave)
+# Com B_ext = 0  :     omega_0 ≈  13 rad/s  →  b = 5e-8 dá Q ≈ 25 (bússola)
 #
 # O padrão 5e-8 é adequado para simular sem campo externo ou campo fraco.
 # Para campos fortes (> 1 mT), use --damping 1e-6 a 1e-5 para movimento suave.
@@ -290,9 +293,115 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment):
 # 4. DINÂMICA INERCIAL (2ª Lei de Newton para rotação — sem atrito no pino)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _plot_hysteresis(log):
+    """
+    Plota a curva de histerese M_proj(B) e salva como PNG e CSV.
+
+    O gráfico mostra a magnetização projetada na direção do campo em função
+    da intensidade do campo aplicado — a clássica curva de histerese M×H.
+
+    Parâmetros
+    ----------
+    log : lista de tuplas (t, B_scalar, M_proj, S)
+          gerada durante a integração com field_mode='hysteresis'
+    """
+    log = np.array(log)
+    t_arr  = log[:, 0]
+    B_arr  = log[:, 1] * 1e3    # converte T → mT para legibilidade
+    M_arr  = log[:, 2]          # magnetização projetada (adimensional, ∈ [−1,1])
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor='#1A1A2E')
+
+    # ── painel esquerdo: M×B (curva de histerese) ─────────────────────────
+    ax1 = axes[0]
+    ax1.set_facecolor('#0D1B2A')
+    ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
+    ax1.axhline(0, color='#4A4A6A', lw=0.6, ls='--')
+    ax1.axvline(0, color='#4A4A6A', lw=0.6, ls='--')
+    ax1.set_xlabel("Campo B  [mT]",    color='#BDC3C7')
+    ax1.set_ylabel("Magnetização  M (projeção)",  color='#BDC3C7')
+    ax1.set_title("Curva de Histerese  M × B", color='#ECF0F1',
+                  fontfamily='monospace')
+    ax1.tick_params(colors='#7F8C8D')
+    ax1.grid(True, color='#2C3E50', alpha=0.5)
+    for sp in ax1.spines.values():
+        sp.set_edgecolor('#2C3E50')
+
+    # ── painel direito: M(t) e B(t) versus tempo ──────────────────────────
+    ax2 = axes[1]
+    ax2.set_facecolor('#0D1B2A')
+    l1, = ax2.plot(t_arr, M_arr, color='#E94560', lw=1.2, label='M (proj.)')
+    ax2b = ax2.twinx()
+    ax2b.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
+              ls='--', label='B (mT)')
+    ax2b.set_ylabel("Campo B  [mT]", color='#FFD700')
+    ax2b.tick_params(colors='#FFD700')
+    ax2.set_xlabel("Tempo físico  t  [s]", color='#BDC3C7')
+    ax2.set_ylabel("Magnetização  M", color='#E94560')
+    ax2.set_title("Evolução temporal", color='#ECF0F1', fontfamily='monospace')
+    ax2.tick_params(colors='#7F8C8D')
+    ax2.grid(True, color='#2C3E50', alpha=0.4)
+    for sp in ax2.spines.values():
+        sp.set_edgecolor('#2C3E50')
+    lines = [l1, plt.Line2D([0],[0], color='#FFD700', ls='--')]
+    ax2.legend(lines, ['M (proj.)', 'B (mT)'], facecolor='#1A1A2E',
+               edgecolor='#2C3E50', labelcolor='#ECF0F1', fontsize=8)
+
+    fig.suptitle("Simulação de Histerese Magnética — Rede de Bússolas",
+                 color='#BDC3C7', fontsize=12, fontfamily='monospace')
+    plt.tight_layout()
+    plt.savefig("hysteresis_loop.png", dpi=130, bbox_inches='tight',
+                facecolor='#1A1A2E')
+    plt.close(fig)
+    print("  Gráfico de histerese salvo: hysteresis_loop.png")
+
+
+def _plot_sine(log, freq):
+    """
+    Plota M(t) e B(t) para o modo de campo senoidal e salva como PNG.
+
+    Parâmetros
+    ----------
+    log  : lista de tuplas (t, B_scalar, M_proj, S)
+    freq : frequência do campo senoidal [Hz]
+    """
+    log   = np.array(log)
+    t_arr = log[:, 0]
+    B_arr = log[:, 1] * 1e3    # T → mT
+    M_arr = log[:, 2]
+
+    fig, ax = plt.subplots(figsize=(10, 4), facecolor='#1A1A2E')
+    ax.set_facecolor('#0D1B2A')
+    ax.plot(t_arr, M_arr, color='#E94560', lw=1.2, label='M (proj.)')
+    ax2 = ax.twinx()
+    ax2.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
+             ls='--', label=f'B (mT)  f={freq:.2f} Hz')
+    ax.set_xlabel("Tempo físico  t  [s]", color='#BDC3C7')
+    ax.set_ylabel("Magnetização  M", color='#E94560')
+    ax2.set_ylabel("Campo B  [mT]", color='#FFD700')
+    ax.set_title(f"Campo Senoidal — f = {freq:.3f} Hz",
+                 color='#ECF0F1', fontfamily='monospace')
+    ax.tick_params(colors='#7F8C8D')
+    ax2.tick_params(colors='#FFD700')
+    ax.grid(True, color='#2C3E50', alpha=0.4)
+    for sp in ax.spines.values():
+        sp.set_edgecolor('#2C3E50')
+    lines = [plt.Line2D([0],[0], color='#E94560'),
+             plt.Line2D([0],[0], color='#FFD700', ls='--')]
+    ax.legend(lines, ['M (proj.)', f'B (mT)  f={freq:.2f}Hz'],
+              facecolor='#1A1A2E', edgecolor='#2C3E50',
+              labelcolor='#ECF0F1', fontsize=8)
+    plt.tight_layout()
+    plt.savefig("sine_field.png", dpi=130, bbox_inches='tight',
+                facecolor='#1A1A2E')
+    plt.close(fig)
+    print("  Gráfico senoidal salvo: sine_field.png")
+
+
 def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           inertia=INERTIA_DEFAULT, damping=DAMPING_DEFAULT,
           cutoff=3.5, ext_field=(0.0, 0.0), moment=MOMENT_DEFAULT,
+          field_mode='static', field_freq=1.0,
           callback=None,
           frame_dir=None, frame_every=10,
           needle_len=0.042, needle_width=0.010, r_halo=None,
@@ -315,44 +424,57 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     Atrito no pino = ZERO.
 
-    Tempo de simulação
-    ------------------
-    `t_sim` define o tempo físico total [s]. O número de passos é calculado
-    internamente: n_steps = ceil(t_sim / dt). A simulação pode terminar
-    antes se convergir (ω_max < 0.1% de ω₀ por 50 passos consecutivos).
+    Modos de campo externo (field_mode)
+    ------------------------------------
+    'static'
+        Campo constante (Bext_x, Bext_y) em todo o intervalo.
 
-    Cronômetro nos frames
-    ---------------------
-    Cada PNG salvo exibe no canto superior esquerdo:
-      - Tempo atual  t = X.XXXX s
-      - Barra de progresso proporcional a t / t_sim
-      - Tempo total  / X.XXX s
+    'hysteresis'
+        Campo varia linearmente no tempo ao longo de 3 rampas:
+          0 → t_sim/3  : B sobe de 0 até +B_max
+          t_sim/3 → 2t_sim/3 : B desce de +B_max até −B_max
+          2t_sim/3 → t_sim   : B sobe de −B_max até +B_max
+        A direção é sempre a de phi_ext. A amplitude B_max é |ext_field|.
+        Desabilita a parada por S=1.00 (a magnetização oscila).
+
+    'sine'
+        Campo senoidal: B(t) = B_max · sin(2π·f·t)
+        Direção: phi_ext. Amplitude: B_max = |ext_field|. Freq: field_freq [Hz].
+        Desabilita a parada por S=1.00.
 
     Parâmetros
     ----------
     thetas      : array N×M de ângulos iniciais  [rad]
     xs, ys      : posições fixas das agulhas  [m]
-    t_sim       : tempo total de simulação  [s]
+    t_sim       : tempo físico total da simulação  [s]
+                  (= soma dos passos dt, não tempo de CPU)
     dt_factor   : fração do período natural T₀ usada como passo de tempo
     inertia     : momento de inércia de cada agulha  [kg·m²]
     damping     : coeficiente de amortecimento viscoso b  [N·m·s/rad]
     cutoff      : raio máximo de interação dipolar  [m]
-    ext_field   : tupla (Bext_x, Bext_y)  [T]
+    ext_field   : tupla (Bext_x, Bext_y) — campo base [T]
+                  Em 'static': campo constante.
+                  Em 'hysteresis'/'sine': define direção e amplitude máxima.
     moment      : momento magnético de cada agulha  [A·m²]
+    field_mode  : 'static' | 'hysteresis' | 'sine'
+    field_freq  : frequência do campo senoidal [Hz] (só para field_mode='sine')
     callback    : função opcional callback(step, thetas, omegas)
     frame_dir   : diretório onde salvar PNGs de frames (ou None)
     frame_every : intervalo em passos entre frames salvos
     needle_len  : tamanho das agulhas para renderização  [m]
     needle_width: largura das agulhas  [m]
+    r_halo      : raio dos halos de parâmetro de ordem  [m]
     B_ext       : intensidade do campo externo para rótulo nos frames  [T]
     phi_ext_deg : direção do campo externo  [graus]
 
     Retorna
     -------
-    theta_cur : array N×M — ângulos no estado final  [rad]
-    omega_cur : array N×M — velocidades angulares  [rad/s]
-    hist      : lista de tuplas (thetas, omegas) a cada 20 passos
-    n_frames  : número de frames PNG salvos
+    theta_cur   : array N×M — ângulos no estado final  [rad]
+    omega_cur   : array N×M — velocidades angulares  [rad/s]
+    hist        : lista de tuplas (thetas, omegas) a cada 20 passos
+    n_frames    : número de frames PNG salvos
+    dt          : passo de tempo usado  [s]
+    stop_reason : string descrevendo como a simulação terminou
     """
     import os
 
@@ -389,7 +511,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     if B_ext_mag > 0:
         print(f"    B_ext  = {B_ext_mag*1e3:.4f} mT  (campo externo)")
     print(f"    B_eff  = {B_eff*1e3:.4f} mT  (campo dominante → define dt)")
-    print(f"    ω₀     = {omega0:.2f} rad/s   T₀ = {T0:.5f} s")
+    print(f"    omega_0     = {omega0:.2f} rad/s   T₀ = {T0:.5f} s")
     print(f"    dt     = {dt:.6f} s  ({dt_factor:.0%} de T₀)")
     print(f"    t_sim  = {t_sim:.3f} s  →  {n_steps} passos")
     print(f"    Q      = {Q:.1f}  "
@@ -413,15 +535,20 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if B >= 1e-4: return f"B={B*1e3:.3f} mT"
         return            f"B={B*1e6:.1f} µT"
 
-    def _draw_clock(ax, wall_elapsed, needle_len, stop_label=None):
+    def _draw_clock(ax, t_phys, needle_len, stop_label=None):
         """
-        Desenha um cronômetro no canto superior esquerdo do eixo mostrando
-        o tempo REAL de integração (tempo de relógio desde o início do loop).
+        Desenha um cronômetro no canto superior esquerdo mostrando o
+        TEMPO FÍSICO DO SISTEMA — a soma dos passos de integração dt,
+        equivalente ao tempo que um cronômetro real marcaria observando
+        as agulhas se mover.
+
+        t_phys = step * dt   [s]
 
         Elementos:
-          - Texto grande: tempo decorrido em mm:ss.ss ou ss.ss s
-          - Barra de progresso baseada em passos concluídos / n_steps
-          - Rótulo de parada quando a simulação termina antes do tempo
+          - Texto grande: t = X.XXXX s  (tempo físico atual)
+          - Subtexto: / X.XXXX s        (tempo físico total t_sim)
+          - Barra de progresso: t_phys / t_sim
+          - Rótulo de parada quando a simulação termina antes de t_sim
           - Caixa semitransparente de fundo
         """
         xlim  = ax.get_xlim()
@@ -435,7 +562,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         bar_w = 0.30 * xspan
         bar_h = 0.018 * yspan
-        bar_y = py - 0.085 * yspan
+        bar_y = py - 0.095 * yspan
 
         extra_h = 0.030 * yspan if stop_label else 0.0
 
@@ -443,14 +570,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         pad = needle_len * 0.25
         ax.add_patch(plt.Rectangle(
             (px - pad * 0.3, bar_y - pad * 0.6 - extra_h),
-            bar_w + pad, 0.125 * yspan + pad + extra_h,
+            bar_w + pad, 0.140 * yspan + pad + extra_h,
             facecolor='#080818', edgecolor='#3A3A6A',
-            linewidth=0.8, alpha=0.80, zorder=19,
+            linewidth=0.8, alpha=0.82, zorder=19,
             transform=ax.transData))
 
-        # ── barra de progresso baseada em passos (não em tempo de relógio) ─
-        # usa n_frames como proxy do progresso — avança a cada frame salvo
-        frac = min(n_frames / max(n_steps // frame_every, 1), 1.0)
+        # ── barra de progresso: t_phys / t_sim ────────────────────────────
+        frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
 
         # trilha cinza
         ax.add_patch(plt.Rectangle(
@@ -473,21 +599,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             facecolor='none', edgecolor='#5A5A8A',
             linewidth=0.7, zorder=22, transform=ax.transData))
 
-        # marcador branco
+        # marcador branco na posição atual
         if 0 < frac < 1.0:
             mx = px + bar_w * frac
             ax.plot([mx, mx], [bar_y, bar_y + bar_h],
                     color='white', lw=1.2, zorder=24,
                     transform=ax.transData)
 
-        # ── texto do cronômetro ────────────────────────────────────────────
-        # formata: mm:ss.ss se >= 60 s, senão ss.ssss s
-        if wall_elapsed >= 60.0:
-            mins = int(wall_elapsed // 60)
-            secs = wall_elapsed - mins * 60
-            time_str = f"{mins:02d}:{secs:05.2f}"
+        # ── texto: tempo físico atual ──────────────────────────────────────
+        # formata em mm:ss.ss se >= 60 s, senão em s com 4 casas decimais
+        if t_phys >= 60.0:
+            mins = int(t_phys // 60)
+            secs = t_phys - mins * 60
+            time_str = f"t = {mins:02d}:{secs:05.2f}"
         else:
-            time_str = f"{wall_elapsed:07.4f} s"
+            time_str = f"t = {t_phys:.4f} s"
 
         ax.text(px + pad * 0.2, py,
                 time_str,
@@ -495,9 +621,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        # rótulo "tempo real" abaixo do número
-        ax.text(px + pad * 0.2, py - 0.032 * yspan,
-                "tempo de integração",
+        # subtexto: tempo total solicitado
+        ax.text(px + pad * 0.2, py - 0.038 * yspan,
+                f"/ {t_sim:.4f} s  (tempo físico)",
                 color='#5555AA', fontsize=6,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
@@ -511,30 +637,40 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     fontfamily='monospace', va='top', ha='left',
                     zorder=25, transform=ax.transData)
 
-    def _save_frame(step, th, om, stop_label=None):
+    def _save_frame(step, th, om, stop_label=None,
+                    B_ext_inst=None, phi_ext_inst=None):
+        """
+        Renderiza e salva um frame PNG.
+
+        B_ext_inst / phi_ext_inst: campo externo INSTANTÂNEO neste passo.
+        Nos modos dinâmicos (hysteresis, sine) o campo muda a cada frame;
+        esses parâmetros sobrescrevem B_ext/phi_ext_deg para a visualização.
+        """
         nonlocal n_frames
-        wall_elapsed = time.time() - _wall_start   # tempo real desde o início [s]
+        t_phys = step * dt
         S      = np.abs(np.mean(np.exp(1j * th)))
         om_max = np.max(np.abs(om))
-        b_str  = _fmt_B(B_ext)
-        title  = (f"S = {S:.4f}   ω_max = {om_max:.2f} rad/s"
-                  + (f"   {b_str} @ {phi_ext_deg:.0f}°" if b_str else ""))
+
+        # campo a exibir: instantâneo (modos dinâmicos) ou fixo (estático)
+        b_show   = B_ext_inst   if B_ext_inst   is not None else B_ext
+        phi_show = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
+
+        b_str = _fmt_B(b_show) if b_show and b_show > 0 else ""
+        title = (f"S = {S:.4f}   ω_max = {om_max:.2f} rad/s"
+                 + (f"   {b_str} @ {phi_show:.0f}°" if b_str else ""))
 
         fig, ax = plot_state(th, xs, ys, title=title,
                              needle_len=needle_len, needle_width=needle_width,
                              r_halo=r_halo,
-                             B_ext=B_ext, phi_ext_deg=phi_ext_deg)
+                             B_ext=b_show if b_show else 0.0,
+                             phi_ext_deg=phi_show if phi_show else 0.0)
         plt.tight_layout()
-
-        # cronômetro com tempo real de integração
-        _draw_clock(ax, wall_elapsed, needle_len, stop_label=stop_label)
+        _draw_clock(ax, t_phys, needle_len, stop_label=stop_label)
 
         fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
         plt.savefig(fpath, dpi=100, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig)
         n_frames += 1
-
-    _wall_start = time.time()   # marca o início real da integração
 
     if frame_dir is not None:
         _save_frame(0, theta_cur, omega_cur)
@@ -576,34 +712,103 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _kb_thread = threading.Thread(target=_keyboard_listener, daemon=True)
     _kb_thread.start()
 
+    # ── campo externo base: direção e amplitude máxima ────────────────────
+    Bext_x0, Bext_y0 = ext_field        # campo base (direção + amplitude)
+    B_max = np.sqrt(Bext_x0**2 + Bext_y0**2)   # amplitude máxima [T]
+    phi_rad = np.arctan2(Bext_y0, Bext_x0)      # direção [rad]
+    cos_phi = np.cos(phi_rad)
+    sin_phi = np.sin(phi_rad)
+
+    def field_at(t):
+        """
+        Retorna (Bx, By) do campo externo no instante físico t [s].
+
+        Modos
+        -----
+        'static'
+            Campo constante = (Bext_x0, Bext_y0).
+
+        'hysteresis'
+            Três rampas lineares cobrindo [0, t_sim]:
+              segmento 1: t ∈ [0,        t_sim/3]  →  B varia de  0 a +B_max
+              segmento 2: t ∈ [t_sim/3,  2t_sim/3] →  B varia de +B_max a −B_max
+              segmento 3: t ∈ [2t_sim/3, t_sim]    →  B varia de −B_max a +B_max
+            A amplitude escalar B(t) é multiplicada pelo vetor unitário
+            de direção phi_ext, mantendo a direção constante.
+
+        'sine'
+            B(t) = B_max · sin(2π · field_freq · t)
+            Direção: phi_ext. Frequência: field_freq [Hz].
+        """
+        if field_mode == 'static':
+            return Bext_x0, Bext_y0
+
+        elif field_mode == 'hysteresis':
+            T = t_sim if t_sim > 0 else 1.0
+            t3 = T / 3.0
+            if t <= t3:
+                # segmento 1: rampa 0 → +B_max
+                B_scalar = B_max * (t / t3)
+            elif t <= 2.0 * t3:
+                # segmento 2: rampa +B_max → −B_max
+                B_scalar = B_max * (1.0 - 2.0 * (t - t3) / t3)
+            else:
+                # segmento 3: rampa −B_max → +B_max
+                B_scalar = B_max * (-1.0 + (t - 2.0 * t3) / t3)
+            return B_scalar * cos_phi, B_scalar * sin_phi
+
+        elif field_mode == 'sine':
+            B_scalar = B_max * np.sin(2.0 * np.pi * field_freq * t)
+            return B_scalar * cos_phi, B_scalar * sin_phi
+
+        else:
+            return Bext_x0, Bext_y0
+
     # imprime instrução de uso
     print("  [Ctrl+I para interromper e salvar o vídeo agora]")
 
-    # ── função auxiliar: calcula torques SI para um estado θ ───────────────
-    def _torques(th):
-        """Retorna array N×M de torques [N·m] para o estado angular th."""
+    # ── função auxiliar: calcula torques SI para estado θ e campo B(t) ────
+    def _torques(th, bx_ext, by_ext):
+        """
+        Retorna array N×M de torques [N·m] para o estado angular th.
+
+        Parâmetros
+        ----------
+        th     : array N×M de ângulos [rad]
+        bx_ext : componente x do campo externo instantâneo [T]
+        by_ext : componente y do campo externo instantâneo [T]
+        """
         tau = np.zeros((N, M))
         for i in range(N):
             for j in range(M):
                 Bx, By = total_field_on(i, j, th, xs, ys, cutoff, moment)
-                Bx += Bext_x
-                By += Bext_y
+                Bx += bx_ext
+                By += by_ext
                 mx = moment * np.cos(th[i, j])
                 my = moment * np.sin(th[i, j])
                 tau[i, j] = mx * By - my * Bx
         return tau
 
+    # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
+    # Gravado a cada passo; exportado para CSV ao final se field_mode=hysteresis
+    hysteresis_log = [] if field_mode == 'hysteresis' else None
+    sine_log       = [] if field_mode == 'sine'       else None
+
     # ── loop de integração Velocity-Verlet ────────────────────────────────
-    tau_cur          = _torques(theta_cur)
-    _converged_count = 0   # passos consecutivos com ω_max < tolerância
-    _S1_count        = 0   # passos consecutivos com S ≥ 0.9999
-    _stop_reason     = "tempo total atingido"
+    bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
+    tau_cur           = _torques(theta_cur, bx_cur, by_cur)
+    _converged_count  = 0
+    # S=1 só faz sentido como critério de parada em campo estático
+    _S1_count         = 0
+    _allow_S1_stop    = (field_mode == 'static')
+    _stop_reason      = "tempo total atingido"
 
     for step in range(1, n_steps + 1):
 
+        t_now = step * dt          # tempo físico atual [s]
+
         # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
-            t_now = step * dt
             print(f"\n  Interrompido pelo usuário (Ctrl+I) em t={t_now:.4f}s"
                   f"  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
@@ -612,15 +817,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                             stop_label="■ interrompido (Ctrl+I)")
             break
 
-        # passo 1: atualiza θ
+        # ── campo externo no instante t (pode variar com o tempo) ──────────
+        bx_new, by_new = field_at(t_now)
+
+        # ── passo 1: atualiza θ usando θ(t), ω(t), τ(t) ───────────────────
         accel_cur  = (tau_cur - damping * omega_cur) / inertia
         theta_new  = theta_cur + omega_cur * dt + 0.5 * accel_cur * dt**2
         theta_new  = (theta_new + np.pi) % (2.0 * np.pi) - np.pi
 
-        # passo 2: calcula τ no novo estado
-        tau_new = _torques(theta_new)
+        # ── passo 2: calcula τ(t+dt) com o novo θ e o novo campo ──────────
+        tau_new = _torques(theta_new, bx_new, by_new)
 
-        # passo 3: atualiza ω (Velocity-Verlet implícito com amortecimento)
+        # ── passo 3: atualiza ω (Velocity-Verlet implícito) ────────────────
         b_half    = damping * dt / (2.0 * inertia)
         omega_new = (omega_cur * (1.0 - b_half)
                      + dt * (tau_cur + tau_new) / (2.0 * inertia)) \
@@ -629,6 +837,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         theta_cur = theta_new
         omega_cur = omega_new
         tau_cur   = tau_new
+        bx_cur    = bx_new
+        by_cur    = by_new
 
         if callback:
             callback(step, theta_cur.copy(), omega_cur.copy())
@@ -636,35 +846,52 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if step % 20 == 0:
             hist.append((theta_cur.copy(), omega_cur.copy()))
 
-        # ── calcula S e ω_max neste passo ─────────────────────────────────
+        # ── calcula S e ω_max ──────────────────────────────────────────────
         S_now     = np.abs(np.mean(np.exp(1j * theta_cur)))
         omega_max = np.max(np.abs(omega_cur))
-        t_now     = step * dt
 
-        # salva frame periódico
+        # ── registra log de histerese / senoidal ──────────────────────────
+        # M_proj: componente da magnetização média na direção do campo
+        if hysteresis_log is not None or sine_log is not None:
+            # magnetização média normalizada (projeção na direção do campo)
+            mx_mean = float(np.mean(np.cos(theta_cur)))
+            my_mean = float(np.mean(np.sin(theta_cur)))
+            M_proj  = mx_mean * cos_phi + my_mean * sin_phi
+            B_scalar = bx_cur * cos_phi + by_cur * sin_phi
+            entry = (t_now, B_scalar, M_proj, S_now)
+            if hysteresis_log is not None:
+                hysteresis_log.append(entry)
+            if sine_log is not None:
+                sine_log.append(entry)
+
+        # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
-            _save_frame(step, theta_cur, omega_cur)
+            # passa o campo instantâneo para o frame (seta muda de tamanho/direção)
+            B_inst = np.sqrt(bx_cur**2 + by_cur**2)
+            phi_inst = np.degrees(np.arctan2(by_cur, bx_cur))
+            _save_frame(step, theta_cur, omega_cur,
+                        B_ext_inst=B_inst, phi_ext_inst=phi_inst)
             if step % (frame_every * 10) == 0:
                 print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  "
+                      f"B={B_inst*1e3:.3f}mT  "
                       f"S={S_now:.4f}  ω_max={omega_max:.2f} rad/s")
 
-        # ── condição 1: S = 1.00 (alinhamento total) ──────────────────────
-        # A condição é satisfeita quando S ≥ 0.9999 por 30 passos
-        # consecutivos, garantindo que não é flutuação momentânea.
-        if S_now >= 0.9999:
-            _S1_count += 1
-        else:
-            _S1_count = 0
+        # ── condição 1: S = 1.00 (só em campo estático) ──────────────────
+        if _allow_S1_stop:
+            if S_now >= 0.9999:
+                _S1_count += 1
+            else:
+                _S1_count = 0
 
-        if _S1_count >= 30:
-            print(f"\n  S = 1.00 atingido em t={t_now:.4f}s"
-                  f"  (passo {step}/{n_steps})")
-            _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
-            _stop_flag.set()
-            if frame_dir is not None:
-                _save_frame(step, theta_cur, omega_cur,
-                            stop_label="★ S = 1.00  alinhamento total")
-            break
+            if _S1_count >= 30:
+                print(f"\n  S = 1.00 atingido em t={t_now:.4f}s"
+                      f"  (passo {step}/{n_steps})")
+                _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
+                _stop_flag.set()
+                if frame_dir is not None:
+                    _save_frame(step, theta_cur, omega_cur,
+                                stop_label="★ S = 1.00  alinhamento total")
+                break
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
         if omega_max < omega0 * 1e-3:
@@ -683,6 +910,28 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             break
 
     _stop_flag.set()   # garante que a thread de teclado encerra
+
+    # ── exporta dados de histerese / senoidal para CSV ─────────────────────
+    if hysteresis_log:
+        import csv
+        csv_path = "hysteresis_loop.csv"
+        with open(csv_path, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
+            w.writerows(hysteresis_log)
+        print(f"  Dados de histerese salvos: {csv_path}")
+        _plot_hysteresis(hysteresis_log)
+
+    if sine_log:
+        import csv
+        csv_path = "sine_field.csv"
+        with open(csv_path, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
+            w.writerows(sine_log)
+        print(f"  Dados de campo senoidal salvos: {csv_path}")
+        _plot_sine(sine_log, field_freq)
+
     return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason
 
 def next_available_path(path):
@@ -1516,9 +1765,22 @@ def main():
                            f'Padrao: {DAMPING_DEFAULT:.2e} N·m·s/rad '
                            '(sub-amortecido, Q >> 1)')
     grp2.add_argument('--t_sim', type=float, default=2.0,
-                      help='Tempo TOTAL de simulacao [s]. O numero de passos '
-                           'e calculado automaticamente a partir de dt. '
-                           'A simulacao pode terminar antes se convergir.')
+                      help='Tempo fisico total da simulacao [s] '
+                           '(= soma dos passos dt integrados). '
+                           'Em hysteresis: cobre 1 ciclo completo (0->Hmax->-Hmax->Hmax). '
+                           'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
+                           'Padrao: 2.0 s')
+    grp2.add_argument('--field_mode',
+                      choices=['static', 'hysteresis', 'sine'],
+                      default='static',
+                      help='Modo do campo externo: '
+                           'static=constante (padrao), '
+                           'hysteresis=rampa 0->Hmax->-Hmax->Hmax, '
+                           'sine=senoidal Hmax*sin(2pi*f*t). '
+                           'Amplitude=--B_ext, direcao=--phi_ext.')
+    grp2.add_argument('--field_freq', type=float, default=1.0,
+                      help='Frequencia do campo senoidal [Hz]. '
+                           'Apenas para --field_mode sine. Padrao: 1.0 Hz')
     grp2.add_argument('--dt_factor', type=float, default=0.05,
                       help='Fracao do periodo natural T0 usada como passo dt '
                            '(0.02-0.10; menor = mais preciso, mais lento)')
@@ -1597,8 +1859,14 @@ def main():
     print(f"  Amortecimento: {args.damping:.3e} N·m·s/rad  (ar)")
     print(f"  Campo externo: {fmt_field(B_ext_mag)}  φ={phi_ext_deg:.1f}°"
           f"  → Bx={fmt_field(Bext_x)}  By={fmt_field(Bext_y)}")
+    field_mode_str = args.field_mode
+    if args.field_mode == 'sine':
+        field_mode_str += f"  f={args.field_freq:.3f} Hz"
+    elif args.field_mode == 'hysteresis':
+        field_mode_str += "  (0→Hmax→−Hmax→Hmax)"
     print(f"  Simulação    : t_sim={args.t_sim:.3f} s  dt_factor={args.dt_factor}"
           f"  ruído={args.noise:.2f} rad  seed={args.seed}")
+    print(f"  Modo campo   : {field_mode_str}")
     print(f"{'═'*62}\n")
 
     # ── gera grade de posições e ângulos iniciais ─────────────────────────
@@ -1672,6 +1940,8 @@ def main():
         cutoff=cutoff,
         ext_field=(Bext_x, Bext_y),
         moment=args.moment,
+        field_mode=args.field_mode,
+        field_freq=args.field_freq,
         frame_dir=frame_dir,
         frame_every=args.frame_every,
         needle_len=needle_len,
