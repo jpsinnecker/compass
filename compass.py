@@ -5,54 +5,149 @@ compass_sim.py — Simulação de rede de agulhas de bússola
 
 Modela uma grade 2D de dipolos magnéticos clássicos (agulhas de
 bússola) que interagem pelo campo que cada uma gera sobre as vizinhas.
-A simulação busca o estado de equilíbrio por meio de uma dinâmica
-amortecida inspirada na equação de Landau-Lifshitz-Gilbert (LLG).
+A dinâmica é inercial (2ª Lei de Newton rotacional) sem atrito no pino,
+com amortecimento viscoso do ar. Integrador Velocity-Verlet.
+Todas as grandezas físicas em unidades SI.
 
-Geometrias disponíveis
-----------------------
-  square      : grade retangular com espaçamentos independentes dx e dy.
-  triangular  : grade triangular com offset de dx/2 em linhas ímpares.
-  honeycomb   : rede tipo colmeia (grafeno), construída por linhas de
-                átomos com espaçamento vertical alternado a/2 e a,
-                onde a = dx é o comprimento do lado do hexágono.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARÂMETROS DE LINHA DE COMANDO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Unidades do Sistema Internacional (SI)
----------------------------------------
-  Todas as grandezas físicas estão em SI:
+┌─ GEOMETRIA DA REDE ────────────────────────────────────────┐
+│                                                            │
+│  --geometry  square | triangular | honeycomb               │
+│              Tipo de rede. Padrão: square                  │
+│              · square     : grade retangular               │
+│              · triangular : grade triangular equilateral   │
+│              · honeycomb  : colmeia (buracos hexagonais)   │
+│                                                            │
+│  --N         int   Número de LINHAS de agulhas. Padrão: 8  │
+│  --M         int   Número de COLUNAS de agulhas. Padrão: 8 │
+│                                                            │
+│  --R         float Raio do círculo de cada agulha [m].     │
+│                    Distância entre vizinhos = 2R.          │
+│                    Padrão: 0.025 m (2.5 cm)                │
+│                                                            │
+│  --needle_frac float Comprimento da agulha como fração     │
+│                    do diâmetro 2R (0.0–1.0).               │
+│                    Padrão: 0.80  → agulha = 80% de 2R     │
+└────────────────────────────────────────────────────────────┘
 
-    Grandeza            Parâmetro       Unidade
-    ─────────────────── ─────────────── ───────
-    Momento magnético   --moment        A·m²
-    Espaçamento horiz.  --dx            m
-    Espaçamento vert.   --dy            m
-    Campo externo       --B_ext         T  (Tesla)
-    Direção do campo    --phi_ext       graus (0 = +x, 90 = +y)
+┌─ FÍSICA E SIMULAÇÃO ───────────────────────────────────────┐
+│                                                            │
+│  --moment    float Momento magnético de cada agulha [A·m²] │
+│                    Padrão: 0.1  (bússola de mesa, ~5 cm)   │
+│                    Ref: bolso ≈ 0.01 | náutica ≈ 1.0       │
+│                                                            │
+│  --inertia   float Momento de inércia [kg·m²].             │
+│                    Barra fina: I = (1/12)·massa·L²         │
+│                    Padrão: 1e-7  (0.5 g × 5 cm)           │
+│                                                            │
+│  --damping   float Amortecimento viscoso do ar [N·m·s/rad] │
+│                    Controla o fator de qualidade Q:        │
+│                    Q = ω₀·I/b  (Q alto → mais oscilações) │
+│                    Padrão: 5e-8 (Q≈25, bússola realista)   │
+│                    Para B_ext=0.1T suave: use 8e-6 (Q≈4)  │
+│                                                            │
+│  --t_sim     float Tempo total de simulação [s].           │
+│                    Passos calculados automaticamente.       │
+│                    A sim. para antes se S=1.00 ou repouso. │
+│                    Padrão: 2.0 s                           │
+│                                                            │
+│  --dt_factor float Fração do período natural T₀ usada      │
+│                    como passo de integração (0.02–0.10).   │
+│                    Menor = mais preciso, mais lento.        │
+│                    Padrão: 0.05                            │
+│                                                            │
+│  --noise     float Amplitude do ruído inicial [rad].       │
+│                    0 = todas apontam para +x               │
+│                    π ≈ 3.14 = orientação totalmente aleat. │
+│                    Padrão: 1.5                             │
+│                                                            │
+│  --seed      int   Semente do gerador aleatório.           │
+│                    Garante reprodutibilidade dos resultados.│
+│                    Padrão: 42                              │
+└────────────────────────────────────────────────────────────┘
 
-  Valores típicos para agulhas de bússola de mesa (~5 cm de comprimento):
-    moment ≈ 0.1  A·m²    (agulha pequena)  a  1.0  A·m² (agulha grande)
-    dx, dy ≈ 0.03–0.10 m  (3 a 10 cm entre centros)
-    B_ext  ≈ 50e-6 T      (campo terrestre ≈ 50 µT)
-           ≈ 1e-3  T      (campo de imã de geladeira ≈ 1 mT a 5 cm)
+┌─ CAMPO EXTERNO UNIFORME (unidades SI) ─────────────────────┐
+│  Duas formas de especificar — não usar as duas juntas.     │
+│                                                            │
+│  Forma A — intensidade + ângulo (recomendada):             │
+│  --B_ext     float Intensidade do campo [T].               │
+│                    0.0      = sem campo (padrão)           │
+│                    50e-6    = campo terrestre (≈50 µT)     │
+│                    1e-3     = ímã de geladeira a 5 cm      │
+│                    0.1      = campo forte (alinha tudo)    │
+│                                                            │
+│  --phi_ext   float Direção do campo [graus].               │
+│                    0   = direita (+x)  ← padrão            │
+│                    90  = cima (+y)                         │
+│                    180 = esquerda (−x)                     │
+│                    270 = baixo (−y)                        │
+│                    Sentido anti-horário. Padrão: 0.0       │
+│                                                            │
+│  Forma B — componentes cartesianas (sobrescreve A):        │
+│  --ext_Bx    float Componente x do campo [T]               │
+│  --ext_By    float Componente y do campo [T]               │
+└────────────────────────────────────────────────────────────┘
 
-  O campo dipolar gerado por uma agulha de moment=0.1 A·m² sobre sua
-  vizinha a dx=0.05 m (ao longo do eixo) é:
-    B = (μ₀/4π) · 2m/r³ = 1e-7 · 2·0.1 / 0.05³ ≈ 1.6 mT
+┌─ SAÍDA ─────────────────────────────────────────────────────┐
+│  Arquivos PNG sempre gerados no diretório atual:           │
+│    compass_initial.png      estado inicial                  │
+│    compass_equilibrium.png  estado final                    │
+│    compass_comparison.png   comparação lado a lado          │
+│    compass_order_param.png  parâmetro de ordem S(t)         │
+│                                                            │
+│  --video     str   Caminho do vídeo MP4 a gerar.           │
+│                    Requer ffmpeg instalado.                 │
+│                    Se o arquivo já existir, salva como     │
+│                    nome0001.mp4, nome0002.mp4, etc.        │
+│                    Ex: --video simulacao.mp4               │
+│                                                            │
+│  --frame_every int Salva um frame a cada N passos.         │
+│                    Menor = vídeo mais suave, mais lento.   │
+│                    Padrão: 5                               │
+│                                                            │
+│  --fps       int   Quadros por segundo do vídeo MP4.       │
+│                    Padrão: 24                              │
+│                                                            │
+│  --keep_frames     Se presente, mantém a pasta de PNGs     │
+│                    intermediários após gerar o MP4.        │
+└────────────────────────────────────────────────────────────┘
 
-Campo externo
--------------
-  Especificado por intensidade B_ext (Tesla) e ângulo phi_ext (graus,
-  medido a partir do eixo +x no sentido anti-horário).
-  Uma seta dourada é desenhada em cada sítio da rede nas figuras.
+┌─ CONTROLES DURANTE A SIMULAÇÃO ────────────────────────────┐
+│  A simulação para automaticamente quando:                  │
+│    · S = 1.00  (todas as agulhas alinhadas)                │
+│    · Rede em repouso (ω_max → 0)                           │
+│    · Tempo t_sim atingido                                  │
+│    · Ctrl+I (Tab) pressionado no terminal                  │
+│      → interrompe e salva o vídeo imediatamente            │
+└────────────────────────────────────────────────────────────┘
 
-Uso rápido
-----------
-  python compass_sim.py                                    # padrões SI
-  python compass_sim.py --geometry honeycomb --N 12 --M 8
-  python compass_sim.py --B_ext 50e-6 --phi_ext 0         # campo terrestre
-  python compass_sim.py --B_ext 1e-3  --phi_ext 45        # 1 mT a 45°
-  python compass_sim.py --video relaxacao.mp4             # gera vídeo MP4
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXEMPLOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  # Padrões — rede quadrada 8×8 sem campo
+  python compass_sim.py
+
+  # Honeycomb com campo terrestre
+  python compass_sim.py --geometry honeycomb --N 10 --M 10 --B_ext 50e-6
+
+  # Triangular com campo de 0.1 T a 45°, movimento suave
+  python compass_sim.py --geometry triangular --N 10 --M 10 \\
+      --B_ext 0.1 --phi_ext 45 --damping 8e-6 --t_sim 2.0
+
+  # Vídeo com agulhas maiores e muitas oscilações
+  python compass_sim.py --R 0.03 --needle_frac 0.85 --damping 1e-9 \\
+      --t_sim 5.0 --frame_every 2 --fps 30 --video sim.mp4
+
+  # Campo via componentes cartesianas
+  python compass_sim.py --ext_Bx 0.05 --ext_By -0.05
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Dependências: numpy, matplotlib, ffmpeg (para vídeo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 import numpy as np
