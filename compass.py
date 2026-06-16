@@ -726,25 +726,30 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         Modos
         -----
         'static'
-            Campo constante = (Bext_x0, Bext_y0).
+            Campo constante = (Bext_x0, Bext_y0) durante toda a simulação.
 
         'hysteresis'
             Três rampas lineares cobrindo [0, t_sim]:
-              segmento 1: t ∈ [0,        t_sim/3]  →  B varia de  0 a +B_max
-              segmento 2: t ∈ [t_sim/3,  2t_sim/3] →  B varia de +B_max a −B_max
-              segmento 3: t ∈ [2t_sim/3, t_sim]    →  B varia de −B_max a +B_max
-            A amplitude escalar B(t) é multiplicada pelo vetor unitário
-            de direção phi_ext, mantendo a direção constante.
+              segmento 1: t ∈ [0,        t_sim/3]  →  B: 0 → +B_max
+              segmento 2: t ∈ [t_sim/3,  2*t_sim/3] →  B: +B_max → −B_max
+              segmento 3: t ∈ [2*t_sim/3, t_sim]   →  B: −B_max → +B_max
+            Direção: phi_ext (constante). Amplitude máxima: B_max = |ext_field|.
 
         'sine'
             B(t) = B_max · sin(2π · field_freq · t)
             Direção: phi_ext. Frequência: field_freq [Hz].
+
+        'saturate'
+            Fase 1 (campo aplicado): B = B_max (constante) até S ≥ 0.99.
+            Fase 2 (relaxação): B = 0 após S ≥ 0.99, sistema relaxa livre.
+            A transição entre fases é controlada pela flag _saturate_relaxing,
+            atualizada no loop principal. field_at() consulta essa flag.
         """
         if field_mode == 'static':
             return Bext_x0, Bext_y0
 
         elif field_mode == 'hysteresis':
-            T = t_sim if t_sim > 0 else 1.0
+            T  = t_sim if t_sim > 0 else 1.0
             t3 = T / 3.0
             if t <= t3:
                 # segmento 1: rampa 0 → +B_max
@@ -761,8 +766,19 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             B_scalar = B_max * np.sin(2.0 * np.pi * field_freq * t)
             return B_scalar * cos_phi, B_scalar * sin_phi
 
+        elif field_mode == 'saturate':
+            # fase 1: campo ligado; fase 2: campo desligado (relaxação)
+            if _saturate_relaxing[0]:
+                return 0.0, 0.0
+            else:
+                return Bext_x0, Bext_y0
+
         else:
             return Bext_x0, Bext_y0
+
+    # flag mutável para o modo 'saturate' (lista de 1 elemento para ser
+    # modificável dentro de _save_frame e do loop sem 'nonlocal')
+    _saturate_relaxing = [False]   # False = campo ligado; True = relaxando
 
     # imprime instrução de uso
     print("  [Ctrl+I para interromper e salvar o vídeo agora]")
@@ -798,10 +814,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
     tau_cur           = _torques(theta_cur, bx_cur, by_cur)
     _converged_count  = 0
-    # S=1 só faz sentido como critério de parada em campo estático
-    _S1_count         = 0
+    # S=1 como critério de parada só faz sentido em campo estático.
+    # Em hysteresis e sine o campo oscila; em saturate queremos continuar
+    # após S=1 para observar a relaxação com campo zerado.
     _allow_S1_stop    = (field_mode == 'static')
     _stop_reason      = "tempo total atingido"
+    _saturate_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
+    _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (saturate)
 
     for step in range(1, n_steps + 1):
 
@@ -892,6 +911,26 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
+
+        # ── modo saturate: detecta S ≥ 0.99 e desliga o campo ─────────────
+        if field_mode == 'saturate' and _saturate_phase == 'field_on':
+            if S_now >= 0.99:
+                _S99_count += 1
+            else:
+                _S99_count = 0
+
+            if _S99_count >= 20:
+                # alinhamento atingido → desliga o campo e entra em relaxação
+                _saturate_relaxing[0] = True
+                _saturate_phase = 'relaxing'
+                print(f"\n  Saturação S≥0.99 em t={t_now:.4f}s — campo zerado, "
+                      f"sistema relaxa livremente")
+                # atualiza tau com campo=0 para o próximo passo
+                tau_cur = _torques(theta_cur, 0.0, 0.0)
+                if frame_dir is not None:
+                    _save_frame(step, theta_cur, omega_cur,
+                                stop_label="⊙ campo zerado — relaxando",
+                                B_ext_inst=0.0, phi_ext_inst=0.0)
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
         if omega_max < omega0 * 1e-3:
@@ -1771,12 +1810,13 @@ def main():
                            'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
                            'Padrao: 2.0 s')
     grp2.add_argument('--field_mode',
-                      choices=['static', 'hysteresis', 'sine'],
+                      choices=['static', 'hysteresis', 'sine', 'saturate'],
                       default='static',
                       help='Modo do campo externo: '
                            'static=constante (padrao), '
                            'hysteresis=rampa 0->Hmax->-Hmax->Hmax, '
-                           'sine=senoidal Hmax*sin(2pi*f*t). '
+                           'sine=senoidal Hmax*sin(2pi*f*t), '
+                           'saturate=aplica campo ate S>=0.99 depois zera e relaxa. '
                            'Amplitude=--B_ext, direcao=--phi_ext.')
     grp2.add_argument('--field_freq', type=float, default=1.0,
                       help='Frequencia do campo senoidal [Hz]. '
@@ -1864,6 +1904,8 @@ def main():
         field_mode_str += f"  f={args.field_freq:.3f} Hz"
     elif args.field_mode == 'hysteresis':
         field_mode_str += "  (0→Hmax→−Hmax→Hmax)"
+    elif args.field_mode == 'saturate':
+        field_mode_str += "  (aplica campo → S≥0.99 → zera → relaxa)"
     print(f"  Simulação    : t_sim={args.t_sim:.3f} s  dt_factor={args.dt_factor}"
           f"  ruído={args.noise:.2f} rad  seed={args.seed}")
     print(f"  Modo campo   : {field_mode_str}")
