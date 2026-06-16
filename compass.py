@@ -752,10 +752,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             Campo constante = (Bext_x0, Bext_y0) durante toda a simulação.
 
         'hysteresis'
-            Três rampas lineares cobrindo [0, t_sim]:
-              segmento 1: t ∈ [0,        t_sim/3]  →  B: 0 → +B_max
-              segmento 2: t ∈ [t_sim/3,  2*t_sim/3] →  B: +B_max → −B_max
-              segmento 3: t ∈ [2*t_sim/3, t_sim]   →  B: −B_max → +B_max
+            Ciclo completo em 5 segmentos iguais de t_sim/5 cada:
+              segmento 1: t ∈ [0,       t5]   →  B: 0 → +B_max
+              segmento 2: t ∈ [t5,    2*t5]   →  B: +B_max → 0
+              segmento 3: t ∈ [2*t5,  3*t5]   →  B: 0 → -B_max
+              segmento 4: t ∈ [3*t5,  4*t5]   →  B: -B_max → 0
+              segmento 5: t ∈ [4*t5,  t_sim]  →  B: 0 → +B_max
             Direção: phi_ext (constante). Amplitude máxima: B_max = |ext_field|.
 
         'sine'
@@ -772,17 +774,25 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return Bext_x0, Bext_y0
 
         elif field_mode == 'hysteresis':
+            # Ciclo completo: 0→+Bmax→0→-Bmax→0→+Bmax
+            # 5 segmentos lineares iguais de t5 = t_sim/5
             T  = t_sim if t_sim > 0 else 1.0
-            t3 = T / 3.0
-            if t <= t3:
+            t5 = T / 5.0
+            if t <= t5:
                 # segmento 1: rampa 0 → +B_max
-                B_scalar = B_max * (t / t3)
-            elif t <= 2.0 * t3:
-                # segmento 2: rampa +B_max → −B_max
-                B_scalar = B_max * (1.0 - 2.0 * (t - t3) / t3)
+                B_scalar = B_max * (t / t5)
+            elif t <= 2.0 * t5:
+                # segmento 2: rampa +B_max → 0
+                B_scalar = B_max * (1.0 - (t - t5) / t5)
+            elif t <= 3.0 * t5:
+                # segmento 3: rampa 0 → -B_max
+                B_scalar = -B_max * ((t - 2.0 * t5) / t5)
+            elif t <= 4.0 * t5:
+                # segmento 4: rampa -B_max → 0
+                B_scalar = -B_max * (1.0 - (t - 3.0 * t5) / t5)
             else:
-                # segmento 3: rampa −B_max → +B_max
-                B_scalar = B_max * (-1.0 + (t - 2.0 * t3) / t3)
+                # segmento 5: rampa 0 → +B_max
+                B_scalar = B_max * ((t - 4.0 * t5) / t5)
             return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'sine':
@@ -841,8 +851,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # S=1 como critério de parada só faz sentido em campo estático.
     # Em hysteresis e sine o campo oscila; em pulse queremos continuar
     # após S=1 para observar a relaxação com campo zerado.
-    _allow_S1_stop    = (field_mode == 'static')
-    _stop_reason      = "tempo total atingido"
+    _allow_S1_stop     = (field_mode == 'static')
+    # em hysteresis e sine o campo muda continuamente: parada por repouso
+    # desabilitada (a rede pode estar momentaneamente parada no cruzamento B=0)
+    _allow_rest_stop   = (field_mode in ('static', 'pulse'))
+    _stop_reason       = "tempo total atingido"
     _pulse_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
     _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
 
@@ -954,19 +967,22 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 B_ext_inst=0.0)
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
-        if omega_max < omega0 * 1e-3:
-            _converged_count += 1
-        else:
-            _converged_count = 0
+        # Só para em modos static e pulse; em hysteresis/sine o campo muda
+        # e a rede pode ficar momentaneamente parada no cruzamento por zero.
+        if _allow_rest_stop:
+            if omega_max < omega0 * 1e-3:
+                _converged_count += 1
+            else:
+                _converged_count = 0
 
-        if _converged_count >= 50:
-            _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
-            _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
-            _stop_flag.set()
-            if frame_dir is not None:
-                _save_frame(step, theta_cur, omega_cur,
-                            stop_label="● rede em repouso")
-            break
+            if _converged_count >= 50:
+                _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
+                _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
+                _stop_flag.set()
+                if frame_dir is not None:
+                    _save_frame(step, theta_cur, omega_cur,
+                                stop_label="● rede em repouso")
+                break
 
     _stop_flag.set()   # garante que a thread de teclado encerra
 
@@ -1883,7 +1899,7 @@ def main():
                       default='static',
                       help='Modo do campo externo: '
                            'static=constante (padrao), '
-                           'hysteresis=rampa 0->Hmax->-Hmax->Hmax, '
+                           'hysteresis=ciclo completo 0->+Bmax->0->-Bmax->0->+Bmax (5 rampas), '
                            'sine=senoidal Hmax*sin(2pi*f*t), '
                            'pulse=aplica campo ate S>=0.99 depois zera e relaxa. '
                            'Amplitude=--B_ext, direcao=--phi_ext.')
@@ -1974,7 +1990,7 @@ def main():
     if args.field_mode == 'sine':
         field_mode_str = f"sine  f={args.field_freq:.3f} Hz"
     elif args.field_mode == 'hysteresis':
-        field_mode_str = "hysteresis  (0 -> +Hmax -> -Hmax -> +Hmax)"
+        field_mode_str = "hysteresis  (0->+Bmax->0->-Bmax->0->+Bmax)"
     elif args.field_mode == 'pulse':
         field_mode_str = "pulse  (campo -> S>=0.99 -> zera -> relaxa)"
     _print(f"  Modo campo   : {field_mode_str}")
