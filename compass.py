@@ -160,6 +160,23 @@ import matplotlib.cm as cm
 from matplotlib.animation import FuncAnimation
 import argparse
 import time
+import sys
+
+# ── configura saída para flush imediato e line endings corretos ──────────────
+# No macOS com zsh, o modo raw do teclado (usado pelo Ctrl+I) pode desabilitar
+# o processamento de \n → \r\n no terminal. Forçar line_buffering e flush
+# garante que cada print() apareça em sua própria linha corretamente.
+sys.stdout.reconfigure(line_buffering=True)
+
+def _print(*args, **kwargs):
+    """
+    Substituto de print() que garante flush imediato e \r\n correto
+    mesmo quando o terminal está em modo raw (macOS/zsh com Ctrl+I ativo).
+    """
+    import sys
+    msg = ' '.join(str(a) for a in args)
+    sys.stdout.write(msg + '\r\n')
+    sys.stdout.flush()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CONSTANTES FÍSICAS (Sistema Internacional — SI)
@@ -353,7 +370,7 @@ def _plot_hysteresis(log):
     plt.savefig("hysteresis_loop.png", dpi=130, bbox_inches='tight',
                 facecolor='#1A1A2E')
     plt.close(fig)
-    print("  Gráfico de histerese salvo: hysteresis_loop.png")
+    _print("  Gráfico de histerese salvo: hysteresis_loop.png")
 
 
 def _plot_sine(log, freq):
@@ -395,7 +412,7 @@ def _plot_sine(log, freq):
     plt.savefig("sine_field.png", dpi=130, bbox_inches='tight',
                 facecolor='#1A1A2E')
     plt.close(fig)
-    print("  Gráfico senoidal salvo: sine_field.png")
+    _print("  Gráfico senoidal salvo: sine_field.png")
 
 
 def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
@@ -405,6 +422,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           callback=None,
           frame_dir=None, frame_every=10,
           needle_len=0.042, needle_width=0.010, r_halo=None,
+          frame_dpi=120, figsize_inches=None,
           B_ext=0.0, phi_ext_deg=0.0):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
@@ -505,23 +523,23 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
-    print(f"  Dinamica inercial:")
-    print(f"    r_nn    = {r_nn*100:.2f} cm")
-    print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar entre vizinhos)")
+    _print(f"  Dinamica inercial:")
+    _print(f"    r_nn    = {r_nn*100:.2f} cm")
+    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar entre vizinhos)")
     if B_ext_mag > 0:
-        print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (campo externo)")
-    print(f"    B_eff   = {B_eff*1e3:.4f} mT  (campo dominante)")
-    print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
-    print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} de T0)")
-    print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} passos")
+        _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (campo externo)")
+    _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (campo dominante)")
+    _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
+    _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} de T0)")
+    _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} passos")
     if Q > 2:
         q_desc = "sub-amortecido (oscila)"
     elif Q > 0.5:
         q_desc = "criticamente amortecido"
     else:
         q_desc = "super-amortecido"
-    print(f"    Q       = {Q:.1f}  ({q_desc})")
-    print()
+    _print(f"    Q       = {Q:.1f}  ({q_desc})")
+    _print()
 
     # ── condições iniciais ─────────────────────────────────────────────────
     theta_cur = thetas.copy()
@@ -645,33 +663,35 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         """
         Renderiza e salva um frame PNG.
 
-        B_ext_inst / phi_ext_inst: campo externo INSTANTÂNEO neste passo.
-        Nos modos dinâmicos (hysteresis, sine) o campo muda a cada frame;
-        esses parâmetros sobrescrevem B_ext/phi_ext_deg para a visualização.
+        B_ext_inst : intensidade ATUAL do campo  [T]  (pode ser 0 após pulso).
+                     O painel é sempre desenhado; quando B=0 mostra "0 T".
+        phi_ext_inst: direção atual  [graus]  (usa phi_ext_deg se None).
+        B_ext (closure) : intensidade máxima — usada para escalar a barra.
         """
         nonlocal n_frames
-        t_phys = step * dt
-        S      = np.abs(np.mean(np.exp(1j * th)))
-        om_max = np.max(np.abs(om))
+        t_phys   = step * dt
+        S        = np.abs(np.mean(np.exp(1j * th)))
+        om_max   = np.max(np.abs(om))
 
-        # campo a exibir: instantâneo (modos dinâmicos) ou fixo (estático)
-        b_show   = B_ext_inst   if B_ext_inst   is not None else B_ext
-        phi_show = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
+        # campo instantâneo a exibir (pode ser 0, mas phi permanece)
+        b_now    = B_ext_inst   if B_ext_inst   is not None else B_ext
+        phi_now  = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
 
-        b_str = _fmt_B(b_show) if b_show and b_show > 0 else ""
-        title = (f"S = {S:.4f}   ω_max = {om_max:.2f} rad/s"
-                 + (f"   {b_str} @ {phi_show:.0f}°" if b_str else ""))
+        b_str = _fmt_B(b_now) if b_now and b_now > 0 else "0 T"
+        title = f"S = {S:.4f}   w_max = {om_max:.2f} rad/s   B = {b_str}"
 
         fig, ax = plot_state(th, xs, ys, title=title,
                              needle_len=needle_len, needle_width=needle_width,
                              r_halo=r_halo,
-                             B_ext=b_show if b_show else 0.0,
-                             phi_ext_deg=phi_show if phi_show else 0.0)
+                             B_ext=b_now,
+                             phi_ext_deg=phi_now,
+                             B_ext_max=B_ext,    # máximo para escalar a barra
+                             figsize_inches=figsize_inches)
         plt.tight_layout()
         _draw_clock(ax, t_phys, needle_len, stop_label=stop_label)
 
         fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
-        plt.savefig(fpath, dpi=100, bbox_inches='tight', facecolor='#1A1A2E')
+        plt.savefig(fpath, dpi=frame_dpi, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig)
         n_frames += 1
 
@@ -784,7 +804,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _pulse_relaxing = [False]   # False = campo ligado; True = relaxando
 
     # imprime instrução de uso
-    print("  [Ctrl+I para interromper e salvar o vídeo agora]")
+    _print("  [Ctrl+I para interromper e salvar o vídeo agora]")
 
     # ── função auxiliar: calcula torques SI para estado θ e campo B(t) ────
     def _torques(th, bx_ext, by_ext):
@@ -810,6 +830,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
     # Gravado a cada passo; exportado para CSV ao final se field_mode=hysteresis
+    field_log      = []   # log universal: (t, B, M_proj, S) para todos os modos
     hysteresis_log = [] if field_mode == 'hysteresis' else None
     sine_log       = [] if field_mode == 'sine'       else None
 
@@ -831,7 +852,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
-            print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
+            _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
                 _save_frame(step, theta_cur, omega_cur,
@@ -873,29 +894,27 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── registra log de histerese / senoidal ──────────────────────────
         # M_proj: componente da magnetização média na direção do campo
-        if hysteresis_log is not None or sine_log is not None:
-            # magnetização média normalizada (projeção na direção do campo)
-            mx_mean = float(np.mean(np.cos(theta_cur)))
-            my_mean = float(np.mean(np.sin(theta_cur)))
-            M_proj  = mx_mean * cos_phi + my_mean * sin_phi
-            B_scalar = bx_cur * cos_phi + by_cur * sin_phi
-            entry = (t_now, B_scalar, M_proj, S_now)
-            if hysteresis_log is not None:
-                hysteresis_log.append(entry)
-            if sine_log is not None:
-                sine_log.append(entry)
+        # ── log universal: campo e magnetização a cada passo ────────────────
+        mx_mean  = float(np.mean(np.cos(theta_cur)))
+        my_mean  = float(np.mean(np.sin(theta_cur)))
+        M_proj   = mx_mean * cos_phi + my_mean * sin_phi
+        B_scalar = bx_cur * cos_phi + by_cur * sin_phi
+        entry    = (t_now, B_scalar, M_proj, S_now)
+        field_log.append(entry)
+        if hysteresis_log is not None:
+            hysteresis_log.append(entry)
+        if sine_log is not None:
+            sine_log.append(entry)
 
         # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
-            # passa o campo instantâneo para o frame (seta muda de tamanho/direção)
-            B_inst = np.sqrt(bx_cur**2 + by_cur**2)
+            B_inst   = np.sqrt(bx_cur**2 + by_cur**2)
             phi_inst = np.degrees(np.arctan2(by_cur, bx_cur))
             _save_frame(step, theta_cur, omega_cur,
                         B_ext_inst=B_inst, phi_ext_inst=phi_inst)
-            if step % (frame_every * 10) == 0:
-                print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  "
-                      f"B={B_inst*1e3:.3f}mT  "
-                      f"S={S_now:.4f}  ω_max={omega_max:.2f} rad/s")
+            # imprime progresso a cada 50 frames salvos (não a cada passo)
+            if n_frames % 50 == 0:
+                _print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  B={B_inst*1e3:.3f}mT  S={S_now:.4f}  w={omega_max:.2f}rad/s")
 
         # ── condição 1: S = 1.00 (só em campo estático) ──────────────────
         if _allow_S1_stop:
@@ -905,7 +924,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _S1_count = 0
 
             if _S1_count >= 30:
-                print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
+                _print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
@@ -924,13 +943,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 # alinhamento atingido → desliga o campo e entra em relaxação
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
-                print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
+                _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 # atualiza tau com campo=0 para o próximo passo
                 tau_cur = _torques(theta_cur, 0.0, 0.0)
                 if frame_dir is not None:
+                    # B_ext_inst=0 mostra campo desligado no painel,
+                    # mas phi_ext_deg é mantido para mostrar a direção
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="⊙ campo zerado, relaxando",
-                                B_ext_inst=0.0, phi_ext_inst=0.0)
+                                stop_label="campo zerado - relaxando",
+                                B_ext_inst=0.0)
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
         if omega_max < omega0 * 1e-3:
@@ -939,7 +960,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _converged_count = 0
 
         if _converged_count >= 50:
-            print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
+            _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
             _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
             _stop_flag.set()
             if frame_dir is not None:
@@ -957,7 +978,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w = csv.writer(f)
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(hysteresis_log)
-        print(f"  Dados de histerese salvos: {csv_path}")
+        _print(f"  Dados de histerese salvos: {csv_path}")
         _plot_hysteresis(hysteresis_log)
 
     if sine_log:
@@ -967,32 +988,43 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w = csv.writer(f)
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(sine_log)
-        print(f"  Dados de campo senoidal salvos: {csv_path}")
+        _print(f"  Dados de campo senoidal salvos: {csv_path}")
         _plot_sine(sine_log, field_freq)
 
-    return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason
+    return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason, field_log
 
 def next_available_path(path):
     """
-    Se `path` não existe, retorna `path` sem alteração.
-    Se `path` já existe, insere um sufixo numérico crescente antes da extensão:
-        rapido.mp4  →  rapido0001.mp4  →  rapido0002.mp4  …
+    Sempre usa sufixo numérico de 4 dígitos, nunca cria o arquivo sem sufixo.
+    Encontra o próximo número disponível na sequência verificando apenas
+    o arquivo de vídeo (.mp4). O CSV correspondente sempre usa o mesmo número.
+
+    Exemplos:
+        sim.mp4         →  sim0000.mp4  (primeira vez)
+                        →  sim0001.mp4  (segunda vez)
+        sim0003.mp4     →  mesma série "sim", encontra próximo disponível
+        dominios.mp4    →  dominios0000.mp4
 
     Parâmetros
     ----------
-    path : str — caminho desejado para o arquivo
+    path : str — nome desejado (com ou sem sufixo numérico)
 
     Retorna
     -------
-    str — primeiro caminho disponível (que não existe ainda no disco)
+    str — próximo caminho disponível na série nome0000, nome0001, ...
     """
-    import os
-    if not os.path.exists(path):
-        return path
+    import os, re
+
     base, ext = os.path.splitext(path)
-    n = 1
+
+    # remove sufixo numérico final (4 dígitos) do base, se houver
+    # "sim0008" → "sim",  "dominios0003" → "dominios",  "sim" → "sim"
+    prefix = re.sub(r'\d{4}$', '', base)
+
+    # encontra o próximo número na sequência verificando só o arquivo de vídeo
+    n = 0
     while True:
-        candidate = f"{base}{n:04d}{ext}"
+        candidate = f"{prefix}{n:04d}{ext}"
         if not os.path.exists(candidate):
             return candidate
         n += 1
@@ -1029,11 +1061,11 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
     import subprocess, shutil, os
 
     if not shutil.which('ffmpeg'):
-        print("AVISO: ffmpeg não encontrado. Instale com:")
-        print("  Ubuntu/Debian : sudo apt install ffmpeg")
-        print("  macOS (brew)  : brew install ffmpeg")
-        print("  conda         : conda install -c conda-forge ffmpeg")
-        print("  Windows       : https://ffmpeg.org/download.html")
+        _print("AVISO: ffmpeg não encontrado. Instale com:")
+        _print("  Ubuntu/Debian : sudo apt install ffmpeg")
+        _print("  macOS (brew)  : brew install ffmpeg")
+        _print("  conda         : conda install -c conda-forge ffmpeg")
+        _print("  Windows       : https://ffmpeg.org/download.html")
         return False
 
     input_pattern = os.path.join(frame_dir, "frame_%05d.png")
@@ -1050,8 +1082,8 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
          ['-pix_fmt', 'yuv420p']),
     ]
 
-    print(f"\nMontando vídeo MP4: {output_path}")
-    print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
+    _print(f"\nMontando vídeo MP4: {output_path}")
+    _print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
 
     for desc, codec_args in strategies:
         cmd = [
@@ -1068,16 +1100,16 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
 
         if result.returncode == 0:
             size_mb = os.path.getsize(output_path) / 1024**2
-            print(f"  Codec : {desc}")
-            print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
+            _print(f"  Codec : {desc}")
+            _print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
             return True
         else:
             last_err = result.stderr.strip().splitlines()
             short_err = last_err[-1] if last_err else "(sem mensagem)"
-            print(f"  [{desc}] falhou: {short_err}")
+            _print(f"  [{desc}] falhou: {short_err}")
 
-    print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
-    print(result.stderr[-600:])
+    _print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
+    _print(result.stderr[-600:])
     return False
     """
     Agrega os PNGs numerados de `frame_dir` em um vídeo MP4 usando ffmpeg.
@@ -1109,11 +1141,11 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
     import subprocess, shutil, os
 
     if not shutil.which('ffmpeg'):
-        print("AVISO: ffmpeg não encontrado. Instale com:")
-        print("  Ubuntu/Debian : sudo apt install ffmpeg")
-        print("  macOS (brew)  : brew install ffmpeg")
-        print("  conda         : conda install -c conda-forge ffmpeg")
-        print("  Windows       : https://ffmpeg.org/download.html")
+        _print("AVISO: ffmpeg não encontrado. Instale com:")
+        _print("  Ubuntu/Debian : sudo apt install ffmpeg")
+        _print("  macOS (brew)  : brew install ffmpeg")
+        _print("  conda         : conda install -c conda-forge ffmpeg")
+        _print("  Windows       : https://ffmpeg.org/download.html")
         return False
 
     input_pattern = os.path.join(frame_dir, "frame_%05d.png")
@@ -1133,8 +1165,8 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
          ['-pix_fmt', 'yuv420p']),
     ]
 
-    print(f"\nMontando vídeo MP4: {output_path}")
-    print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
+    _print(f"\nMontando vídeo MP4: {output_path}")
+    _print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
 
     for desc, codec_args in strategies:
         cmd = [
@@ -1151,18 +1183,18 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
 
         if result.returncode == 0:
             size_mb = os.path.getsize(output_path) / 1024**2
-            print(f"  Codec : {desc}")
-            print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
+            _print(f"  Codec : {desc}")
+            _print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
             return True
         else:
             # extrai apenas a última linha do erro para não poluir o terminal
             last_err = result.stderr.strip().splitlines()
             short_err = last_err[-1] if last_err else "(sem mensagem)"
-            print(f"  [{desc}] falhou: {short_err}")
+            _print(f"  [{desc}] falhou: {short_err}")
 
     # todas as estratégias falharam — mostra erro completo da última tentativa
-    print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
-    print(result.stderr[-600:])
+    _print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
+    _print(result.stderr[-600:])
     return False
 
 
@@ -1422,126 +1454,143 @@ def _fmt_B(B):
 
 
 def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
-                              needle_len, color='#FFD700'):
+                              needle_len, B_ext_max=None, color='#FFD700'):
     """
-    Representa o campo externo uniforme na imagem de duas formas:
+    Representa o campo externo na imagem.  SEMPRE desenhado, mesmo quando
+    B_ext = 0 (campo desligado após pulso, etc.).
 
-    1. SETAS NOS SÍTIOS — uma seta dourada centrada em cada agulha,
-       apontando na direção do campo. Comprimento fixo = 35% de needle_len,
-       sempre visível independente de B_ext. Renderizadas abaixo das
-       agulhas (zorder=2) para servir de campo de fundo.
+    Elementos
+    ---------
+    1. SETAS NOS SÍTIOS — setas douradas em cada agulha apontando na
+       direção do campo. Quando B_ext = 0, as setas ficam invisíveis
+       (alpha=0) mas o painel de referência continua visível.
 
-    2. PAINEL DE CAMPO — caixa no canto inferior direito da figura com:
-         • Seta grande mostrando a direção (comprimento fixo = needle_len)
-         • Texto: intensidade em SI + ângulo em graus
-       O painel usa coordenadas de eixo (transform=ax.transAxes) para
-       ficar sempre dentro da figura independente da escala da rede.
-
-    Se B_ext = 0, nada é desenhado.
+    2. PAINEL DE CAMPO — caixa no canto inferior direito com:
+         • Seta mostrando a direção (comprimento proporcional a B_ext/B_max)
+         • Texto: intensidade atual em SI  e  ângulo em graus
+         • Barra de intensidade (verde cheia = B_max, vazia = 0)
+       Quando B_ext = 0: seta apagada, texto "0 T", barra vazia.
+       A direção exibida é sempre phi_ext_deg (direção do campo máximo).
 
     Parâmetros
     ----------
     ax          : eixo matplotlib
-    xs, ys      : arrays 2D de posições das agulhas  [m]
-    B_ext       : intensidade do campo externo  [T]
-    phi_ext_deg : direção do campo  [graus; 0=+x, 90=+y, anti-horário]
+    xs, ys      : arrays 2D de posições  [m]
+    B_ext       : intensidade ATUAL do campo  [T]  (pode ser 0)
+    phi_ext_deg : direção do campo  [graus]
     needle_len  : comprimento de referência das agulhas  [m]
-    color       : cor das setas e do texto do campo (padrão: dourado)
+    B_ext_max   : intensidade máxima do campo  [T]  (para escalar a seta)
+                  Se None, usa B_ext como máximo.
+    color       : cor das setas e do painel (padrão: dourado)
     """
-    if B_ext <= 0:
-        return
-
     phi      = np.deg2rad(phi_ext_deg)
     cos_phi  = np.cos(phi)
     sin_phi  = np.sin(phi)
+    B_max_ref = B_ext_max if (B_ext_max and B_ext_max > 0) else max(B_ext, 1e-30)
+    frac      = min(abs(B_ext) / B_max_ref, 1.0)   # 0→1, proporção do campo máximo
+    field_on  = (B_ext > 1e-30)                     # True se campo não-nulo
 
-    # ── 1. setas pequenas em cada sítio (campo de fundo) ──────────────────
-    # Comprimento fixo = 35% de needle_len — sempre visível
-    alen  = needle_len * 0.35
-    dx_a  = alen * cos_phi
-    dy_a  = alen * sin_phi
-    N, M  = xs.shape
+    # ── 1. setas nos sítios (só quando campo está ligado) ─────────────────
+    if field_on:
+        alen = needle_len * 0.35
+        dx_a = alen * cos_phi
+        dy_a = alen * sin_phi
+        N, M = xs.shape
+        for i in range(N):
+            for j in range(M):
+                x0 = xs[i, j] - dx_a / 2.0
+                y0 = ys[i, j] - dy_a / 2.0
+                ax.annotate(
+                    '', xy=(x0 + dx_a, y0 + dy_a), xytext=(x0, y0),
+                    arrowprops=dict(
+                        arrowstyle='->', color=color,
+                        lw=1.0, mutation_scale=6, alpha=0.50),
+                    zorder=2)
 
-    for i in range(N):
-        for j in range(M):
-            x0 = xs[i, j] - dx_a / 2.0
-            y0 = ys[i, j] - dy_a / 2.0
-            ax.annotate(
-                '', xy=(x0 + dx_a, y0 + dy_a), xytext=(x0, y0),
-                arrowprops=dict(
-                    arrowstyle='->', color=color,
-                    lw=1.0, mutation_scale=6, alpha=0.50),
-                zorder=2)
-
-    # ── 2. painel de campo no canto inferior direito ───────────────────────
-    # Usa coordenadas de eixo (0–1) para posição independente da escala.
-    # A seta é desenhada em coordenadas de dados, mas ancorada em coords de eixo
-    # usando um ponto de dados calculado a partir dos limites do eixo.
-
-    # posição do centro da seta em coordenadas de dados
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
+    # ── 2. painel de campo (SEMPRE visível) ───────────────────────────────
+    xlim  = ax.get_xlim()
+    ylim  = ax.get_ylim()
     xspan = xlim[1] - xlim[0]
     yspan = ylim[1] - ylim[0]
 
-    # canto inferior direito: 88% em x, 9% em y (em fração dos limites)
     cx_d = xlim[0] + 0.88 * xspan
     cy_d = ylim[0] + 0.09 * yspan
-
-    # comprimento da seta de referência = needle_len (tamanho de uma agulha)
     slen = needle_len * 1.1
-    x_tail = cx_d - slen * cos_phi / 2.0
-    y_tail = cy_d - slen * sin_phi / 2.0
-    x_head = cx_d + slen * cos_phi / 2.0
-    y_head = cy_d + slen * sin_phi / 2.0
+    pad  = needle_len * 0.55
 
-    # seta da direção do campo
-    ax.annotate(
-        '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
-        arrowprops=dict(
-            arrowstyle='->', color=color, lw=2.5,
-            mutation_scale=18),
-        zorder=20)
-
-    # caixa de fundo semitransparente atrás do painel
-    pad   = needle_len * 0.55
-    rect  = plt.Rectangle(
+    # caixa de fundo
+    rect = plt.Rectangle(
         (cx_d - slen * 0.7, cy_d - pad * 0.5),
-        slen * 1.4, pad * 3.8,
+        slen * 1.4, pad * 4.2,
         facecolor='#0A0A1A', edgecolor=color,
-        linewidth=1.0, alpha=0.75, zorder=19,
+        linewidth=1.0, alpha=0.80, zorder=19,
         transform=ax.transData)
     ax.add_patch(rect)
 
-    # ── texto: intensidade e direção ──────────────────────────────────────
-    # linha 1: intensidade em SI
-    # linha 2: ângulo em graus
-    b_str  = _fmt_B(B_ext)
-    phi_str = f"φ = {phi_ext_deg:.1f}°"
+    # seta de direção (comprimento proporcional à intensidade atual)
+    arrow_len = slen * max(frac, 0.0)
+    if arrow_len > slen * 0.05:   # só desenha se visível
+        x_tail = cx_d - arrow_len * cos_phi / 2.0
+        y_tail = cy_d - arrow_len * sin_phi / 2.0
+        x_head = cx_d + arrow_len * cos_phi / 2.0
+        y_head = cy_d + arrow_len * sin_phi / 2.0
+        arrow_color = color if field_on else '#555555'
+        ax.annotate(
+            '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
+            arrowprops=dict(
+                arrowstyle='->', color=arrow_color, lw=2.5,
+                mutation_scale=18),
+            zorder=20)
+    else:
+        # campo zero: desenha um ponto no centro
+        ax.plot(cx_d, cy_d, 'o', ms=4, color='#555555', zorder=20)
 
-    # posição do texto: acima da seta dentro da caixa
+    # barra de intensidade (fração do campo máximo)
+    bar_w = slen * 1.2
+    bar_h = pad * 0.22
+    bar_y = cy_d - pad * 0.3
+    # trilha
+    ax.add_patch(plt.Rectangle(
+        (cx_d - bar_w/2, bar_y), bar_w, bar_h,
+        facecolor='#252540', edgecolor='none', zorder=20,
+        transform=ax.transData))
+    # preenchimento proporcional
+    if frac > 0.01:
+        ax.add_patch(plt.Rectangle(
+            (cx_d - bar_w/2, bar_y), bar_w * frac, bar_h,
+            facecolor=color if field_on else '#555555',
+            edgecolor='none', alpha=0.8, zorder=21,
+            transform=ax.transData))
+    # borda da barra
+    ax.add_patch(plt.Rectangle(
+        (cx_d - bar_w/2, bar_y), bar_w, bar_h,
+        facecolor='none', edgecolor='#5A5A8A',
+        linewidth=0.7, zorder=22, transform=ax.transData))
+
+    # textos
     tx = cx_d
-    ty = cy_d + pad * 1.4
+    ty = cy_d + pad * 1.5
+
+    b_str   = _fmt_B(B_ext) if field_on else "0 T  (desligado)"
+    phi_str = f"dir: {phi_ext_deg:.1f} graus"
 
     ax.text(tx, ty, b_str,
-            color=color, fontsize=9, fontweight='bold',
-            fontfamily='monospace', ha='center', va='bottom',
-            zorder=21)
+            color=color if field_on else '#777777',
+            fontsize=9, fontweight='bold',
+            fontfamily='monospace', ha='center', va='bottom', zorder=23)
     ax.text(tx, ty - pad * 0.85, phi_str,
-            color=color, fontsize=8,
-            fontfamily='monospace', ha='center', va='bottom',
-            zorder=21)
-
-    # rótulo "B ext" acima
-    ax.text(tx, cy_d - pad * 0.3, "B ext",
+            color=color if field_on else '#777777',
+            fontsize=7, fontfamily='monospace',
+            ha='center', va='bottom', zorder=23)
+    ax.text(tx, bar_y - pad * 0.15, "B ext",
             color=color, fontsize=7, alpha=0.8,
-            fontfamily='monospace', ha='center', va='top',
-            zorder=21)
+            fontfamily='monospace', ha='center', va='top', zorder=23)
 
 
 def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                needle_len=0.42, needle_width=0.10, r_halo=None,
-               B_ext=0.0, phi_ext_deg=0.0):
+               B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
+               figsize_inches=None):
     """
     Gera uma figura com o estado instantâneo da rede de agulhas.
 
@@ -1559,20 +1608,40 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
 
     Parâmetros
     ----------
-    thetas       : array N×M de ângulos das agulhas  [rad]
-    xs, ys       : arrays N×M de posições  [m]
-    title        : título da figura
-    show_order   : se True, desenha os halos de parâmetro de ordem local
-    needle_len   : comprimento das agulhas  [m]
-    needle_width : largura das agulhas  [m]
-    B_ext        : intensidade do campo externo  [T]
-    phi_ext_deg  : direção do campo externo  [graus]
+    thetas        : array N×M de ângulos das agulhas  [rad]
+    xs, ys        : arrays N×M de posições  [m]
+    title         : título da figura
+    show_order    : se True, desenha os halos de parâmetro de ordem local
+    needle_len    : comprimento das agulhas  [m]
+    needle_width  : largura das agulhas  [m]
+    r_halo        : raio dos halos  [m]
+    B_ext         : intensidade do campo externo  [T]
+    phi_ext_deg   : direção do campo externo  [graus]
+    figsize_inches: tupla (largura, altura) em polegadas, ou None para
+                    calcular automaticamente em função do número de agulhas
 
     Retorna
     -------
     fig, ax : objetos matplotlib
     """
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor='#1A1A2E')
+    # ── tamanho da figura: escala com a extensão física da rede ──────────
+    # Garante que agulhas tenham tamanho visual adequado independente de
+    # quantas há na rede. A figura cresce com a rede mas é limitada.
+    if figsize_inches is None:
+        x_span = xs.max() - xs.min() + 2 * needle_len * 2.0
+        y_span = ys.max() - ys.min() + 2 * needle_len * 4.0
+        aspect = x_span / y_span if y_span > 0 else 1.0
+        # base: 8 polegadas no lado menor, máximo 20 polegadas
+        base = 8.0
+        if aspect >= 1.0:
+            fig_w = min(base * aspect, 20.0)
+            fig_h = fig_w / aspect
+        else:
+            fig_h = min(base / aspect, 20.0)
+            fig_w = fig_h * aspect
+        figsize_inches = (max(fig_w, 6.0), max(fig_h, 6.0))
+
+    fig, ax = plt.subplots(figsize=figsize_inches, facecolor='#1A1A2E')
     ax.set_facecolor('#16213E')
     N, M = thetas.shape
 
@@ -1612,7 +1681,8 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
         spine.set_edgecolor('#2C3E50')
 
     # ── campo externo (setas + painel) — depois de set_xlim/ylim ─────────
-    draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len)
+    draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len,
+                              B_ext_max=B_ext_max)
 
     # ── legenda ───────────────────────────────────────────────────────────
     patch_n = mpatches.Patch(facecolor='#FFFFFF', edgecolor='#555',
@@ -1688,7 +1758,7 @@ def animate_relaxation(thetas_hist, xs, ys,
                         interval=interval, blit=False)
     if save_gif:
         ani.save(save_gif, writer='pillow', fps=12, dpi=90)
-        print(f"GIF salvo em: {save_gif}")
+        _print(f"GIF salvo em: {save_gif}")
     return fig, ani
 
 
@@ -1739,7 +1809,7 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
         spine.set_edgecolor('#2C3E50')
     plt.tight_layout()
     plt.savefig(outpath, dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
-    print(f"Parâmetro de ordem salvo em: {outpath}")
+    _print(f"Parâmetro de ordem salvo em: {outpath}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1855,9 +1925,13 @@ def main():
                            '(requer ffmpeg instalado)')
     grp4.add_argument('--frame_every', type=int, default=5,
                       help='Salva um frame a cada N passos (menor = mais suave, '
-                           'mais lento)')
+                           'mais lento). Padrao: 5')
     grp4.add_argument('--fps', type=int, default=24,
-                      help='Quadros por segundo do vídeo MP4')
+                      help='Quadros por segundo do video MP4. Padrao: 24')
+    grp4.add_argument('--dpi', type=int, default=120,
+                      help='Resolucao dos frames em pontos por polegada. '
+                           'Padrao: 120. Para redes grandes (>15x15) use '
+                           '150-200 para melhor qualidade de imagem.')
     grp4.add_argument('--keep_frames', action='store_true',
                       help='Mantém a pasta de PNGs intermediários após gerar o MP4')
     args = parser.parse_args()
@@ -1887,15 +1961,15 @@ def main():
         if B >= 1e-4:   return f"{B*1e3:.4f} mT"
         return              f"{B*1e6:.2f} µT"
 
-    print(f"\n{'═'*62}")
-    print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
-    print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
-    print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
-    print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
-    print(f"  Inercia      : {args.inertia:.3e} kg.m2  por agulha")
-    print(f"  Amortecimento: {args.damping:.3e} N.m.s/rad  (ar)")
-    print(f"  Campo externo: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} graus")
-    print(f"  Componentes  : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
+    _print(f"\n{'═'*62}")
+    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
+    _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
+    _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
+    _print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
+    _print(f"  Inercia      : {args.inertia:.3e} kg.m2  por agulha")
+    _print(f"  Amortecimento: {args.damping:.3e} N.m.s/rad  (ar)")
+    _print(f"  Campo externo: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} graus")
+    _print(f"  Componentes  : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
     field_mode_str = args.field_mode
     if args.field_mode == 'sine':
         field_mode_str = f"sine  f={args.field_freq:.3f} Hz"
@@ -1903,10 +1977,10 @@ def main():
         field_mode_str = "hysteresis  (0 -> +Hmax -> -Hmax -> +Hmax)"
     elif args.field_mode == 'pulse':
         field_mode_str = "pulse  (campo -> S>=0.99 -> zera -> relaxa)"
-    print(f"  Modo campo   : {field_mode_str}")
-    print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
-    print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
-    print(f"{'═'*62}\n")
+    _print(f"  Modo campo   : {field_mode_str}")
+    _print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
+    _print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
+    _print(f"{'═'*62}\n")
 
     # ── gera grade de posições e ângulos iniciais ─────────────────────────
     # make_grid usa R como parâmetro único; retorna também nn_dist = 2R
@@ -1932,15 +2006,32 @@ def main():
 
     # campo dipolar de referência entre primeiros vizinhos (para exibição)
     B_ref = MU0_OVER_4PI * 2.0 * args.moment / nn_dist**3
-    print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
+    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
-        print(f"  B_ext/B_ref  : {ratio:.3f}  (campo externo DOMINANTE)" if ratio > 1
-              else f"  B_ext/B_ref  : {ratio:.3f}  (campo externo fraco)")
-    print()
+        dom = "DOMINANTE" if ratio > 1 else "fraco"
+        _print(f"  B_ext/B_ref  : {ratio:.3f}  (campo externo {dom})")
+    _print()
 
     ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
                       r_halo=r_halo)
+
+    # ── tamanho da figura proporcional à extensão da rede ─────────────────
+    # Calculado uma vez e reutilizado em todos os frames e figuras estáticas.
+    # A lógica espelha a de plot_state mas usa xs/ys já conhecidos.
+    _x_span = (xs.max() - xs.min()) + 4 * needle_len
+    _y_span = (ys.max() - ys.min()) + 6 * needle_len
+    _aspect = _x_span / _y_span if _y_span > 0 else 1.0
+    _base   = 8.0
+    if _aspect >= 1.0:
+        _fw = min(_base * _aspect, 20.0)
+        _fh = _fw / _aspect
+    else:
+        _fh = min(_base / _aspect, 20.0)
+        _fw = _fh * _aspect
+    figsize_main = (max(_fw, 6.0), max(_fh, 6.0))
+
+    ext_kwargs['figsize_inches'] = figsize_main
 
     # ── figura do estado inicial ──────────────────────────────────────────
     fig0, _ = plot_state(thetas_init, xs, ys,
@@ -1949,9 +2040,9 @@ def main():
                          **ext_kwargs)
     plt.tight_layout()
     plt.savefig("compass_initial.png",
-                dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
+                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
     plt.close(fig0)
-    print("Estado inicial salvo.")
+    _print("Estado inicial salvo.")
 
     # ── integração dinâmica inercial ──────────────────────────────────────
     frame_dir   = None
@@ -1962,14 +2053,14 @@ def main():
         # garantindo que pasta e arquivo usem o mesmo nome base
         final_video = next_available_path(args.video)
         if final_video != args.video:
-            print(f"  '{args.video}' já existe → será salvo como '{final_video}'")
+            _print(f"  '{args.video}' já existe → será salvo como '{final_video}'")
         base      = os.path.splitext(final_video)[0]
         frame_dir = base + "_frames"
-        print(f"Integrando e gravando frames em '{frame_dir}/'...")
+        _print(f"Integrando e gravando frames em '{frame_dir}/'...")
     else:
-        print("Integrando dinâmica inercial...")
+        _print("Integrando dinâmica inercial...")
 
-    thetas_eq, omegas_eq, thetas_hist, n_frames, sim_dt, stop_reason = relax(
+    thetas_eq, omegas_eq, thetas_hist, n_frames, sim_dt, stop_reason, field_log = relax(
         thetas_init.copy(), xs, ys,
         t_sim=args.t_sim,
         dt_factor=args.dt_factor,
@@ -1985,11 +2076,31 @@ def main():
         needle_len=needle_len,
         needle_width=needle_width,
         r_halo=r_halo,
+        frame_dpi=args.dpi,
+        figsize_inches=figsize_main,
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
     )
-    print(f"Integração concluída — {stop_reason}"
-          + (f"  ({n_frames} frames salvos)" if n_frames else ""))
+    frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
+    _print(f"Integracao concluida - {stop_reason}{frames_str}")
+
+    # ── exporta CSV universal com campo e magnetização ────────────────────
+    # Nome = mesmo nome do vídeo (se houver), senão "compass_field_log.csv"
+    import csv as _csv, os as _os
+    if args.video and final_video:
+        csv_path = _os.path.splitext(final_video)[0] + ".csv"
+    else:
+        csv_path = "compass_field_log.csv"
+    with open(csv_path, 'w', newline='') as f:
+        w = _csv.writer(f)
+        w.writerow([
+            't_s',          # tempo fisico [s]
+            'B_aplicado_T', # campo aplicado na direcao phi_ext [T]
+            'M_proj',       # magnetizacao media projetada na direcao do campo
+            'S'             # parametro de ordem global |<e^{i theta}>|
+        ])
+        w.writerows(field_log)
+    _print(f"  CSV salvo: {csv_path}  ({len(field_log)} pontos)")
 
     # ── figura do estado de equilíbrio ────────────────────────────────────
     title_eq = (f"Equilíbrio — {args.geometry} {args.N}×{args.M}"
@@ -2001,9 +2112,9 @@ def main():
                          **ext_kwargs)
     plt.tight_layout()
     plt.savefig("compass_equilibrium.png",
-                dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
+                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
     plt.close(fig1)
-    print("Estado de equilíbrio salvo.")
+    _print("Estado de equilíbrio salvo.")
 
     # ── figura comparativa lado a lado ────────────────────────────────────
     fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
@@ -2044,9 +2155,9 @@ def main():
         color='#BDC3C7', fontsize=11, fontfamily='monospace')
     plt.tight_layout()
     plt.savefig("compass_comparison.png",
-                dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
+                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
     plt.close(fig2)
-    print("Comparação salva.")
+    _print("Comparação salva.")
 
     # ── parâmetro de ordem global ─────────────────────────────────────────
     # hist contém tuplas (thetas, omegas); extraímos só os thetas
@@ -2060,11 +2171,11 @@ def main():
         ok = render_video(frame_dir, final_video, fps=args.fps)
         if ok and not args.keep_frames:
             shutil.rmtree(frame_dir)
-            print(f"  Pasta de frames removida: {frame_dir}/")
+            _print(f"  Pasta de frames removida: {frame_dir}/")
         elif not ok:
-            print(f"  Os frames PNG foram mantidos em: {frame_dir}/")
+            _print(f"  Os frames PNG foram mantidos em: {frame_dir}/")
 
-    print("\nConcluído.")
+    _print("\nConcluído.")
 
 
 if __name__ == '__main__':
