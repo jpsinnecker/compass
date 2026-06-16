@@ -200,7 +200,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           cutoff=3.5, ext_field=(0.0, 0.0), moment=MOMENT_DEFAULT,
           callback=None,
           frame_dir=None, frame_every=10,
-          needle_len=0.042, needle_width=0.010,
+          needle_len=0.042, needle_width=0.010, r_halo=None,
           B_ext=0.0, phi_ext_deg=0.0):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
@@ -427,6 +427,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         fig, ax = plot_state(th, xs, ys, title=title,
                              needle_len=needle_len, needle_width=needle_width,
+                             r_halo=r_halo,
                              B_ext=B_ext, phi_ext_deg=phi_ext_deg)
         plt.tight_layout()
 
@@ -787,109 +788,166 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
 # 5. GERAÇÃO DA GRADE DE AGULHAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def make_grid(N=8, M=8, geometry='square', noise=1.5, dx=0.05, dy=0.05):
+def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
     """
     Cria as posições e os ângulos iniciais de uma grade N×M de agulhas.
+
+    O parâmetro unificador é R [m] — o raio do círculo que envolve cada agulha.
+    As posições são calculadas de modo que círculos adjacentes se toquem
+    tangencialmente (distância entre centros = 2R), garantindo uma rede
+    visualmente correta e sem sobreposição de círculos em qualquer geometria.
 
     Parâmetros
     ----------
     N, M      : número de linhas e colunas de agulhas
     geometry  : tipo de rede (ver abaixo)
     noise     : amplitude do ruído aleatório nos ângulos iniciais  [rad]
-                  0     → todas as agulhas apontam para +x
-                  π     → orientação totalmente aleatória
-    dx        : espaçamento horizontal entre agulhas  [m]
-                (= lado do hexágono na rede honeycomb)
-                Padrão: 0.05 m = 5 cm
-    dy        : espaçamento vertical entre agulhas  [m]
-                (ignorado em 'honeycomb')
-                Padrão: 0.05 m = 5 cm
+                  0   → todas apontam para +x
+                  π   → orientação totalmente aleatória
+    R         : raio do círculo que envolve cada agulha  [m]
+                Padrão: 0.025 m = 2.5 cm
+                A distância entre centros de agulhas adjacentes = 2R.
 
-    Geometrias
-    ----------
+    Geometrias e espaçamentos resultantes
+    --------------------------------------
     'square'
-        Grade retangular pura. Cada agulha (i, j) está em:
-            x = j · dx  [m],   y = i · dy  [m]
-        Cada sítio tem até 4 vizinhos mais próximos.
+        Grade retangular. Vizinhos em 4 direções, todos a 2R.
+            dx_real = 2R    (horizontal)
+            dy_real = 2R    (vertical)
+        Cada sítio tem 4 vizinhos mais próximos.
 
     'triangular'
-        Grade triangular. Linhas ímpares têm offset horizontal de dx/2:
-            x = j · dx + (i%2) · dx/2  [m],   y = i · dy  [m]
-        Com dy = dx·(√3/2) a rede é perfeitamente equilateral (6 vizinhos).
+        Grade triangular equilateral. Vizinhos em 6 direções, todos a 2R.
+            dx_real = 2R          (espaçamento horizontal entre colunas)
+            dy_real = R·√3        (espaçamento vertical entre linhas)
+            offset  = R           (deslocamento de linhas ímpares)
+        Cada sítio tem 6 vizinhos mais próximos.
 
     'honeycomb'
-        Rede colmeia (estrutura do grafeno). Construída por linhas de
-        átomos no espaço real com espaçamento vertical alternado:
-            Δy(linha par → ímpar)  = a/2   [m]
-            Δy(linha ímpar → par)  = a     [m]    (a = dx)
-        O offset horizontal alterna entre 0 e a√3/2  [m].
-        Cada sítio tem exatamente 3 vizinhos mais próximos.
+        Rede colmeia (grafeno). Lado do hexágono = 2R.
+        Construída por linhas horizontais com padrão A-B alternado:
+
+            linha par  (tipo A): offset_x = 0,        Δy_próx = R
+            linha ímpar(tipo B): offset_x = R·√3,     Δy_próx = 2R
+
+        Espaçamentos:
+            entre colunas na mesma linha : 2R·√3
+            Δy(A→B)                      : R
+            Δy(B→A)                      : 2R   (período = 3R no total)
+
+        Verificação: distância entre vizinhos A e B:
+            d = √((R√3)² + R²) = √(3R²+R²) = 2R  ✓
+
+        Cada sítio tem exatamente 3 vizinhos mais próximos (coordenação 3).
         Total de agulhas = N × M.
 
     Retorna
     -------
     xs, ys  : arrays 2D (N×M) com as coordenadas das agulhas  [m]
     thetas  : array 2D (N×M) com os ângulos iniciais  [rad]
+    nn_dist : distância entre primeiros vizinhos  [m]  (= 2R em todos os casos)
     """
+    s3 = np.sqrt(3.0)
 
     # ── grade quadrada ─────────────────────────────────────────────────────
     if geometry == 'square':
+        d = 2.0 * R          # distância entre vizinhos
         xs = np.zeros((N, M))
         ys = np.zeros((N, M))
         for i in range(N):
             for j in range(M):
-                xs[i, j] = j * dx
-                ys[i, j] = i * dy
+                xs[i, j] = j * d
+                ys[i, j] = i * d
         thetas = noise * np.random.randn(N, M)
-        return xs, ys, thetas
+        return xs, ys, thetas, d
 
-    # ── grade triangular ───────────────────────────────────────────────────
+    # ── grade triangular equilateral ───────────────────────────────────────
     elif geometry == 'triangular':
+        d      = 2.0 * R          # distância entre vizinhos
+        dx_col = d                # espaçamento entre colunas
+        dy_row = R * s3           # espaçamento entre linhas = R·√3 = d·(√3/2)
+        offset = R                # offset de linhas ímpares = R = d/2
         xs = np.zeros((N, M))
         ys = np.zeros((N, M))
         for i in range(N):
-            # linhas ímpares deslocadas de dx/2 para gerar triângulos
-            x_offset = (dx / 2.0) * (i % 2)
+            x_off = offset * (i % 2)
             for j in range(M):
-                xs[i, j] = j * dx + x_offset
-                ys[i, j] = i * dy
+                xs[i, j] = j * dx_col + x_off
+                ys[i, j] = i * dy_row
         thetas = noise * np.random.randn(N, M)
-        return xs, ys, thetas
+        return xs, ys, thetas, d
 
     # ── grade honeycomb (colmeia) ──────────────────────────────────────────
     elif geometry == 'honeycomb':
-        # Parâmetro de rede: a = dx (comprimento do lado do hexágono)
-        # Espaçamento entre vizinhos mais próximos = a.
+        # ── Geometria da imagem ──────────────────────────────────────────
+        # Linhas COMPLETAS alternando com linhas de MEIA DENSIDADE,
+        # criando buracos hexagonais visíveis.
         #
-        # A rede é construída como linhas horizontais de átomos.
-        # O padrão de alturas y e offsets x é:
+        # Linha par  (row=0,2,4,...): M agulhas, passo 2R, offset 0
+        #   x = 0, 2R, 4R, ..., (M-1)*2R
         #
-        #  linha 0  y=0        offset=0        • · · · •       → tipo A
-        #  linha 1  y=a/2      offset=a√3/2      • · · · •     → tipo B
-        #  linha 2  y=3a/2     offset=0        • · · · •       → tipo A
-        #  linha 3  y=2a       offset=a√3/2      • · · · •     → tipo B
-        #  ...
+        # Linha ímpar(row=1,3,5,...): ~M/2 agulhas, passo 4R, offset R
+        #   x = R, 5R, 9R, ...
         #
-        # A alternância de Δy = a/2 e Δy = a cria exatamente a topologia
-        # hexagonal: cada átomo tipo A tem 3 vizinhos (1 em baixo + 2 em
-        # cima) e vice-versa — formando hexágonos regulares com lado a.
-        a   = dx
-        s3  = np.sqrt(3.0)
-        xs_list, ys_list = [], []
-        y = 0.0
-        for r in range(N):
-            # offset horizontal: 0 em linhas pares, a√3/2 em linhas ímpares
-            x_offset = 0.0 if (r % 2 == 0) else a * s3 / 2.0
-            for c in range(M):
-                xs_list.append(c * a * s3 + x_offset)
-                ys_list.append(y)
-            # espaçamento vertical alterna: a/2 (A→B) e a (B→A)
-            y += (a / 2.0) if (r % 2 == 0) else a
+        # Δy entre linhas consecutivas = R*√3
+        #
+        # Cada agulha da linha completa toca:
+        #   - 2 vizinhos na mesma linha (a dist 2R)
+        #   - 1 vizinho na linha ímpar acima  (a dist 2R)  ← B(-R, +dy)
+        #   - 1 vizinho na linha ímpar abaixo (a dist 2R)
+        #
+        # Verificação:  A(0,0) → B(-R, dy):
+        #   d = √(R² + 3R²) = 2R  ✓
+        #
+        # Estratégia de preenchimento:
+        #   Gera rede maior (N+4 pares de linhas) e recorta o retângulo W×H.
+        # ─────────────────────────────────────────────────────────────────
+        dy  = R * np.sqrt(3.0)   # espaçamento vertical entre linhas [m]
+        d   = 2.0 * R            # distância entre vizinhos [m]
 
-        xs     = np.array(xs_list).reshape(N, M)
-        ys     = np.array(ys_list).reshape(N, M)
-        thetas = noise * np.random.randn(N, M)
-        return xs, ys, thetas
+        # Dimensões alvo do retângulo
+        W = (M - 1) * 2.0 * R   # largura: M agulhas na linha completa
+        H = (N - 1) * dy         # altura:  N linhas com espaçamento dy
+
+        # Gera rede maior (padding de 2 linhas/colunas em cada lado)
+        N_rows = (N + 4) * 2     # * 2 porque alternamos par e ímpar
+        x_start = -2.0 * 2 * R   # começa 2 agulhas à esquerda
+        y_start = -2.0 * dy       # começa 2 linhas abaixo
+
+        xs_list, ys_list = [], []
+        for row in range(N_rows):
+            y = y_start + row * dy
+            if row % 2 == 0:
+                # linha completa: x = x_start, x_start+2R, x_start+4R, ...
+                x = x_start
+                while x <= W + 2 * 2 * R:
+                    xs_list.append(x)
+                    ys_list.append(y)
+                    x += 2.0 * R
+            else:
+                # linha meia: x = x_start+R, x_start+5R, x_start+9R, ...
+                # offset de R em relação à linha par, passo 4R
+                x = x_start + R
+                while x <= W + 2 * 2 * R:
+                    xs_list.append(x)
+                    ys_list.append(y)
+                    x += 4.0 * R
+
+        all_x = np.array(xs_list)
+        all_y = np.array(ys_list)
+
+        # Recorta: mantém pontos dentro do retângulo alvo com margem R
+        margin = R * 0.99
+        mask = ((all_x >= -margin) & (all_x <= W + margin) &
+                (all_y >= -margin) & (all_y <= H + margin))
+        clipped_x = all_x[mask]
+        clipped_y = all_y[mask]
+
+        n_pts = len(clipped_x)
+        xs     = clipped_x.reshape(n_pts, 1)
+        ys     = clipped_y.reshape(n_pts, 1)
+        thetas = noise * np.random.randn(n_pts, 1)
+        return xs, ys, thetas, d
 
     else:
         raise ValueError(f"Geometria desconhecida: '{geometry}'. "
@@ -1100,7 +1158,7 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 
 
 def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
-               needle_len=0.42, needle_width=0.10,
+               needle_len=0.42, needle_width=0.10, r_halo=None,
                B_ext=0.0, phi_ext_deg=0.0):
     """
     Gera uma figura com o estado instantâneo da rede de agulhas.
@@ -1149,9 +1207,9 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                 if count:
                     align /= count
                 col    = cm.RdYlGn((align + 1.0) / 2.0)
-                r_halo = needle_len * 0.58
+                _r     = r_halo if r_halo is not None else needle_len * 0.58
                 ax.add_patch(plt.Circle(
-                    (xs[i, j], ys[i, j]), r_halo,
+                    (xs[i, j], ys[i, j]), _r,
                     color=col, alpha=0.20, zorder=1))
 
     # ── agulhas ───────────────────────────────────────────────────────────
@@ -1333,12 +1391,13 @@ def main():
                      help='Numero de LINHAS de agulhas')
     grp.add_argument('--M', type=int, default=8,
                      help='Numero de COLUNAS de agulhas')
-    grp.add_argument('--dx', type=float, default=0.05,
-                     help='Distancia HORIZONTAL entre centros das agulhas [m] '
-                          '(= lado do hexagono em honeycomb). Padrao: 0.05 m = 5 cm')
-    grp.add_argument('--dy', type=float, default=0.05,
-                     help='Distancia VERTICAL entre centros das agulhas [m] '
-                          '(ignorado em honeycomb). Padrao: 0.05 m = 5 cm')
+    grp.add_argument('--R', type=float, default=0.025,
+                     help='Raio do circulo que envolve cada agulha [m]. '
+                          'A distancia entre centros de vizinhos = 2R. '
+                          'Padrao: 0.025 m = 2.5 cm')
+    grp.add_argument('--needle_frac', type=float, default=0.80,
+                     help='Comprimento da agulha como fracao do diametro 2R '
+                          '(0.0–1.0). Padrao: 0.80  →  agulha = 0.80 * 2R')
     grp.add_argument('--geometry',
                      choices=['square', 'triangular', 'honeycomb'],
                      default='square',
@@ -1434,7 +1493,10 @@ def main():
 
     print(f"\n{'═'*62}")
     print(f"  Rede         : {args.geometry}  {args.N}×{args.M} agulhas")
-    print(f"  Espaçamento  : dx={args.dx*100:.1f} cm  dy={args.dy*100:.1f} cm")
+    print(f"  Raio R       : {args.R*100:.2f} cm  "
+          f"(dist. entre vizinhos = 2R = {2*args.R*100:.2f} cm)")
+    print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R "
+          f"= {args.needle_frac*2*args.R*100:.2f} cm de comprimento")
     print(f"  Momento mag. : {args.moment:.4g} A·m²  por agulha")
     print(f"  Inércia      : {args.inertia:.3e} kg·m²  por agulha")
     print(f"  Amortecimento: {args.damping:.3e} N·m·s/rad  (ar)")
@@ -1445,23 +1507,26 @@ def main():
     print(f"{'═'*62}\n")
 
     # ── gera grade de posições e ângulos iniciais ─────────────────────────
-    xs, ys, thetas_init = make_grid(
+    # make_grid usa R como parâmetro único; retorna também nn_dist = 2R
+    xs, ys, thetas_init, nn_dist = make_grid(
         args.N, args.M,
         geometry=args.geometry,
         noise=args.noise,
-        dx=args.dx, dy=args.dy
+        R=args.R,
     )
 
-    # ── define cutoff [m] e tamanho das agulhas [m] ───────────────────────
-    if args.geometry == 'honeycomb':
-        nn_dist    = args.dx
-        cutoff     = nn_dist * 2.6
-        needle_len = nn_dist * 0.72
-    else:
-        nn_dist    = min(args.dx, args.dy)
-        cutoff     = 2.5 * max(args.dx, args.dy)
-        needle_len = 0.78 * nn_dist
-    needle_width = needle_len * 0.22
+    # ── tamanhos derivados de R ───────────────────────────────────────────
+    # R  = raio do círculo visual de cada agulha
+    # 2R = distância entre vizinhos (nn_dist) em qualquer geometria
+    # needle_len = fração de 2R controlada por --needle_frac
+    # needle_width = 22% de needle_len (proporção visual de bússola)
+    # r_halo = R (exatamente o raio do círculo) — círculos se tocam tangencialmente
+    # cutoff = 2.6 * 2R — cobre 1ª e 2ª camadas de vizinhos
+    R          = args.R
+    needle_len = args.needle_frac * 2.0 * R   # comprimento da agulha [m]
+    needle_width = needle_len * 0.22           # largura do losango [m]
+    r_halo     = R * 0.98                      # ligeiramente menor que R para gap visível
+    cutoff     = nn_dist * 2.6                 # raio de corte da interação dipolar [m]
 
     # campo dipolar de referência entre primeiros vizinhos (para exibição)
     B_ref = MU0_OVER_4PI * 2.0 * args.moment / nn_dist**3
@@ -1473,7 +1538,8 @@ def main():
                  else "(campo externo fraco — interações dominam)"))
     print()
 
-    ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg)
+    ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
+                      r_halo=r_halo)
 
     # ── figura do estado inicial ──────────────────────────────────────────
     fig0, _ = plot_state(thetas_init, xs, ys,
@@ -1515,6 +1581,7 @@ def main():
         frame_every=args.frame_every,
         needle_len=needle_len,
         needle_width=needle_width,
+        r_halo=r_halo,
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
     )
@@ -1569,7 +1636,7 @@ def main():
                   if B_ext_mag > 0 else "")
     fig2.suptitle(
         f"Rede {args.geometry} {args.N}×{args.M}"
-        f"  |  dx={args.dx}  dy={args.dy}"
+        f"  |  R={args.R*100:.1f} cm  2R={2*args.R*100:.1f} cm"
         f"{bfield_str}  |  interação dipolar 2D",
         color='#BDC3C7', fontsize=11, fontfamily='monospace')
     plt.tight_layout()
