@@ -505,19 +505,22 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
-    print(f"  Dinâmica inercial:")
-    print(f"    r_nn   = {r_nn*100:.2f} cm")
-    print(f"    B_ref  = {B_ref*1e3:.4f} mT  (dipolar entre vizinhos)")
+    print(f"  Dinamica inercial:")
+    print(f"    r_nn    = {r_nn*100:.2f} cm")
+    print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar entre vizinhos)")
     if B_ext_mag > 0:
-        print(f"    B_ext  = {B_ext_mag*1e3:.4f} mT  (campo externo)")
-    print(f"    B_eff  = {B_eff*1e3:.4f} mT  (campo dominante → define dt)")
-    print(f"    omega_0     = {omega0:.2f} rad/s   T₀ = {T0:.5f} s")
-    print(f"    dt     = {dt:.6f} s  ({dt_factor:.0%} de T₀)")
-    print(f"    t_sim  = {t_sim:.3f} s  →  {n_steps} passos")
-    print(f"    Q      = {Q:.1f}  "
-          + ("(sub-amortecido — oscila)" if Q > 2
-             else "(criticamente amortecido)" if Q > 0.5
-             else "(super-amortecido — sem oscilações)"))
+        print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (campo externo)")
+    print(f"    B_eff   = {B_eff*1e3:.4f} mT  (campo dominante)")
+    print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
+    print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} de T0)")
+    print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} passos")
+    if Q > 2:
+        q_desc = "sub-amortecido (oscila)"
+    elif Q > 0.5:
+        q_desc = "criticamente amortecido"
+    else:
+        q_desc = "super-amortecido"
+    print(f"    Q       = {Q:.1f}  ({q_desc})")
     print()
 
     # ── condições iniciais ─────────────────────────────────────────────────
@@ -828,8 +831,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
-            print(f"\n  Interrompido pelo usuário (Ctrl+I) em t={t_now:.4f}s"
-                  f"  (passo {step}/{n_steps})")
+            print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
                 _save_frame(step, theta_cur, omega_cur,
@@ -903,8 +905,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _S1_count = 0
 
             if _S1_count >= 30:
-                print(f"\n  S = 1.00 atingido em t={t_now:.4f}s"
-                      f"  (passo {step}/{n_steps})")
+                print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
@@ -923,8 +924,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 # alinhamento atingido → desliga o campo e entra em relaxação
                 _saturate_relaxing[0] = True
                 _saturate_phase = 'relaxing'
-                print(f"\n  Saturação S≥0.99 em t={t_now:.4f}s — campo zerado, "
-                      f"sistema relaxa livremente")
+                print(f"\n  Saturacao S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 # atualiza tau com campo=0 para o próximo passo
                 tau_cur = _torques(theta_cur, 0.0, 0.0)
                 if frame_dir is not None:
@@ -939,8 +939,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _converged_count = 0
 
         if _converged_count >= 50:
-            print(f"\n  Rede em repouso em t={t_now:.4f}s"
-                  f"  (passo {step}/{n_steps})  S={S_now:.4f}")
+            print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
             _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
             _stop_flag.set()
             if frame_dir is not None:
@@ -1889,26 +1888,24 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     print(f"\n{'═'*62}")
-    print(f"  Rede         : {args.geometry}  {args.N}×{args.M} agulhas")
-    print(f"  Raio R       : {args.R*100:.2f} cm  "
-          f"(dist. entre vizinhos = 2R = {2*args.R*100:.2f} cm)")
-    print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R "
-          f"= {args.needle_frac*2*args.R*100:.2f} cm de comprimento")
-    print(f"  Momento mag. : {args.moment:.4g} A·m²  por agulha")
-    print(f"  Inércia      : {args.inertia:.3e} kg·m²  por agulha")
-    print(f"  Amortecimento: {args.damping:.3e} N·m·s/rad  (ar)")
-    print(f"  Campo externo: {fmt_field(B_ext_mag)}  φ={phi_ext_deg:.1f}°"
-          f"  → Bx={fmt_field(Bext_x)}  By={fmt_field(Bext_y)}")
+    print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
+    print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
+    print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
+    print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
+    print(f"  Inercia      : {args.inertia:.3e} kg.m2  por agulha")
+    print(f"  Amortecimento: {args.damping:.3e} N.m.s/rad  (ar)")
+    print(f"  Campo externo: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} graus")
+    print(f"  Componentes  : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
     field_mode_str = args.field_mode
     if args.field_mode == 'sine':
-        field_mode_str += f"  f={args.field_freq:.3f} Hz"
+        field_mode_str = f"sine  f={args.field_freq:.3f} Hz"
     elif args.field_mode == 'hysteresis':
-        field_mode_str += "  (0→Hmax→−Hmax→Hmax)"
+        field_mode_str = "hysteresis  (0 -> +Hmax -> -Hmax -> +Hmax)"
     elif args.field_mode == 'saturate':
-        field_mode_str += "  (aplica campo → S≥0.99 → zera → relaxa)"
-    print(f"  Simulação    : t_sim={args.t_sim:.3f} s  dt_factor={args.dt_factor}"
-          f"  ruído={args.noise:.2f} rad  seed={args.seed}")
+        field_mode_str = "saturate  (campo -> S>=0.99 -> zera -> relaxa)"
     print(f"  Modo campo   : {field_mode_str}")
+    print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
+    print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
     print(f"{'═'*62}\n")
 
     # ── gera grade de posições e ângulos iniciais ─────────────────────────
@@ -1935,12 +1932,11 @@ def main():
 
     # campo dipolar de referência entre primeiros vizinhos (para exibição)
     B_ref = MU0_OVER_4PI * 2.0 * args.moment / nn_dist**3
-    print(f"  Campo dipolar de referência (vizinho mais próximo): {fmt_field(B_ref)}")
+    print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
-        print(f"  B_ext / B_ref = {ratio:.3f}  "
-              + ("(campo externo DOMINANTE)" if ratio > 1
-                 else "(campo externo fraco — interações dominam)"))
+        print(f"  B_ext/B_ref  : {ratio:.3f}  (campo externo DOMINANTE)" if ratio > 1
+              else f"  B_ext/B_ref  : {ratio:.3f}  (campo externo fraco)")
     print()
 
     ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
