@@ -742,10 +742,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             B(t) = B_max · sin(2π · field_freq · t)
             Direção: phi_ext. Frequência: field_freq [Hz].
 
-        'saturate'
+        'pulse'
             Fase 1 (campo aplicado): B = B_max (constante) até S ≥ 0.99.
             Fase 2 (relaxação): B = 0 após S ≥ 0.99, sistema relaxa livre.
-            A transição entre fases é controlada pela flag _saturate_relaxing,
+            A transição entre fases é controlada pela flag _pulse_relaxing,
             atualizada no loop principal. field_at() consulta essa flag.
         """
         if field_mode == 'static':
@@ -769,9 +769,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             B_scalar = B_max * np.sin(2.0 * np.pi * field_freq * t)
             return B_scalar * cos_phi, B_scalar * sin_phi
 
-        elif field_mode == 'saturate':
+        elif field_mode == 'pulse':
             # fase 1: campo ligado; fase 2: campo desligado (relaxação)
-            if _saturate_relaxing[0]:
+            if _pulse_relaxing[0]:
                 return 0.0, 0.0
             else:
                 return Bext_x0, Bext_y0
@@ -779,9 +779,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         else:
             return Bext_x0, Bext_y0
 
-    # flag mutável para o modo 'saturate' (lista de 1 elemento para ser
+    # flag mutável para o modo 'pulse' (lista de 1 elemento para ser
     # modificável dentro de _save_frame e do loop sem 'nonlocal')
-    _saturate_relaxing = [False]   # False = campo ligado; True = relaxando
+    _pulse_relaxing = [False]   # False = campo ligado; True = relaxando
 
     # imprime instrução de uso
     print("  [Ctrl+I para interromper e salvar o vídeo agora]")
@@ -818,12 +818,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     tau_cur           = _torques(theta_cur, bx_cur, by_cur)
     _converged_count  = 0
     # S=1 como critério de parada só faz sentido em campo estático.
-    # Em hysteresis e sine o campo oscila; em saturate queremos continuar
+    # Em hysteresis e sine o campo oscila; em pulse queremos continuar
     # após S=1 para observar a relaxação com campo zerado.
     _allow_S1_stop    = (field_mode == 'static')
     _stop_reason      = "tempo total atingido"
-    _saturate_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
-    _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (saturate)
+    _pulse_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
+    _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
 
     for step in range(1, n_steps + 1):
 
@@ -913,8 +913,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
 
-        # ── modo saturate: detecta S ≥ 0.99 e desliga o campo ─────────────
-        if field_mode == 'saturate' and _saturate_phase == 'field_on':
+        # ── modo pulse: detecta S ≥ 0.99 e desliga o campo ─────────────
+        if field_mode == 'pulse' and _pulse_phase == 'field_on':
             if S_now >= 0.99:
                 _S99_count += 1
             else:
@@ -922,14 +922,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if _S99_count >= 20:
                 # alinhamento atingido → desliga o campo e entra em relaxação
-                _saturate_relaxing[0] = True
-                _saturate_phase = 'relaxing'
-                print(f"\n  Saturacao S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
+                _pulse_relaxing[0] = True
+                _pulse_phase = 'relaxing'
+                print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 # atualiza tau com campo=0 para o próximo passo
                 tau_cur = _torques(theta_cur, 0.0, 0.0)
                 if frame_dir is not None:
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="⊙ campo zerado — relaxando",
+                                stop_label="⊙ campo zerado, relaxando",
                                 B_ext_inst=0.0, phi_ext_inst=0.0)
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
@@ -1809,13 +1809,13 @@ def main():
                            'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
                            'Padrao: 2.0 s')
     grp2.add_argument('--field_mode',
-                      choices=['static', 'hysteresis', 'sine', 'saturate'],
+                      choices=['static', 'hysteresis', 'sine', 'pulse'],
                       default='static',
                       help='Modo do campo externo: '
                            'static=constante (padrao), '
                            'hysteresis=rampa 0->Hmax->-Hmax->Hmax, '
                            'sine=senoidal Hmax*sin(2pi*f*t), '
-                           'saturate=aplica campo ate S>=0.99 depois zera e relaxa. '
+                           'pulse=aplica campo ate S>=0.99 depois zera e relaxa. '
                            'Amplitude=--B_ext, direcao=--phi_ext.')
     grp2.add_argument('--field_freq', type=float, default=1.0,
                       help='Frequencia do campo senoidal [Hz]. '
@@ -1901,8 +1901,8 @@ def main():
         field_mode_str = f"sine  f={args.field_freq:.3f} Hz"
     elif args.field_mode == 'hysteresis':
         field_mode_str = "hysteresis  (0 -> +Hmax -> -Hmax -> +Hmax)"
-    elif args.field_mode == 'saturate':
-        field_mode_str = "saturate  (campo -> S>=0.99 -> zera -> relaxa)"
+    elif args.field_mode == 'pulse':
+        field_mode_str = "pulse  (campo -> S>=0.99 -> zera -> relaxa)"
     print(f"  Modo campo   : {field_mode_str}")
     print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
     print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
