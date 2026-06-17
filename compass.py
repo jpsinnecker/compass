@@ -151,8 +151,11 @@ EXEMPLOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Dependências: numpy, matplotlib, ffmpeg (para vídeo)
 Opcional (aceleração GPU): cupy-cuda12x (ou versão compatível com sua CUDA)
-  pip install cupy-cuda12x
-  Detectado automaticamente; se ausente, usa CPU/NumPy normalmente.
+  pip install cupy-cuda12x[ctk]
+  O sufixo [ctk] instala também os headers do CUDA Toolkit, necessários
+  para compilar kernels em tempo de execução (sem eles, cai para CPU
+  com erro "Failed to find CUDA headers").
+  Detectado automaticamente; se ausente ou incompleto, usa CPU/NumPy.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -170,19 +173,31 @@ import sys
 # disponível, usa CuPy como substituto do NumPy para os cálculos pesados
 # (campo dipolar). CuPy tem API quase idêntica ao NumPy, então o mesmo
 # código vetorizado roda em GPU sem alterações de lógica.
-# Se cupy não estiver instalado ou não houver GPU, cai automaticamente
-# para NumPy (CPU) — o programa funciona em qualquer máquina.
+# Se cupy não estiver instalado, não houver GPU, ou os headers do CUDA
+# Toolkit não estiverem presentes (necessários para compilar kernels em
+# tempo de execução), cai automaticamente para NumPy (CPU) — o programa
+# funciona em qualquer máquina, mesmo com cupy "parcialmente" instalado.
 _GPU_AVAILABLE = False
+_GPU_ERROR_MSG = None
 _xp = np   # _xp = "array module" ativo: np (CPU) ou cp (GPU)
 try:
     import cupy as cp
-    # testa se há de fato uma GPU CUDA funcional, não apenas o pacote instalado
+    # Teste 1: há um dispositivo CUDA visível?
     cp.cuda.Device(0).compute_capability
+    # Teste 2 (crítico): tenta de fato COMPILAR e executar um kernel simples.
+    # cp.cuda.Device(0).compute_capability só consulta o driver — não detecta
+    # a falta dos headers do CUDA Toolkit, que são necessários para o NVRTC
+    # compilar kernels elementwise (cos, sin, etc.) em tempo de execução.
+    # Sem esse teste real, o erro só aparece no meio da simulação.
+    _test_arr = cp.array([0.0, 1.0])
+    _ = cp.cos(_test_arr)   # força a compilação JIT de um kernel real
+    cp.cuda.Stream.null.synchronize()
     _xp = cp
     _GPU_AVAILABLE = True
-except Exception:
+except Exception as _e:
     _xp = np
     _GPU_AVAILABLE = False
+    _GPU_ERROR_MSG = str(_e).strip().splitlines()[-1] if str(_e).strip() else type(_e).__name__
 
 
 def _to_cpu(arr):
@@ -2324,7 +2339,16 @@ def main():
             _gpu_name = "GPU CUDA"
         _print(f"  Backend      : GPU ({_gpu_name}) via CuPy")
     else:
-        _print(f"  Backend      : CPU (NumPy)  -- instale cupy para usar GPU")
+        _print(f"  Backend      : CPU (NumPy)")
+        if _GPU_ERROR_MSG:
+            if 'CUDA headers' in _GPU_ERROR_MSG or 'CUDA_PATH' in _GPU_ERROR_MSG:
+                _print(f"  GPU indisponivel: faltam os headers do CUDA Toolkit.")
+                _print(f"  Solucao: pip install cupy-cuda12x[ctk]")
+                _print(f"  (ou ajuste cuda12x para a versao da sua CUDA Toolkit)")
+            else:
+                _print(f"  GPU indisponivel: {_GPU_ERROR_MSG[:70]}")
+        else:
+            _print(f"  GPU indisponivel: cupy nao instalado")
     _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
     pbc_str = (f"ligado  (n_images={args.pbc_images}, soma sobre "
                f"{(2*args.pbc_images+1)**2} celulas)") if args.pbc else "desligado"
