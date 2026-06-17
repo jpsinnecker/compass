@@ -230,6 +230,45 @@ def _print(*args, **kwargs):
     sys.stdout.write(msg + '\r\n')
     sys.stdout.flush()
 
+
+def _print_progress_bar(frac, prefix="", suffix="", bar_width=40):
+    """
+    Imprime/atualiza uma barra de progresso em texto na MESMA linha do
+    terminal (sobrescrevendo, via \\r sem newline final), no estilo:
+
+        Integrando: [###############             ] 52.3%  (passo 524/1007)
+
+    Parâmetros
+    ----------
+    frac      : fração concluída, entre 0.0 e 1.0
+    prefix    : texto antes da barra (ex: "Integrando: ")
+    suffix    : texto depois da porcentagem (ex: "(passo 524/1007)")
+    bar_width : número de caracteres da barra em si
+
+    Nota: usa \\r (retorno de carro sem newline) para sobrescrever a
+    mesma linha repetidamente. Qualquer _print() chamado enquanto a
+    barra está "aberta" deve vir depois de _print_progress_bar_finish(),
+    ou a saída ficará misturada na mesma linha.
+    """
+    import sys
+    frac = max(0.0, min(1.0, frac))
+    n_filled = int(round(frac * bar_width))
+    bar = '#' * n_filled + ' ' * (bar_width - n_filled)
+    pct = frac * 100.0
+    line = f"\r{prefix}[{bar}] {pct:5.1f}%  {suffix}"
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
+
+def _print_progress_bar_finish():
+    """
+    Fecha a barra de progresso aberta por _print_progress_bar, emitindo
+    um \\r\\n para que a próxima saída comece numa linha nova e limpa.
+    """
+    import sys
+    sys.stdout.write('\r\n')
+    sys.stdout.flush()
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CONSTANTES FÍSICAS (Sistema Internacional — SI)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1183,6 +1222,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
+            _print_progress_bar_finish()
             _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
@@ -1257,20 +1297,22 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if sine_log is not None:
             sine_log.append(entry)
 
-        # ── indicador periódico de desempenho (passos/s, ms/passo) ────────
-        # Independente de gerar vídeo ou não — mostra a cada ~2s de
-        # wall-clock decorrido, para não sobrecarregar o terminal em
-        # simulações rápidas nem ficar "mudo" em simulações longas.
-        # Permite comparar diretamente o throughput entre --gpu 0 e --gpu 1.
+        # ── barra de progresso em tempo real ───────────────────────────────
+        # Mostra visualmente a fração concluída da integração, junto com
+        # throughput (passos/s) e o backend ativo (CPU/GPU). Atualiza no
+        # máximo a cada ~0.15s de wall-clock para a barra parecer fluida
+        # sem sobrecarregar o terminal com escritas excessivas.
         _perf_now = _time_module.perf_counter()
-        if (_perf_now - _perf_last_print_time) >= 2.0:
+        if (_perf_now - _perf_last_print_time) >= 0.15 or step == n_steps:
             _steps_since = step - _perf_last_print_step
             _dt_wall     = _perf_now - _perf_last_print_time
             _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
-            _ms_per_step = (_dt_wall / _steps_since * 1000.0) if _steps_since > 0 else 0.0
             _backend_tag = "GPU" if _active_gpu else "CPU"
-            _print(f"  [{_backend_tag}] passo {step}/{n_steps}  "
-                   f"({_steps_per_s:.0f} passos/s  {_ms_per_step:.3f} ms/passo)")
+            _frac_done   = step / n_steps if n_steps > 0 else 1.0
+            _print_progress_bar(
+                _frac_done,
+                prefix=f"  Integrando [{_backend_tag}] ",
+                suffix=f"passo {step}/{n_steps}  ({_steps_per_s:.0f} passos/s)")
             _perf_last_print_step = step
             _perf_last_print_time = _perf_now
 
@@ -1281,9 +1323,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             B_signed = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
             _save_frame(step, theta_cur, omega_cur,
                         B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg)
-            # imprime progresso a cada 50 frames salvos
-            if n_frames % 50 == 0:
-                _print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  B={B_signed*1e3:+.3f}mT  S={S_now:.4f}  w={omega_max:.2f}rad/s")
+            # (progresso agora mostrado pela barra de progresso em tempo
+            # real, acima — não é mais necessário um print por frame)
 
         # ── condição 1: S = 1.00 (só em campo estático) ──────────────────
         if _allow_S1_stop:
@@ -1293,6 +1334,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _S1_count = 0
 
             if _S1_count >= 30:
+                _print_progress_bar_finish()
                 _print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
@@ -1342,6 +1384,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 # alinhamento atingido OU S estabilizou → desliga o campo
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
+                _print_progress_bar_finish()
                 if _trigger_A:
                     _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 else:
@@ -1372,6 +1415,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _converged_count = 0
 
             if _converged_count >= 50:
+                _print_progress_bar_finish()
                 _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
                 _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
                 _stop_flag.set()
@@ -1381,6 +1425,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="● rede em repouso")
                 break
+
+    # garante que a barra de progresso seja fechada mesmo se o loop terminou
+    # normalmente (atingiu n_steps) sem passar por nenhuma das mensagens
+    # acima que já fecham a barra explicitamente
+    _print_progress_bar_finish()
 
     # ── garante sincronização final CPU<->GPU antes de retornar ───────────
     # (o loop pode ter terminado num passo onde _need_cpu_sync era False)
