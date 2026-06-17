@@ -663,29 +663,40 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         """
         Renderiza e salva um frame PNG.
 
-        B_ext_inst : intensidade ATUAL do campo  [T]  (pode ser 0 após pulso).
-                     O painel é sempre desenhado; quando B=0 mostra "0 T".
-        phi_ext_inst: direção atual  [graus]  (usa phi_ext_deg se None).
-        B_ext (closure) : intensidade máxima — usada para escalar a barra.
+        B_ext_inst : valor COM SINAL do campo projetado na direção phi [T].
+                     Negativo na fase inversa da histerese.
+                     O painel mostra a seta invertida e o valor com sinal.
+        phi_ext_inst: direção base do campo [graus].
+        B_ext (closure) : amplitude máxima — usada para escalar a barra.
         """
         nonlocal n_frames
         t_phys   = step * dt
         S        = np.abs(np.mean(np.exp(1j * th)))
         om_max   = np.max(np.abs(om))
 
-        # campo instantâneo a exibir (pode ser 0, mas phi permanece)
+        # campo com sinal: B_now pode ser negativo (campo invertido)
         b_now    = B_ext_inst   if B_ext_inst   is not None else B_ext
         phi_now  = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
 
-        b_str = _fmt_B(b_now) if b_now and b_now > 0 else "0 T"
+        # texto com sinal: "+60.8 mT" ou "-60.8 mT" ou "0 T"
+        if b_now is not None and abs(b_now) > 1e-12:
+            sign_str = "+" if b_now > 0 else "-"
+            b_str = sign_str + _fmt_B(abs(b_now))
+        else:
+            b_str = "0 T"
+
         title = f"S = {S:.4f}   w_max = {om_max:.2f} rad/s   B = {b_str}"
+
+        # quando B < 0: a seta aponta na direção oposta (phi + 180°)
+        phi_display = phi_now if (b_now is None or b_now >= 0) else (phi_now + 180.0) % 360.0
 
         fig, ax = plot_state(th, xs, ys, title=title,
                              needle_len=needle_len, needle_width=needle_width,
                              r_halo=r_halo,
-                             B_ext=b_now,
-                             phi_ext_deg=phi_now,
-                             B_ext_max=B_ext,    # máximo para escalar a barra
+                             B_ext=abs(b_now) if b_now is not None else 0.0,
+                             phi_ext_deg=phi_display,
+                             B_ext_max=B_ext,
+                             B_signed=b_now,        # valor com sinal para o texto do painel
                              figsize_inches=figsize_inches)
         plt.tight_layout()
         _draw_clock(ax, t_phys, needle_len, stop_label=stop_label)
@@ -921,13 +932,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
-            B_inst   = np.sqrt(bx_cur**2 + by_cur**2)
-            phi_inst = np.degrees(np.arctan2(by_cur, bx_cur))
+            # B_signed: projeção com sinal na direção do campo
+            # (negativo quando o campo aponta contra phi_ext, ex: hysteresis)
+            B_signed = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
             _save_frame(step, theta_cur, omega_cur,
-                        B_ext_inst=B_inst, phi_ext_inst=phi_inst)
-            # imprime progresso a cada 50 frames salvos (não a cada passo)
+                        B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg)
+            # imprime progresso a cada 50 frames salvos
             if n_frames % 50 == 0:
-                _print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  B={B_inst*1e3:.3f}mT  S={S_now:.4f}  w={omega_max:.2f}rad/s")
+                _print(f"  frame {n_frames-1:4d}  t={t_now:.4f}s  B={B_signed*1e3:+.3f}mT  S={S_now:.4f}  w={omega_max:.2f}rad/s")
 
         # ── condição 1: S = 1.00 (só em campo estático) ──────────────────
         if _allow_S1_stop:
@@ -1470,7 +1482,8 @@ def _fmt_B(B):
 
 
 def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
-                              needle_len, B_ext_max=None, color='#FFD700'):
+                              needle_len, B_ext_max=None, B_signed=None,
+                              color='#FFD700'):
     """
     Representa o campo externo na imagem.  SEMPRE desenhado, mesmo quando
     B_ext = 0 (campo desligado após pulso, etc.).
@@ -1583,11 +1596,18 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
         facecolor='none', edgecolor='#5A5A8A',
         linewidth=0.7, zorder=22, transform=ax.transData))
 
-    # textos
+    # ── textos ────────────────────────────────────────────────────────────
     tx = cx_d
     ty = cy_d + pad * 1.5
 
-    b_str   = _fmt_B(B_ext) if field_on else "0 T  (desligado)"
+    # usa B_signed se disponível (mostra sinal), senão usa B_ext (positivo)
+    b_val = B_signed if B_signed is not None else (B_ext if field_on else 0.0)
+    if abs(b_val) > 1e-12:
+        sign_str = "+" if b_val >= 0 else "-"
+        b_str = sign_str + _fmt_B(abs(b_val))
+    else:
+        b_str = "0 T  (desligado)" if not field_on else "0 T"
+
     phi_str = f"dir: {phi_ext_deg:.1f} graus"
 
     ax.text(tx, ty, b_str,
@@ -1606,7 +1626,7 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                needle_len=0.42, needle_width=0.10, r_halo=None,
                B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
-               figsize_inches=None):
+               B_signed=None, figsize_inches=None):
     """
     Gera uma figura com o estado instantâneo da rede de agulhas.
 
@@ -1698,7 +1718,7 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
 
     # ── campo externo (setas + painel) — depois de set_xlim/ylim ─────────
     draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len,
-                              B_ext_max=B_ext_max)
+                              B_ext_max=B_ext_max, B_signed=B_signed)
 
     # ── legenda ───────────────────────────────────────────────────────────
     patch_n = mpatches.Patch(facecolor='#FFFFFF', edgecolor='#555',
