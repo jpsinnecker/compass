@@ -298,6 +298,13 @@ STEEL_DENSITY_DEFAULT = 7850.0   # kg/m³
 # Espessura padrão de uma lâmina fina cortada de chapa de aço comum
 NEEDLE_THICKNESS_DEFAULT = 0.4e-3   # m  (0.4 mm)
 
+# Magnetização de saturação de um aço magnético comum (aço-carbono / ferro
+# doce). Corresponde a uma densidade de fluxo de saturação Bsat ≈ 2.0 T,
+# valor bem estabelecido na literatura para ligas de ferro de alta
+# permeabilidade (faixa típica: 1.6-2.2 T; usamos um valor central
+# representativo). Relação: Bsat = μ0 · Ms  →  Ms = Bsat / μ0.
+STEEL_MS_SATURATION_DEFAULT = 1.59e6   # A/m  (≈ Bsat de 2.0 T)
+
 
 def compute_inertia_from_geometry(needle_len, needle_width, thickness,
                                   density=STEEL_DENSITY_DEFAULT):
@@ -341,6 +348,49 @@ def compute_inertia_from_geometry(needle_len, needle_width, thickness,
     mass = density * needle_len * needle_width * thickness   # [kg]
     I = (1.0 / 12.0) * mass * (needle_len**2 + needle_width**2)   # [kg·m²]
     return I
+
+
+def compute_moment_from_geometry(needle_len, needle_width, thickness,
+                                 Ms=STEEL_MS_SATURATION_DEFAULT):
+    """
+    Calcula o momento magnético de uma agulha modelada como uma lâmina
+    retangular fina de aço magnético, SATURADA na direção do seu eixo
+    longo (Norte da agulha) — ou seja, assume-se que toda a agulha foi
+    magnetizada até o limite físico do material, com todos os domínios
+    magnéticos alinhados ao longo do comprimento.
+
+    Modelo físico
+    -------------
+    Para um material ferromagnético saturado, o momento magnético total
+    é o produto da magnetização de saturação Ms pelo volume V:
+
+        m = Ms · V                                [A·m²]
+        V = L · w · t                              [m³]
+
+    Esta é a mesma geometria (lâmina retangular L×w×t) já usada no
+    cálculo do momento de inércia — aqui assume-se que TODO o volume da
+    agulha contribui com magnetização (caso ideal de saturação uniforme;
+    na prática, agulhas reais podem ter magnetização levemente inferior
+    à saturação teórica do material devido a desmagnetização de forma,
+    mas a saturação total é o limite superior físico e uma referência
+    razoável para uma agulha "bem magnetizada").
+
+    Parâmetros
+    ----------
+    needle_len   : comprimento da agulha L  [m]
+    needle_width : largura da agulha w  [m]
+    thickness    : espessura da lâmina t  [m]
+    Ms           : magnetização de saturação do material  [A/m]
+                   (padrão: aço magnético comum, ≈1.59e6 A/m,
+                   correspondente a Bsat ≈ 2.0 T)
+
+    Retorna
+    -------
+    m : momento magnético  [A·m²]
+    """
+    volume = needle_len * needle_width * thickness   # [m³]
+    m = Ms * volume                                   # [A·m²]
+    return m
 
 #
 # Amortecimento viscoso (resistência do ar ao giro da agulha).
@@ -1267,6 +1317,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_t_start  = _time_module.perf_counter()
     _perf_last_print_step = 0
     _perf_last_print_time = _perf_t_start
+    _last_status_print_time = _perf_t_start
 
     def _finish_progress_bar_if_shown():
         """Fecha a barra de progresso apenas se ela estava habilitada
@@ -1413,6 +1464,23 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     suffix=f"passo {step}/{n_steps}  ({_steps_per_s:.0f} passos/s)")
                 _perf_last_print_step = step
                 _perf_last_print_time = _perf_now
+
+        # ── status periódico independente (campo, S, ω) ────────────────────
+        # Mostra a evolução do campo externo, parâmetro de ordem e velocidade
+        # angular ao longo do tempo, a cada ~2s de wall-clock — SEMPRE ativo,
+        # independente de --progress_bar, usando _print() normal (linha
+        # nova) em vez da barra com \r. Isso garante que informação sobre o
+        # andamento da simulação continue disponível mesmo quando a barra
+        # está desabilitada (ex: saída redirecionada para arquivo de log,
+        # onde \r não se comporta como em um terminal interativo).
+        _status_now = _time_module.perf_counter()
+        if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
+            if show_progress:
+                _print_progress_bar_finish()
+            B_status = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
+            _print(f"  [passo {step}/{n_steps}]  t={t_now:.4f}s  "
+                   f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  w_max={omega_max:.3f}rad/s")
+            _last_status_print_time = _status_now
 
         # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
@@ -2608,10 +2676,17 @@ def main():
 
     # ── grupo 2: parâmetros físicos e de simulação ────────────────────────
     grp2 = parser.add_argument_group("Fisica e simulacao")
-    grp2.add_argument('--moment', type=float, default=MOMENT_DEFAULT,
+    grp2.add_argument('--moment', type=float, default=None,
                       help='Momento magnetico de cada agulha [A·m²]. '
-                           'Tipico: 0.01 (pequena) a 1.0 (grande). '
-                           f'Padrao: {MOMENT_DEFAULT} A·m²')
+                           'Se omitido (padrao), calculado automaticamente '
+                           'a partir do volume real da agulha (R, '
+                           'needle_frac, espessura), assumindo que o aco '
+                           'esta saturado na direcao do eixo longo (Norte) '
+                           'da agulha: m = Ms * volume, onde Ms e a '
+                           'magnetizacao de saturacao do aco (--steel_Bsat). '
+                           'Se fornecido explicitamente, este valor '
+                           'sobrescreve o calculo automatico. '
+                           'Tipico: 0.01 (pequena) a 1.0 (grande).')
     grp2.add_argument('--inertia', type=float, default=None,
                       help='Momento de inercia de cada agulha [kg·m²]. '
                            'Se omitido (padrao), calculado automaticamente '
@@ -2624,8 +2699,9 @@ def main():
     grp2.add_argument('--needle_thickness', type=float,
                       default=NEEDLE_THICKNESS_DEFAULT,
                       help='Espessura da lamina de aco da agulha [m], '
-                           'usada apenas no calculo automatico do momento '
-                           'de inercia (quando --inertia nao e fornecido). '
+                           'usada no calculo automatico do momento de '
+                           'inercia E do momento magnetico (quando '
+                           '--inertia / --moment nao sao fornecidos). '
                            f'Padrao: {NEEDLE_THICKNESS_DEFAULT*1e3:.2f} mm')
     grp2.add_argument('--steel_density', type=float,
                       default=STEEL_DENSITY_DEFAULT,
@@ -2633,6 +2709,15 @@ def main():
                            'apenas no calculo automatico do momento de '
                            f'inercia. Padrao: {STEEL_DENSITY_DEFAULT:.0f} '
                            'kg/m³ (aco-carbono comum)')
+    grp2.add_argument('--steel_Bsat', type=float,
+                      default=None,
+                      help='Densidade de fluxo de saturacao do aco '
+                           'magnetico [T], usada apenas no calculo '
+                           'automatico do momento magnetico (quando '
+                           '--moment nao e fornecido). Relacao: '
+                           'Ms = Bsat / mu0. Faixa tipica de acos '
+                           'magneticos comuns: 1.6-2.2 T. '
+                           f'Padrao: {STEEL_MS_SATURATION_DEFAULT*4*np.pi*1e-7:.2f} T')
     grp2.add_argument('--damping', type=float, default=DAMPING_DEFAULT,
                       help='Amortecimento viscoso do ar b [N·m·s/rad]. '
                            'Zero = sem amortecimento (oscila infinitamente). '
@@ -2785,6 +2870,25 @@ def main():
         inertia = args.inertia
         _inertia_auto = False
 
+    # ── momento magnético: calculado da geometria (aço saturado), ou
+    #    valor explícito ──────────────────────────────────────────────────
+    # Se o usuário não passou --moment, calcula automaticamente assumindo
+    # que a agulha está SATURADA na direção do seu eixo longo (Norte):
+    # m = Ms * volume, com volume = L * largura * espessura (mesma
+    # geometria já usada para a inércia). Se --moment foi fornecido
+    # explicitamente, esse valor tem prioridade.
+    if args.steel_Bsat is not None:
+        _Ms_used = args.steel_Bsat / (4.0 * np.pi * 1e-7)   # Bsat = mu0 * Ms
+    else:
+        _Ms_used = STEEL_MS_SATURATION_DEFAULT
+    if args.moment is None:
+        moment = compute_moment_from_geometry(
+            needle_len, needle_width, args.needle_thickness, Ms=_Ms_used)
+        _moment_auto = True
+    else:
+        moment = args.moment
+        _moment_auto = False
+
     # ── resumo dos parâmetros ─────────────────────────────────────────────
     # formata campo para exibição em unidade mais legível
     def fmt_field(B):
@@ -2820,7 +2924,13 @@ def main():
     _print(f"  PBC          : {pbc_str}")
     _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
     _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
-    _print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
+    if _moment_auto:
+        _Bsat_used = _Ms_used * 4.0 * np.pi * 1e-7
+        _print(f"  Momento mag. : {moment:.4g} A.m2  por agulha  "
+               f"[calculado: aco saturado a {_Bsat_used:.2f}T, "
+               f"volume {needle_len*needle_width*args.needle_thickness*1e9:.3f}mm3]")
+    else:
+        _print(f"  Momento mag. : {moment:.4g} A.m2  por agulha  [valor manual]")
     if _inertia_auto:
         _mass_g = args.steel_density * needle_len * needle_width * args.needle_thickness * 1e3
         _print(f"  Inercia      : {inertia:.3e} kg.m2  por agulha  "
@@ -2871,7 +2981,7 @@ def main():
             cutoff = max_cutoff_pbc
 
     # campo dipolar de referência entre primeiros vizinhos (para exibição)
-    B_ref = MU0_OVER_4PI * 2.0 * args.moment / nn_dist**3
+    B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
     _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
@@ -2937,7 +3047,7 @@ def main():
         damping=args.damping,
         cutoff=cutoff,
         ext_field=(Bext_x, Bext_y),
-        moment=args.moment,
+        moment=moment,
         field_mode=args.field_mode,
         field_freq=args.field_freq,
         frame_dir=frame_dir,
