@@ -1636,10 +1636,12 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
        direção do campo. Quando B_ext = 0, as setas ficam invisíveis
        (alpha=0) mas o painel de referência continua visível.
 
-    2. PAINEL DE CAMPO — caixa no canto inferior direito com:
-         • Seta mostrando a direção (comprimento proporcional a B_ext/B_max)
+    2. PAINEL DE CAMPO — caixa no canto SUPERIOR DIREITO (espelha a
+       geometria do cronômetro, que fica no canto superior esquerdo),
+       evitando sobreposição com as agulhas:
          • Texto: intensidade atual em SI  e  ângulo em graus
-         • Barra de intensidade (verde cheia = B_max, vazia = 0)
+         • Barra de intensidade horizontal (cheia = B_max, vazia = 0)
+         • Seta pequena mostrando a direção, à direita da barra
        Quando B_ext = 0: seta apagada, texto "0 T", barra vazia.
        A direção exibida é sempre phi_ext_deg (direção do campo máximo).
 
@@ -1661,6 +1663,93 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     frac      = min(abs(B_ext) / B_max_ref, 1.0)   # 0→1, proporção do campo máximo
     field_on  = (B_ext > 1e-30)                     # True se campo não-nulo
 
+    # ── 2. painel de campo (SEMPRE visível) — canto superior direito ──────
+    # Espelha a geometria do cronômetro (canto superior esquerdo): caixa
+    # retangular ancorada ao topo, texto e barra horizontal dentro dela.
+    # Isso evita sobreposição com as agulhas, que ficam na área central.
+    xlim  = ax.get_xlim()
+    ylim  = ax.get_ylim()
+    xspan = xlim[1] - xlim[0]
+    yspan = ylim[1] - ylim[0]
+
+    bar_w = 0.20 * xspan
+    bar_h = 0.018 * yspan
+    arrow_zone_w = 0.07 * xspan   # espaço reservado para a seta de direção
+
+    # canto superior direito: alinhado ao topo, com margem à direita
+    box_w = bar_w + arrow_zone_w
+    px = xlim[1] - 0.02 * xspan - box_w    # borda esquerda da caixa
+    py = ylim[1] - 0.03 * yspan             # topo da caixa (mesmo nível do relógio)
+
+    pad = needle_len * 0.25
+
+    # caixa de fundo semitransparente — mesmo estilo visual do cronômetro
+    box_h = 0.140 * yspan + pad
+    ax.add_patch(plt.Rectangle(
+        (px - pad * 0.3, py - box_h),
+        box_w + pad, box_h,
+        facecolor='#080818', edgecolor=color,
+        linewidth=0.8, alpha=0.82, zorder=19,
+        transform=ax.transData))
+
+    # ── texto: intensidade e direção (linha superior da caixa) ────────────
+    b_val = B_signed if B_signed is not None else (B_ext if field_on else 0.0)
+    if abs(b_val) > 1e-12:
+        sign_str = "+" if b_val >= 0 else "-"
+        b_str = sign_str + _fmt_B(abs(b_val))
+    else:
+        b_str = "0 T  (desligado)" if not field_on else "0 T"
+    phi_str = f"dir: {phi_ext_deg:.1f} graus"
+
+    text_color = color if field_on else '#777777'
+    ax.text(px, py - 0.022 * yspan, "B ext", color=color, fontsize=7,
+            alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23)
+    ax.text(px, py - 0.048 * yspan, b_str, color=text_color,
+            fontsize=9, fontweight='bold', fontfamily='monospace',
+            ha='left', va='top', zorder=23)
+    ax.text(px, py - 0.072 * yspan, phi_str, color=text_color,
+            fontsize=7, fontfamily='monospace', ha='left', va='top', zorder=23)
+
+    # ── barra de intensidade horizontal (estilo idêntico ao cronômetro) ───
+    bar_y = py - 0.115 * yspan
+    # trilha
+    ax.add_patch(plt.Rectangle(
+        (px, bar_y), bar_w, bar_h,
+        facecolor='#252540', edgecolor='none',
+        zorder=20, transform=ax.transData))
+    # preenchimento proporcional ao campo atual / máximo
+    if frac > 0.01:
+        ax.add_patch(plt.Rectangle(
+            (px, bar_y), bar_w * frac, bar_h,
+            facecolor=color if field_on else '#555555',
+            edgecolor='none', alpha=0.85, zorder=21,
+            transform=ax.transData))
+    # borda
+    ax.add_patch(plt.Rectangle(
+        (px, bar_y), bar_w, bar_h,
+        facecolor='none', edgecolor='#5A5A8A',
+        linewidth=0.7, zorder=22, transform=ax.transData))
+
+    # ── seta de direção pequena, à direita da barra, dentro da caixa ──────
+    arrow_cx = px + bar_w + arrow_zone_w / 2.0
+    arrow_cy = bar_y + bar_h / 2.0
+    alen     = min(needle_len * 0.7, arrow_zone_w * 0.8)
+    arrow_len = alen * max(frac, 0.0)
+    if arrow_len > alen * 0.05:
+        x_tail = arrow_cx - arrow_len * cos_phi / 2.0
+        y_tail = arrow_cy - arrow_len * sin_phi / 2.0
+        x_head = arrow_cx + arrow_len * cos_phi / 2.0
+        y_head = arrow_cy + arrow_len * sin_phi / 2.0
+        arrow_color = color if field_on else '#555555'
+        ax.annotate(
+            '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
+            arrowprops=dict(
+                arrowstyle='->', color=arrow_color, lw=1.8,
+                mutation_scale=12),
+            zorder=20)
+    else:
+        ax.plot(arrow_cx, arrow_cy, 'o', ms=3, color='#555555', zorder=20)
+
     # ── 1. setas nos sítios (só quando campo está ligado) ─────────────────
     if field_on:
         alen = needle_len * 0.35
@@ -1677,92 +1766,6 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
                         arrowstyle='->', color=color,
                         lw=1.0, mutation_scale=6, alpha=0.50),
                     zorder=2)
-
-    # ── 2. painel de campo (SEMPRE visível) ───────────────────────────────
-    xlim  = ax.get_xlim()
-    ylim  = ax.get_ylim()
-    xspan = xlim[1] - xlim[0]
-    yspan = ylim[1] - ylim[0]
-
-    cx_d = xlim[0] + 0.88 * xspan
-    cy_d = ylim[0] + 0.09 * yspan
-    slen = needle_len * 1.1
-    pad  = needle_len * 0.55
-
-    # caixa de fundo
-    rect = plt.Rectangle(
-        (cx_d - slen * 0.7, cy_d - pad * 0.5),
-        slen * 1.4, pad * 4.2,
-        facecolor='#0A0A1A', edgecolor=color,
-        linewidth=1.0, alpha=0.80, zorder=19,
-        transform=ax.transData)
-    ax.add_patch(rect)
-
-    # seta de direção (comprimento proporcional à intensidade atual)
-    arrow_len = slen * max(frac, 0.0)
-    if arrow_len > slen * 0.05:   # só desenha se visível
-        x_tail = cx_d - arrow_len * cos_phi / 2.0
-        y_tail = cy_d - arrow_len * sin_phi / 2.0
-        x_head = cx_d + arrow_len * cos_phi / 2.0
-        y_head = cy_d + arrow_len * sin_phi / 2.0
-        arrow_color = color if field_on else '#555555'
-        ax.annotate(
-            '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
-            arrowprops=dict(
-                arrowstyle='->', color=arrow_color, lw=2.5,
-                mutation_scale=18),
-            zorder=20)
-    else:
-        # campo zero: desenha um ponto no centro
-        ax.plot(cx_d, cy_d, 'o', ms=4, color='#555555', zorder=20)
-
-    # barra de intensidade (fração do campo máximo)
-    bar_w = slen * 1.2
-    bar_h = pad * 0.22
-    bar_y = cy_d - pad * 0.3
-    # trilha
-    ax.add_patch(plt.Rectangle(
-        (cx_d - bar_w/2, bar_y), bar_w, bar_h,
-        facecolor='#252540', edgecolor='none', zorder=20,
-        transform=ax.transData))
-    # preenchimento proporcional
-    if frac > 0.01:
-        ax.add_patch(plt.Rectangle(
-            (cx_d - bar_w/2, bar_y), bar_w * frac, bar_h,
-            facecolor=color if field_on else '#555555',
-            edgecolor='none', alpha=0.8, zorder=21,
-            transform=ax.transData))
-    # borda da barra
-    ax.add_patch(plt.Rectangle(
-        (cx_d - bar_w/2, bar_y), bar_w, bar_h,
-        facecolor='none', edgecolor='#5A5A8A',
-        linewidth=0.7, zorder=22, transform=ax.transData))
-
-    # ── textos ────────────────────────────────────────────────────────────
-    tx = cx_d
-    ty = cy_d + pad * 1.5
-
-    # usa B_signed se disponível (mostra sinal), senão usa B_ext (positivo)
-    b_val = B_signed if B_signed is not None else (B_ext if field_on else 0.0)
-    if abs(b_val) > 1e-12:
-        sign_str = "+" if b_val >= 0 else "-"
-        b_str = sign_str + _fmt_B(abs(b_val))
-    else:
-        b_str = "0 T  (desligado)" if not field_on else "0 T"
-
-    phi_str = f"dir: {phi_ext_deg:.1f} graus"
-
-    ax.text(tx, ty, b_str,
-            color=color if field_on else '#777777',
-            fontsize=9, fontweight='bold',
-            fontfamily='monospace', ha='center', va='bottom', zorder=23)
-    ax.text(tx, ty - pad * 0.85, phi_str,
-            color=color if field_on else '#777777',
-            fontsize=7, fontfamily='monospace',
-            ha='center', va='bottom', zorder=23)
-    ax.text(tx, bar_y - pad * 0.15, "B ext",
-            color=color, fontsize=7, alpha=0.8,
-            fontfamily='monospace', ha='center', va='top', zorder=23)
 
 
 def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
