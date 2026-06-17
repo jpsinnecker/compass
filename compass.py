@@ -550,7 +550,14 @@ def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
     tau_flat : array 1D (K,) com o torque sobre cada agulha  [N·m]
                (no mesmo backend de theta_flat — GPU ou CPU)
     """
-    xp = _xp
+    # detecta o backend a partir do array de entrada (em vez de usar a
+    # global _xp do módulo) — assim a função respeita corretamente o
+    # backend efetivo escolhido pelo chamador (CPU ou GPU via --gpu),
+    # mesmo que a detecção global de GPU seja diferente
+    if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
+        xp = cp   # theta_flat é um array CuPy (GPU)
+    else:
+        xp = np   # theta_flat é um array NumPy (CPU)
     K  = theta_flat.shape[0]
 
     # vetores de momento magnético de cada agulha fonte
@@ -617,7 +624,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           needle_len=0.042, needle_width=0.010, r_halo=None,
           frame_dpi=120, figsize_inches=None,
           pbc=False, Lx=None, Ly=None, n_images=1,
-          B_ext=0.0, phi_ext_deg=0.0):
+          B_ext=0.0, phi_ext_deg=0.0, use_gpu=False):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
 
@@ -697,10 +704,32 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     stop_reason : string descrevendo como a simulação terminou
     """
     import os
+    import time as _time_module
 
     N, M = thetas.shape
     Bext_x, Bext_y = ext_field
     n_frames = 0
+
+    # ── decide o backend efetivo desta chamada (respeita --gpu 0/1) ───────
+    # _GPU_AVAILABLE (global do módulo) indica se CuPy + GPU CUDA funcional
+    # foram detectados na inicialização. use_gpu (parâmetro, vindo de --gpu)
+    # decide se essa capacidade deve de fato ser USADA nesta simulação.
+    # Isso permite comparar diretamente CPU vs GPU sem reiniciar o processo
+    # ou desinstalar o CuPy — útil para medir o ganho real de desempenho.
+    _active_gpu = use_gpu and _GPU_AVAILABLE
+    _active_xp  = cp if _active_gpu else np
+
+    def _local_to_backend(arr):
+        """Versão local de _to_backend que respeita _active_gpu desta chamada."""
+        if _active_gpu:
+            return cp.asarray(arr)
+        return np.asarray(arr)
+
+    def _local_to_cpu(arr):
+        """Versão local de _to_cpu que respeita _active_gpu desta chamada."""
+        if _active_gpu and hasattr(arr, 'get'):
+            return arr.get()
+        return arr
 
     # ── distância entre primeiros vizinhos ─────────────────────────────────
     r_nn = np.inf
@@ -1067,8 +1096,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # (GPU via CuPy se disponível, senão CPU via NumPy) — feito uma única
     # vez antes do loop de integração, pois xs/ys são fixos durante toda
     # a simulação (só os ângulos theta mudam a cada passo)
-    x_flat_xp = _to_backend(xs.ravel())
-    y_flat_xp = _to_backend(ys.ravel())
+    x_flat_xp = _local_to_backend(xs.ravel())
+    y_flat_xp = _local_to_backend(ys.ravel())
 
     def _torques_xp(theta_flat_xp, bx_ext, by_ext):
         """
@@ -1090,9 +1119,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         (ex: recalcular tau após zerar campo no modo pulse, fora do
         hot loop, onde o overhead de uma conversão extra é irrelevante).
         """
-        theta_flat_xp = _to_backend(th.ravel())
+        theta_flat_xp = _local_to_backend(th.ravel())
         tau_flat_xp = _torques_xp(theta_flat_xp, bx_ext, by_ext)
-        tau_flat = _to_cpu(tau_flat_xp)
+        tau_flat = _local_to_cpu(tau_flat_xp)
         return tau_flat.reshape(N, M)
 
     # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
@@ -1100,6 +1129,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     field_log      = []   # log universal: (t, B, M_proj, S) para todos os modos
     hysteresis_log = [] if field_mode == 'hysteresis' else None
     sine_log       = [] if field_mode == 'sine'       else None
+
+    # ── instrumentação de desempenho (wall-clock) ──────────────────────────
+    # Mede o tempo real gasto no loop de integração (CPU ou GPU), permitindo
+    # comparar diretamente o ganho de desempenho entre --gpu 0 e --gpu 1.
+    # Sincroniza a GPU antes de iniciar a contagem, para que o tempo medido
+    # reflita o trabalho real (sem isso, chamadas assíncronas da GPU podem
+    # "voltar" antes do cálculo de fato terminar, mascarando o tempo real).
+    if _active_gpu:
+        cp.cuda.Stream.null.synchronize()
+    _perf_t_start  = _time_module.perf_counter()
+    _perf_last_print_step = 0
+    _perf_last_print_time = _perf_t_start
 
     # ── loop de integração Velocity-Verlet ────────────────────────────────
     # Estado principal (theta, omega, tau) reside no backend ativo (_xp) —
@@ -1110,8 +1151,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # theta_cur/omega_cur (NumPy 2D) são mantidos como "espelhos" em CPU,
     # atualizados apenas quando necessário (frame, histórico, callback).
     bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
-    theta_xp          = _to_backend(theta_cur.ravel())   # (K,) no backend
-    omega_xp           = _xp.zeros(N * M)                 # (K,) no backend
+    theta_xp          = _local_to_backend(theta_cur.ravel())   # (K,) no backend
+    omega_xp           = _active_xp.zeros(N * M)                 # (K,) no backend
     tau_xp             = _torques_xp(theta_xp, bx_cur, by_cur)
     _converged_count  = 0
     _S1_count         = 0   # passos consecutivos com S >= 0.9999 (parada em static)
@@ -1145,8 +1186,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
-                theta_cur = _to_cpu(theta_xp).reshape(N, M)
-                omega_cur = _to_cpu(omega_xp).reshape(N, M)
+                theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                 _save_frame(step, theta_cur, omega_cur,
                             stop_label="■ interrompido (Ctrl+I)")
             break
@@ -1158,7 +1199,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         # (tudo em arrays "flat" (K,) no backend ativo — GPU se disponível)
         accel_xp  = (tau_xp - damping * omega_xp) / inertia
         theta_new_xp = theta_xp + omega_xp * dt + 0.5 * accel_xp * dt**2
-        theta_new_xp = (theta_new_xp + _xp.pi) % (2.0 * _xp.pi) - _xp.pi
+        theta_new_xp = (theta_new_xp + _active_xp.pi) % (2.0 * _active_xp.pi) - _active_xp.pi
 
         # ── passo 2: calcula τ(t+dt) com o novo θ e o novo campo ──────────
         tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
@@ -1179,10 +1220,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         # só os escalares finais (4 floats) são trazidos para CPU a cada
         # passo, em vez dos arrays N×M inteiros — reduz drasticamente o
         # volume de dados transferido por passo de integração
-        S_now_xp     = _xp.abs(_xp.mean(_xp.exp(1j * theta_xp)))
-        omega_max_xp = _xp.max(_xp.abs(omega_xp))
-        mx_mean_xp   = _xp.mean(_xp.cos(theta_xp))
-        my_mean_xp   = _xp.mean(_xp.sin(theta_xp))
+        S_now_xp     = _active_xp.abs(_active_xp.mean(_active_xp.exp(1j * theta_xp)))
+        omega_max_xp = _active_xp.max(_active_xp.abs(omega_xp))
+        mx_mean_xp   = _active_xp.mean(_active_xp.cos(theta_xp))
+        my_mean_xp   = _active_xp.mean(_active_xp.sin(theta_xp))
 
         S_now     = float(S_now_xp)
         omega_max = float(omega_max_xp)
@@ -1195,8 +1236,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _need_cpu_sync = (callback is not None) or (step % 20 == 0) or \
                          (frame_dir is not None and step % frame_every == 0)
         if _need_cpu_sync:
-            theta_cur = _to_cpu(theta_xp).reshape(N, M)
-            omega_cur = _to_cpu(omega_xp).reshape(N, M)
+            theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+            omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
 
         if callback:
             callback(step, theta_cur.copy(), omega_cur.copy())
@@ -1215,6 +1256,23 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             hysteresis_log.append(entry)
         if sine_log is not None:
             sine_log.append(entry)
+
+        # ── indicador periódico de desempenho (passos/s, ms/passo) ────────
+        # Independente de gerar vídeo ou não — mostra a cada ~2s de
+        # wall-clock decorrido, para não sobrecarregar o terminal em
+        # simulações rápidas nem ficar "mudo" em simulações longas.
+        # Permite comparar diretamente o throughput entre --gpu 0 e --gpu 1.
+        _perf_now = _time_module.perf_counter()
+        if (_perf_now - _perf_last_print_time) >= 2.0:
+            _steps_since = step - _perf_last_print_step
+            _dt_wall     = _perf_now - _perf_last_print_time
+            _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
+            _ms_per_step = (_dt_wall / _steps_since * 1000.0) if _steps_since > 0 else 0.0
+            _backend_tag = "GPU" if _active_gpu else "CPU"
+            _print(f"  [{_backend_tag}] passo {step}/{n_steps}  "
+                   f"({_steps_per_s:.0f} passos/s  {_ms_per_step:.3f} ms/passo)")
+            _perf_last_print_step = step
+            _perf_last_print_time = _perf_now
 
         # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
@@ -1239,8 +1297,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
-                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
+                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
@@ -1294,8 +1352,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 if frame_dir is not None:
                     # B_ext_inst=0 mostra campo desligado no painel,
                     # mas phi_ext_deg é mantido para mostrar a direção
-                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
+                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="campo zerado - relaxando",
                                 B_ext_inst=0.0)
@@ -1318,16 +1376,37 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
-                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
+                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="● rede em repouso")
                 break
 
     # ── garante sincronização final CPU<->GPU antes de retornar ───────────
     # (o loop pode ter terminado num passo onde _need_cpu_sync era False)
-    theta_cur = _to_cpu(theta_xp).reshape(N, M)
-    omega_cur = _to_cpu(omega_xp).reshape(N, M)
+    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
+
+    # ── relatório final de desempenho (wall-clock) ─────────────────────────
+    # Sincroniza a GPU antes de parar o cronômetro, para que o tempo medido
+    # reflita o trabalho real concluído (chamadas CUDA são assíncronas por
+    # padrão — sem essa sincronização, o tempo medido poderia ser menor
+    # que o tempo real de cálculo).
+    if _active_gpu:
+        cp.cuda.Stream.null.synchronize()
+    _perf_t_end       = _time_module.perf_counter()
+    _perf_total_s     = _perf_t_end - _perf_t_start
+    _perf_steps_done  = step   # último valor de step executado no loop
+    _perf_steps_per_s = _perf_steps_done / _perf_total_s if _perf_total_s > 0 else 0.0
+    _perf_ms_per_step = (_perf_total_s / _perf_steps_done * 1000.0) if _perf_steps_done > 0 else 0.0
+    _perf_backend_tag = "GPU" if _active_gpu else "CPU"
+    _print()
+    _print(f"  ── desempenho ({_perf_backend_tag}) ──────────────────────────")
+    _print(f"  Tempo de integracao : {_perf_total_s:.3f} s  (wall-clock)")
+    _print(f"  Passos executados   : {_perf_steps_done}")
+    _print(f"  Throughput          : {_perf_steps_per_s:.1f} passos/s  "
+           f"({_perf_ms_per_step:.4f} ms/passo)")
+    _print(f"  Agulhas na rede     : {N*M}  (K = N x M)")
 
     _stop_flag.set()   # garante que a thread de teclado encerra
 
@@ -2298,6 +2377,13 @@ def main():
                            'lado, em cada direcao, quando --pbc 1. Padrao: 1 '
                            '(soma sobre uma grade de (2*1+1)^2=9 celulas). '
                            'Usado apenas se --pbc 1.')
+    grp2.add_argument('--gpu', type=int, choices=[0, 1], default=0,
+                      help='Uso de GPU (CuPy) para o calculo do campo '
+                           'dipolar: 0=desativado (padrao, forca CPU/NumPy '
+                           'mesmo se uma GPU CUDA estiver disponivel), '
+                           '1=ativado (usa GPU se CuPy estiver instalado e '
+                           'funcional; cai para CPU automaticamente caso '
+                           'contrario, com aviso no terminal)')
 
     # ── grupo 3: campo externo ────────────────────────────────────────────
     grp3 = parser.add_argument_group(
@@ -2377,14 +2463,14 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    if _GPU_AVAILABLE:
+    if args.gpu and _GPU_AVAILABLE:
         try:
             _gpu_name = cp.cuda.runtime.getDeviceProperties(0)['name'].decode()
         except Exception:
             _gpu_name = "GPU CUDA"
-        _print(f"  Backend      : GPU ({_gpu_name}) via CuPy")
-    else:
-        _print(f"  Backend      : CPU (NumPy)")
+        _print(f"  Backend      : GPU ({_gpu_name}) via CuPy  [--gpu 1]")
+    elif args.gpu and not _GPU_AVAILABLE:
+        _print(f"  Backend      : CPU (NumPy)  [--gpu 1 solicitado, mas GPU indisponivel]")
         if _GPU_ERROR_MSG:
             if 'CUDA headers' in _GPU_ERROR_MSG or 'CUDA_PATH' in _GPU_ERROR_MSG:
                 _print(f"  GPU indisponivel: faltam os headers do CUDA Toolkit.")
@@ -2394,6 +2480,9 @@ def main():
                 _print(f"  GPU indisponivel: {_GPU_ERROR_MSG[:70]}")
         else:
             _print(f"  GPU indisponivel: cupy nao instalado")
+    else:
+        _gpu_hint = " (GPU detectada, use --gpu 1 para ativar)" if _GPU_AVAILABLE else ""
+        _print(f"  Backend      : CPU (NumPy)  [--gpu 0]{_gpu_hint}")
     _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
     pbc_str = (f"ligado  (n_images={args.pbc_images}, soma sobre "
                f"{(2*args.pbc_images+1)**2} celulas)") if args.pbc else "desligado"
@@ -2533,6 +2622,7 @@ def main():
         n_images=args.pbc_images,
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
+        use_gpu=bool(args.gpu),
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
