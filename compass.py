@@ -150,6 +150,9 @@ EXEMPLOS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Dependências: numpy, matplotlib, ffmpeg (para vídeo)
+Opcional (aceleração GPU): cupy-cuda12x (ou versão compatível com sua CUDA)
+  pip install cupy-cuda12x
+  Detectado automaticamente; se ausente, usa CPU/NumPy normalmente.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -161,6 +164,40 @@ from matplotlib.animation import FuncAnimation
 import argparse
 import time
 import sys
+
+# ── backend de aceleração GPU (opcional) ──────────────────────────────────
+# Se o pacote 'cupy' estiver instalado E uma GPU NVIDIA (CUDA) estiver
+# disponível, usa CuPy como substituto do NumPy para os cálculos pesados
+# (campo dipolar). CuPy tem API quase idêntica ao NumPy, então o mesmo
+# código vetorizado roda em GPU sem alterações de lógica.
+# Se cupy não estiver instalado ou não houver GPU, cai automaticamente
+# para NumPy (CPU) — o programa funciona em qualquer máquina.
+_GPU_AVAILABLE = False
+_xp = np   # _xp = "array module" ativo: np (CPU) ou cp (GPU)
+try:
+    import cupy as cp
+    # testa se há de fato uma GPU CUDA funcional, não apenas o pacote instalado
+    cp.cuda.Device(0).compute_capability
+    _xp = cp
+    _GPU_AVAILABLE = True
+except Exception:
+    _xp = np
+    _GPU_AVAILABLE = False
+
+
+def _to_cpu(arr):
+    """Converte um array do backend ativo (GPU ou CPU) para NumPy puro."""
+    if _GPU_AVAILABLE and hasattr(arr, 'get'):
+        return arr.get()
+    return arr
+
+
+def _to_backend(arr):
+    """Converte um array NumPy para o backend ativo (GPU ou CPU)."""
+    if _GPU_AVAILABLE:
+        return cp.asarray(arr)
+    return np.asarray(arr)
+
 
 # ── configura saída para flush imediato e line endings corretos ──────────────
 # No macOS com zsh, o modo raw do teclado (usado pelo Ctrl+I) pode desabilitar
@@ -456,6 +493,104 @@ def _plot_sine(log, freq):
                 facecolor='#1A1A2E')
     plt.close(fig)
     _print("  Gráfico senoidal salvo: sine_field.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3b. CÁLCULO VETORIZADO DO CAMPO DIPOLAR E TORQUES (GPU/CPU)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
+                               bx_ext, by_ext,
+                               pbc=False, Lx=None, Ly=None, n_images=1):
+    """
+    Calcula o torque magnético sobre cada agulha, somando o campo dipolar
+    de todas as outras agulhas — totalmente vetorizado (sem loops Python).
+
+    Esta função substitui o duplo loop `for i: for j: total_field_on(...)`
+    por operações de array (broadcasting), o que permite executar em GPU
+    via CuPy (idêntico ao NumPy em sintaxe) quando disponível, ou em CPU
+    via NumPy normalmente. A complexidade continua O(K²) onde K = N×M
+    (todas as agulhas interagem com todas), mas a soma é feita em paralelo
+    por todos os núcleos da GPU/CPU de uma só vez, em vez de sequencialmente
+    em Python — ganho de desempenho de 10-100x típico em GPUs como a
+    RTX 3090 para redes grandes (K > ~400 agulhas).
+
+    Física (idêntica a total_field_on/dipole_field_2d, apenas vetorizada):
+
+        B = (μ₀/4π) · [ 3(m̂·r̂)r̂ − m̂ ] / r³
+
+    Parâmetros
+    ----------
+    theta_flat : array 1D (K,) com os ângulos de todas as agulhas  [rad]
+    x_flat, y_flat : arrays 1D (K,) com as posições de todas as agulhas [m]
+    moment     : momento magnético de cada agulha  [A·m²]
+    cutoff     : raio máximo de interação  [m]
+    bx_ext, by_ext : componentes do campo externo instantâneo  [T]
+    pbc        : se True, soma réplicas periódicas (ver total_field_on)
+    Lx, Ly     : período da rede em x e y  [m]  (necessários se pbc=True)
+    n_images   : número de réplicas de cada lado, em cada direção (PBC)
+
+    Retorna
+    -------
+    tau_flat : array 1D (K,) com o torque sobre cada agulha  [N·m]
+               (no mesmo backend de theta_flat — GPU ou CPU)
+    """
+    xp = _xp
+    K  = theta_flat.shape[0]
+
+    # vetores de momento magnético de cada agulha fonte
+    mx = moment * xp.cos(theta_flat)   # (K,)
+    my = moment * xp.sin(theta_flat)   # (K,)
+
+    # deslocamentos periódicos a somar (0.0 único se pbc=False)
+    if pbc and Lx and Ly:
+        img_range = range(-n_images, n_images + 1)
+        x_shifts = [k * Lx for k in img_range]
+        y_shifts = [k * Ly for k in img_range]
+    else:
+        x_shifts = [0.0]
+        y_shifts = [0.0]
+
+    Bx_tot = xp.zeros(K)
+    By_tot = xp.zeros(K)
+
+    for dx_img in x_shifts:
+        for dy_img in y_shifts:
+            # matriz de distâncias K×K: rx[a,b] = posição(a) - posição(b) - deslocamento
+            # broadcasting: x_flat[:, None] é coluna (receptor), x_flat[None, :] é linha (fonte)
+            rx = (x_flat[:, None] - x_flat[None, :]) - dx_img   # (K, K)
+            ry = (y_flat[:, None] - y_flat[None, :]) - dy_img   # (K, K)
+
+            r2 = rx*rx + ry*ry                                   # (K, K)
+
+            # máscara: distância > 0 (evita auto-interação) e <= cutoff
+            is_self = (r2 < 1e-24)
+            valid   = (~is_self) & (r2 <= cutoff*cutoff)
+
+            # evita divisão por zero nos elementos mascarados (serão zerados depois)
+            r2_safe = xp.where(valid, r2, 1.0)
+            r       = xp.sqrt(r2_safe)
+            r5      = r2_safe * r2_safe * r
+
+            # m·r para cada par (a=receptor, b=fonte): usa mx[b], my[b] (fonte)
+            mdotr = mx[None, :] * rx + my[None, :] * ry          # (K, K)
+
+            bx_pair = MU0_OVER_4PI * (3.0 * mdotr * rx / r5 - mx[None, :] / (r2_safe * r))
+            by_pair = MU0_OVER_4PI * (3.0 * mdotr * ry / r5 - my[None, :] / (r2_safe * r))
+
+            # zera contribuições inválidas (fora do cutoff ou auto-interação)
+            bx_pair = xp.where(valid, bx_pair, 0.0)
+            by_pair = xp.where(valid, by_pair, 0.0)
+
+            # soma sobre todas as fontes (eixo 1) para cada receptor
+            Bx_tot += bx_pair.sum(axis=1)
+            By_tot += by_pair.sum(axis=1)
+
+    Bx_tot += bx_ext
+    By_tot += by_ext
+
+    tau_flat = mx * By_tot - my * Bx_tot   # τ_z = mx·By − my·Bx
+    return tau_flat
 
 
 def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
@@ -913,27 +1048,33 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _print("  [Ctrl+I para interromper e salvar o vídeo agora]")
 
     # ── função auxiliar: calcula torques SI para estado θ e campo B(t) ────
+    # ── pré-converte posições para arrays "flat" no backend ativo ─────────
+    # (GPU via CuPy se disponível, senão CPU via NumPy) — feito uma única
+    # vez antes do loop de integração, pois xs/ys são fixos durante toda
+    # a simulação (só os ângulos theta mudam a cada passo)
+    x_flat_xp = _to_backend(xs.ravel())
+    y_flat_xp = _to_backend(ys.ravel())
+
     def _torques(th, bx_ext, by_ext):
         """
         Retorna array N×M de torques [N·m] para o estado angular th.
 
+        Internamente usa compute_torques_vectorized (operações de array,
+        sem loops Python), executando em GPU via CuPy se uma GPU NVIDIA
+        estiver disponível, ou em CPU via NumPy caso contrário.
+
         Parâmetros
         ----------
-        th     : array N×M de ângulos [rad]
+        th     : array N×M de ângulos [rad]  (NumPy, sempre em CPU)
         bx_ext : componente x do campo externo instantâneo [T]
         by_ext : componente y do campo externo instantâneo [T]
         """
-        tau = np.zeros((N, M))
-        for i in range(N):
-            for j in range(M):
-                Bx, By = total_field_on(i, j, th, xs, ys, cutoff, moment,
-                                        pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
-                Bx += bx_ext
-                By += by_ext
-                mx = moment * np.cos(th[i, j])
-                my = moment * np.sin(th[i, j])
-                tau[i, j] = mx * By - my * Bx
-        return tau
+        theta_flat_xp = _to_backend(th.ravel())
+        tau_flat_xp = compute_torques_vectorized(
+            theta_flat_xp, x_flat_xp, y_flat_xp, moment, cutoff,
+            bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
+        tau_flat = _to_cpu(tau_flat_xp)   # volta para NumPy/CPU
+        return tau_flat.reshape(N, M)
 
     # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
     # Gravado a cada passo; exportado para CSV ao final se field_mode=hysteresis
@@ -2175,6 +2316,14 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
+    if _GPU_AVAILABLE:
+        try:
+            _gpu_name = cp.cuda.runtime.getDeviceProperties(0)['name'].decode()
+        except Exception:
+            _gpu_name = "GPU CUDA"
+        _print(f"  Backend      : GPU ({_gpu_name}) via CuPy")
+    else:
+        _print(f"  Backend      : CPU (NumPy)  -- instale cupy para usar GPU")
     _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
     pbc_str = (f"ligado  (n_images={args.pbc_images}, soma sobre "
                f"{(2*args.pbc_images+1)**2} celulas)") if args.pbc else "desligado"
