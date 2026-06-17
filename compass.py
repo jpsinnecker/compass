@@ -825,16 +825,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         return arr
 
     # ── distância entre primeiros vizinhos ─────────────────────────────────
-    r_nn = np.inf
-    for i in range(N):
-        for j in range(M):
-            for ni in range(N):
-                for nj in range(M):
-                    if ni == i and nj == j:
-                        continue
-                    d = np.sqrt((xs[i,j]-xs[ni,nj])**2 + (ys[i,j]-ys[ni,nj])**2)
-                    if d < r_nn:
-                        r_nn = d
+    # Vetorizado via broadcasting NumPy (em vez de 4 loops Python aninhados,
+    # O(K²) iterações interpretadas) — para redes grandes (K = N×M na casa
+    # dos milhares), a versão com loops Python puros podia levar muitos
+    # segundos só nesta etapa, ANTES da thread de escuta de teclado (Ctrl+I/
+    # Ctrl+C) ser iniciada — deixando o programa "surdo" a qualquer
+    # interrupção durante esse tempo. A versão vetorizada calcula a mesma
+    # coisa (menor distância entre quaisquer duas agulhas distintas da
+    # rede) em microssegundos mesmo para K~10000.
+    x_flat_for_nn = xs.ravel()
+    y_flat_for_nn = ys.ravel()
+    dx_nn = x_flat_for_nn[:, None] - x_flat_for_nn[None, :]
+    dy_nn = y_flat_for_nn[:, None] - y_flat_for_nn[None, :]
+    d_nn  = np.sqrt(dx_nn**2 + dy_nn**2)
+    np.fill_diagonal(d_nn, np.inf)   # exclui distância de cada agulha a si mesma
+    r_nn  = float(np.min(d_nn))
 
     # ── campo efetivo, frequência natural, dt e n_steps ───────────────────
     B_ref     = MU0_OVER_4PI * 2.0 * moment / r_nn**3
@@ -1073,8 +1078,16 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     def _keyboard_listener():
         """
         Lê stdin caractere a caractere em modo raw.
-        Ao detectar Ctrl+I (\\t, ASCII 9), seta _stop_flag.
-        A thread termina automaticamente quando o processo principal encerra.
+        Ao detectar Ctrl+I (\\t, ASCII 9), seta _stop_flag (interrupção
+        "suave": aguarda o passo atual terminar, salva frame final, etc).
+        Ao detectar Ctrl+C (\\x03, ASCII 3), encerra o processo IMEDIATAMENTE
+        via os._exit() (interrupção "dura": não salva nada, aborta tudo na
+        hora). Em modo raw, o terminal não gera SIGINT automaticamente a
+        partir de Ctrl+C — essa característica do modo raw desabilita o
+        processamento especial de caracteres de controle, incluindo o que
+        normalmente geraria o sinal. Por isso o encerramento é feito
+        diretamente pela própria thread, sem depender de propagação de
+        sinal entre threads (que se mostrou não confiável em testes).
         """
         try:
             import tty, termios
@@ -1085,6 +1098,24 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 if ch == b'\t':          # Ctrl+I = TAB = ASCII 9
                     _stop_flag.set()
                     break
+                elif ch == b'\x03':      # Ctrl+C = ETX = ASCII 3
+                    # Encerramento IMEDIATO e incondicional. Em modo raw,
+                    # o terminal não gera SIGINT automaticamente a partir
+                    # de Ctrl+C (isso é desabilitado junto com o resto do
+                    # processamento especial de caracteres de controle).
+                    # Reenviar SIGINT manualmente (os.kill) foi testado e
+                    # mostrou-se não confiável: quando a thread principal
+                    # está em uma chamada bloqueante (ex: aguardando esta
+                    # mesma thread, ou dentro de uma operação NumPy longa),
+                    # a entrega do sinal pode nunca ocorrer. Por isso aqui
+                    # encerramos o processo diretamente — sem esperar a
+                    # thread principal "perceber" nada. Restauramos o
+                    # terminal primeiro, já que os._exit() pula qualquer
+                    # finally/atexit do restante do programa.
+                    _restore_terminal()
+                    sys.stdout.write("\r\n  Abortado (Ctrl+C) — encerramento imediato.\r\n")
+                    sys.stdout.flush()
+                    _os._exit(130)   # 130 = código de saída convencional p/ SIGINT
         except Exception:
             # stdin não é um terminal (redirecionamento, pipe, Windows sem
             # msvcrt) — desabilita silenciosamente a escuta de teclado
@@ -1182,7 +1213,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _pulse_relaxing = [False]   # False = campo ligado; True = relaxando
 
     # imprime instrução de uso
-    _print("  [Ctrl+I para interromper e salvar o vídeo agora]")
+    _print("  [Ctrl+I para interromper e salvar o video agora]")
+    _print("  [Ctrl+C para abortar IMEDIATAMENTE, sem salvar nada]")
 
     # ── função auxiliar: calcula torques SI para estado θ e campo B(t) ────
     # ── pré-converte posições para arrays "flat" no backend ativo ─────────
