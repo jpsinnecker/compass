@@ -859,6 +859,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
     tau_cur           = _torques(theta_cur, bx_cur, by_cur)
     _converged_count  = 0
+    _S1_count         = 0   # passos consecutivos com S >= 0.9999 (parada em static)
     # S=1 como critério de parada só faz sentido em campo estático.
     # Em hysteresis e sine o campo oscila; em pulse queremos continuar
     # após S=1 para observar a relaxação com campo zerado.
