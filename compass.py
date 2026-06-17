@@ -1070,25 +1070,29 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     x_flat_xp = _to_backend(xs.ravel())
     y_flat_xp = _to_backend(ys.ravel())
 
-    def _torques(th, bx_ext, by_ext):
+    def _torques_xp(theta_flat_xp, bx_ext, by_ext):
         """
-        Retorna array N×M de torques [N·m] para o estado angular th.
-
-        Internamente usa compute_torques_vectorized (operações de array,
-        sem loops Python), executando em GPU via CuPy se uma GPU NVIDIA
-        estiver disponível, ou em CPU via NumPy caso contrário.
-
-        Parâmetros
-        ----------
-        th     : array N×M de ângulos [rad]  (NumPy, sempre em CPU)
-        bx_ext : componente x do campo externo instantâneo [T]
-        by_ext : componente y do campo externo instantâneo [T]
+        Versão GPU-resident: recebe e retorna arrays no backend ativo
+        (_xp), sem nenhuma conversão CPU<->GPU. Usada dentro do loop de
+        integração para evitar o overhead de transferência a cada passo
+        — theta/omega/tau permanecem na GPU durante toda a simulação,
+        só sendo convertidos para CPU quando estritamente necessário
+        (salvar frame, gravar histórico, log CSV).
         """
-        theta_flat_xp = _to_backend(th.ravel())
-        tau_flat_xp = compute_torques_vectorized(
+        return compute_torques_vectorized(
             theta_flat_xp, x_flat_xp, y_flat_xp, moment, cutoff,
             bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
-        tau_flat = _to_cpu(tau_flat_xp)   # volta para NumPy/CPU
+
+    def _torques(th, bx_ext, by_ext):
+        """
+        Versão de compatibilidade (CPU->GPU->CPU): aceita e retorna
+        array N×M em NumPy/CPU. Mantida para uso fora do loop principal
+        (ex: recalcular tau após zerar campo no modo pulse, fora do
+        hot loop, onde o overhead de uma conversão extra é irrelevante).
+        """
+        theta_flat_xp = _to_backend(th.ravel())
+        tau_flat_xp = _torques_xp(theta_flat_xp, bx_ext, by_ext)
+        tau_flat = _to_cpu(tau_flat_xp)
         return tau_flat.reshape(N, M)
 
     # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
@@ -1098,8 +1102,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     sine_log       = [] if field_mode == 'sine'       else None
 
     # ── loop de integração Velocity-Verlet ────────────────────────────────
+    # Estado principal (theta, omega, tau) reside no backend ativo (_xp) —
+    # GPU via CuPy se disponível, durante TODO o loop de integração.
+    # Isso evita o overhead de transferência CPU<->GPU a cada passo, que
+    # dominava o tempo de execução quando apenas _torques() tocava a GPU
+    # (o restante do loop, em NumPy puro, fazia round-trips constantes).
+    # theta_cur/omega_cur (NumPy 2D) são mantidos como "espelhos" em CPU,
+    # atualizados apenas quando necessário (frame, histórico, callback).
     bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
-    tau_cur           = _torques(theta_cur, bx_cur, by_cur)
+    theta_xp          = _to_backend(theta_cur.ravel())   # (K,) no backend
+    omega_xp           = _xp.zeros(N * M)                 # (K,) no backend
+    tau_xp             = _torques_xp(theta_xp, bx_cur, by_cur)
     _converged_count  = 0
     _S1_count         = 0   # passos consecutivos com S >= 0.9999 (parada em static)
     # S=1 como critério de parada só faz sentido em campo estático.
@@ -1132,6 +1145,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
+                theta_cur = _to_cpu(theta_xp).reshape(N, M)
+                omega_cur = _to_cpu(omega_xp).reshape(N, M)
                 _save_frame(step, theta_cur, omega_cur,
                             stop_label="■ interrompido (Ctrl+I)")
             break
@@ -1140,24 +1155,48 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         bx_new, by_new = field_at(t_now)
 
         # ── passo 1: atualiza θ usando θ(t), ω(t), τ(t) ───────────────────
-        accel_cur  = (tau_cur - damping * omega_cur) / inertia
-        theta_new  = theta_cur + omega_cur * dt + 0.5 * accel_cur * dt**2
-        theta_new  = (theta_new + np.pi) % (2.0 * np.pi) - np.pi
+        # (tudo em arrays "flat" (K,) no backend ativo — GPU se disponível)
+        accel_xp  = (tau_xp - damping * omega_xp) / inertia
+        theta_new_xp = theta_xp + omega_xp * dt + 0.5 * accel_xp * dt**2
+        theta_new_xp = (theta_new_xp + _xp.pi) % (2.0 * _xp.pi) - _xp.pi
 
         # ── passo 2: calcula τ(t+dt) com o novo θ e o novo campo ──────────
-        tau_new = _torques(theta_new, bx_new, by_new)
+        tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
 
         # ── passo 3: atualiza ω (Velocity-Verlet implícito) ────────────────
         b_half    = damping * dt / (2.0 * inertia)
-        omega_new = (omega_cur * (1.0 - b_half)
-                     + dt * (tau_cur + tau_new) / (2.0 * inertia)) \
-                    / (1.0 + b_half)
+        omega_new_xp = (omega_xp * (1.0 - b_half)
+                        + dt * (tau_xp + tau_new_xp) / (2.0 * inertia)) \
+                       / (1.0 + b_half)
 
-        theta_cur = theta_new
-        omega_cur = omega_new
-        tau_cur   = tau_new
+        theta_xp = theta_new_xp
+        omega_xp = omega_new_xp
+        tau_xp   = tau_new_xp
         bx_cur    = bx_new
         by_cur    = by_new
+
+        # ── calcula S, ω_max, mx_mean, my_mean NA GPU (reduções) ──────────
+        # só os escalares finais (4 floats) são trazidos para CPU a cada
+        # passo, em vez dos arrays N×M inteiros — reduz drasticamente o
+        # volume de dados transferido por passo de integração
+        S_now_xp     = _xp.abs(_xp.mean(_xp.exp(1j * theta_xp)))
+        omega_max_xp = _xp.max(_xp.abs(omega_xp))
+        mx_mean_xp   = _xp.mean(_xp.cos(theta_xp))
+        my_mean_xp   = _xp.mean(_xp.sin(theta_xp))
+
+        S_now     = float(S_now_xp)
+        omega_max = float(omega_max_xp)
+        mx_mean   = float(mx_mean_xp)
+        my_mean   = float(my_mean_xp)
+
+        # ── sincroniza para CPU 2D apenas quando necessário ────────────────
+        # (callback, histórico periódico, frame): conversão "preguiçosa",
+        # evita o custo de reshape/transferência quando não é preciso
+        _need_cpu_sync = (callback is not None) or (step % 20 == 0) or \
+                         (frame_dir is not None and step % frame_every == 0)
+        if _need_cpu_sync:
+            theta_cur = _to_cpu(theta_xp).reshape(N, M)
+            omega_cur = _to_cpu(omega_xp).reshape(N, M)
 
         if callback:
             callback(step, theta_cur.copy(), omega_cur.copy())
@@ -1165,15 +1204,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if step % 20 == 0:
             hist.append((theta_cur.copy(), omega_cur.copy()))
 
-        # ── calcula S e ω_max ──────────────────────────────────────────────
-        S_now     = np.abs(np.mean(np.exp(1j * theta_cur)))
-        omega_max = np.max(np.abs(omega_cur))
-
         # ── registra log de histerese / senoidal ──────────────────────────
         # M_proj: componente da magnetização média na direção do campo
         # ── log universal: campo e magnetização a cada passo ────────────────
-        mx_mean  = float(np.mean(np.cos(theta_cur)))
-        my_mean  = float(np.mean(np.sin(theta_cur)))
         M_proj   = mx_mean * cos_phi + my_mean * sin_phi
         B_scalar = bx_cur * cos_phi + by_cur * sin_phi
         entry    = (t_now, B_scalar, M_proj, S_now)
@@ -1206,6 +1239,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
+                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
@@ -1253,11 +1288,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 else:
                     _print(f"\n  Pulso: S estabilizou (S={S_now:.4f}) em t={t_now:.4f}s  campo zerado, relaxando")
-                # atualiza tau com campo=0 para o próximo passo
-                tau_cur = _torques(theta_cur, 0.0, 0.0)
+                # atualiza tau com campo=0 para o próximo passo (mantém
+                # o estado residente no backend ativo — GPU se disponível)
+                tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     # B_ext_inst=0 mostra campo desligado no painel,
                     # mas phi_ext_deg é mantido para mostrar a direção
+                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="campo zerado - relaxando",
                                 B_ext_inst=0.0)
@@ -1280,9 +1318,16 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
+                    theta_cur = _to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="● rede em repouso")
                 break
+
+    # ── garante sincronização final CPU<->GPU antes de retornar ───────────
+    # (o loop pode ter terminado num passo onde _need_cpu_sync era False)
+    theta_cur = _to_cpu(theta_xp).reshape(N, M)
+    omega_cur = _to_cpu(omega_xp).reshape(N, M)
 
     _stop_flag.set()   # garante que a thread de teclado encerra
 
