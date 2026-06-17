@@ -770,6 +770,34 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     _stop_flag = threading.Event()   # setado pela thread ou por S=1
 
+    # estado original do terminal — salvo no escopo externo para garantir
+    # restauração mesmo se a simulação terminar por outro motivo que não
+    # Ctrl+I (S=1, t_sim atingido, repouso, pulso concluído). Sem isso, o
+    # terminal pode ficar em modo raw após o programa encerrar, deixando
+    # o shell (zsh/bash) com saída quebrada nos comandos seguintes.
+    _term_fd  = None
+    _term_old = None
+    try:
+        import termios
+        _term_fd  = sys.stdin.fileno()
+        _term_old = termios.tcgetattr(_term_fd)
+    except Exception:
+        pass   # stdin não é um terminal (pipe, redirecionamento, etc.)
+
+    def _restore_terminal():
+        """Restaura o terminal ao modo normal (cooked), se foi alterado."""
+        if _term_fd is not None and _term_old is not None:
+            try:
+                import termios
+                termios.tcsetattr(_term_fd, termios.TCSADRAIN, _term_old)
+            except Exception:
+                pass
+
+    # registra como rede de segurança final: garante restauração mesmo em
+    # caso de exceção não tratada, Ctrl+C, ou qualquer encerramento abrupto
+    import atexit
+    atexit.register(_restore_terminal)
+
     def _keyboard_listener():
         """
         Lê stdin caractere a caractere em modo raw.
@@ -779,20 +807,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         try:
             import tty, termios
             fd = sys.stdin.fileno()
-            old = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                while not _stop_flag.is_set():
-                    ch = _os.read(fd, 1)
-                    if ch == b'\t':          # Ctrl+I = TAB = ASCII 9
-                        _stop_flag.set()
-                        break
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            tty.setraw(fd)
+            while not _stop_flag.is_set():
+                ch = _os.read(fd, 1)
+                if ch == b'\t':          # Ctrl+I = TAB = ASCII 9
+                    _stop_flag.set()
+                    break
         except Exception:
             # stdin não é um terminal (redirecionamento, pipe, Windows sem
             # msvcrt) — desabilita silenciosamente a escuta de teclado
             pass
+        finally:
+            _restore_terminal()
 
     # inicia thread como daemon para não bloquear o encerramento do programa
     _kb_thread = threading.Thread(target=_keyboard_listener, daemon=True)
@@ -1051,6 +1077,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 break
 
     _stop_flag.set()   # garante que a thread de teclado encerra
+
+    # restaura o terminal explicitamente aqui — não confia apenas na thread,
+    # pois ela pode não ter tempo de processar o _stop_flag antes do
+    # programa encerrar, deixando o terminal em modo raw para o shell
+    _restore_terminal()
 
     # ── exporta dados de histerese / senoidal para CSV ─────────────────────
     if hysteresis_log:
