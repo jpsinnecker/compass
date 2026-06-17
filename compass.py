@@ -1995,9 +1995,10 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
     ax.set_aspect('equal')
     margin = needle_len * 1.6
     # margem superior maior: reserva espaço para os painéis de cronômetro
-    # (canto sup. esquerdo) e campo externo (canto sup. direito), que
-    # caso contrário ficam sobrepostos sobre a primeira fileira de agulhas
-    top_margin = needle_len * 4.5
+    # (canto sup. esquerdo) e campo externo (canto sup. direito), com
+    # espaço vazio adicional abaixo dos painéis até a primeira fileira
+    # de agulhas, evitando qualquer sobreposição
+    top_margin = needle_len * 7.0
     ax.set_xlim(xs.min() - margin, xs.max() + margin)
     ax.set_ylim(ys.min() - margin, ys.max() + top_margin)
     ax.set_title(title, color='#ECF0F1', fontsize=11, pad=10,
