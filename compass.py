@@ -1970,6 +1970,10 @@ def main():
                            '150-200 para melhor qualidade de imagem.')
     grp4.add_argument('--keep_frames', action='store_true',
                       help='Mantém a pasta de PNGs intermediários após gerar o MP4')
+    grp4.add_argument('--csv_order', choices=['t', 'B'], default='t',
+                      help='Ordem das colunas no CSV exportado: '
+                           't (padrao) = tempo na 1a coluna: t,B,M_proj,S. '
+                           'B = tempo na ultima coluna: B,M_proj,S,t.')
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -2127,15 +2131,22 @@ def main():
         csv_path = _os.path.splitext(final_video)[0] + ".csv"
     else:
         csv_path = "compass_field_log.csv"
+
+    # ── ordem das colunas conforme --csv_order ────────────────────────────
+    # field_log armazena tuplas (t, B, M_proj, S)
+    # 't' (padrao): tempo na 1a coluna  -> t, B, M_proj, S
+    # 'B'         : tempo na ultima coluna -> B, M_proj, S, t
+    if args.csv_order == 'B':
+        header = ['B_aplicado_T', 'M_proj', 'S', 't_s']
+        rows   = [(B, Mp, S, t) for (t, B, Mp, S) in field_log]
+    else:
+        header = ['t_s', 'B_aplicado_T', 'M_proj', 'S']
+        rows   = field_log
+
     with open(csv_path, 'w', newline='') as f:
         w = _csv.writer(f)
-        w.writerow([
-            't_s',          # tempo fisico [s]
-            'B_aplicado_T', # campo aplicado na direcao phi_ext [T]
-            'M_proj',       # magnetizacao media projetada na direcao do campo
-            'S'             # parametro de ordem global |<e^{i theta}>|
-        ])
-        w.writerows(field_log)
+        w.writerow(header)
+        w.writerows(rows)
     _print(f"  CSV salvo: {csv_path}  ({len(field_log)} pontos)")
 
     # ── figura do estado de equilíbrio ────────────────────────────────────
