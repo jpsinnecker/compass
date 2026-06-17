@@ -854,8 +854,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             Direção: phi_ext. Frequência: field_freq [Hz].
 
         'pulse'
-            Fase 1 (campo aplicado): B = B_max (constante) até S ≥ 0.99.
-            Fase 2 (relaxação): B = 0 após S ≥ 0.99, sistema relaxa livre.
+            Fase 1 (campo aplicado): B = B_max (constante) até uma das
+            condições ocorrer:
+              A) S >= 0.99 por 20 passos consecutivos (alinhamento total)
+              B) S estabiliza: variação relativa < 5% entre passos
+                 consecutivos por 10+ passos (sistema travou num
+                 equilíbrio, possivelmente frustrado, sem energia para
+                 continuar evoluindo com o campo ligado)
+            Fase 2 (relaxação): B = 0 após A ou B, sistema relaxa livre
+            pelo tempo restante até t_sim.
             A transição entre fases é controlada pela flag _pulse_relaxing,
             atualizada no loop principal. field_at() consulta essa flag.
         """
@@ -953,6 +960,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _stop_reason       = "tempo total atingido"
     _pulse_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
     _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
+    _S_window         = []           # janela deslizante de S recentes (pulse)
+    # janela cobre pelo menos 2 períodos naturais de oscilação (2 * 1/dt_factor
+    # passos), garantindo que ciclos completos de oscilação sejam capturados
+    # antes de declarar estabilidade — evita disparo falso em picos/vales
+    # passageiros do sistema sub-amortecido
+    _S_WINDOW_SIZE    = max(40, int(2.0 / dt_factor))
 
     for step in range(1, n_steps + 1):
 
@@ -1041,18 +1054,49 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
 
-        # ── modo pulse: detecta S ≥ 0.99 e desliga o campo ─────────────
+        # ── modo pulse: desliga o campo quando S>=0.99 OU quando S estabiliza ──
+        # Condição A: S >= 0.99 por 20 passos consecutivos (alinhamento total)
+        # Condição B: dentro de uma janela deslizante cobrindo pelo menos
+        #             2 períodos naturais de oscilação (_S_WINDOW_SIZE
+        #             passos), a AMPLITUDE de variação de S (max - min da
+        #             janela) é menor que 5% do valor médio. A janela larga
+        #             garante que ciclos completos de oscilação sejam
+        #             capturados, evitando disparo falso nos picos/vales
+        #             passageiros do sistema sub-amortecido (onde a
+        #             diferença instantânea entre passos pode ser pequena
+        #             mesmo longe de uma estabilização real).
         if field_mode == 'pulse' and _pulse_phase == 'field_on':
+            # condição A: S >= 0.99
             if S_now >= 0.99:
                 _S99_count += 1
             else:
                 _S99_count = 0
 
-            if _S99_count >= 20:
-                # alinhamento atingido → desliga o campo e entra em relaxação
+            # condição B: amplitude de S dentro da janela deslizante < 5%
+            _S_window.append(S_now)
+            if len(_S_window) > _S_WINDOW_SIZE:
+                _S_window.pop(0)
+
+            _trigger_B = False
+            if len(_S_window) >= _S_WINDOW_SIZE:
+                S_max = max(_S_window)
+                S_min = min(_S_window)
+                S_mean = sum(_S_window) / len(_S_window)
+                if S_mean > 1e-6:
+                    spread_rel = (S_max - S_min) / S_mean
+                    if spread_rel < 0.05:
+                        _trigger_B = True
+
+            _trigger_A = (_S99_count >= 20)
+
+            if _trigger_A or _trigger_B:
+                # alinhamento atingido OU S estabilizou → desliga o campo
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
-                _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
+                if _trigger_A:
+                    _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
+                else:
+                    _print(f"\n  Pulso: S estabilizou (S={S_now:.4f}) em t={t_now:.4f}s  campo zerado, relaxando")
                 # atualiza tau com campo=0 para o próximo passo
                 tau_cur = _torques(theta_cur, 0.0, 0.0)
                 if frame_dir is not None:
@@ -2141,7 +2185,7 @@ def main():
     elif args.field_mode == 'hysteresis':
         field_mode_str = "hysteresis  (0->+Bmax->0->-Bmax->0->+Bmax)"
     elif args.field_mode == 'pulse':
-        field_mode_str = "pulse  (campo -> S>=0.99 -> zera -> relaxa)"
+        field_mode_str = "pulse  (campo -> S>=0.99 ou S estavel -> zera -> relaxa)"
     _print(f"  Modo campo   : {field_mode_str}")
     _print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
     _print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
