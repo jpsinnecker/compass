@@ -1853,8 +1853,12 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
     # ── formatação dos eixos (deve vir ANTES do painel de campo) ──────────
     ax.set_aspect('equal')
     margin = needle_len * 1.6
+    # margem superior maior: reserva espaço para os painéis de cronômetro
+    # (canto sup. esquerdo) e campo externo (canto sup. direito), que
+    # caso contrário ficam sobrepostos sobre a primeira fileira de agulhas
+    top_margin = needle_len * 4.5
     ax.set_xlim(xs.min() - margin, xs.max() + margin)
-    ax.set_ylim(ys.min() - margin, ys.max() + margin * 1.5)
+    ax.set_ylim(ys.min() - margin, ys.max() + top_margin)
     ax.set_title(title, color='#ECF0F1', fontsize=11, pad=10,
                  fontfamily='monospace')
     ax.tick_params(colors='#7F8C8D')
