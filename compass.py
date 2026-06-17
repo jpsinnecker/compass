@@ -1956,9 +1956,12 @@ def main():
     # ── grupo 4: saída ────────────────────────────────────────────────────
     grp4 = parser.add_argument_group("Saida")
     grp4.add_argument('--video', type=str, default=None,
-                      metavar='ARQUIVO.mp4',
-                      help='Gera vídeo MP4 da relaxação e salva neste caminho '
-                           '(requer ffmpeg instalado)')
+                      metavar='NOME',
+                      help='Gera video MP4 com este nome base (requer ffmpeg). '
+                           'Extensao .mp4 e opcional e adicionada automaticamente. '
+                           'Sempre recebe sufixo numerico: nome0000.mp4, '
+                           'nome0001.mp4, etc. Ex: --video simples '
+                           '-> simples0000.mp4')
     grp4.add_argument('--frame_every', type=int, default=5,
                       help='Salva um frame a cada N passos (menor = mais suave, '
                            'mais lento). Padrao: 5')
@@ -2089,11 +2092,14 @@ def main():
     final_video = None
     if args.video:
         import os
+        # se o usuário não informou extensão, adiciona .mp4 automaticamente
+        # ex: "--video simples" -> "simples.mp4" -> "simples0000.mp4"
+        if not os.path.splitext(args.video)[1]:
+            args.video = args.video + ".mp4"
         # resolve o nome final do vídeo ANTES de criar a pasta de frames,
         # garantindo que pasta e arquivo usem o mesmo nome base
         final_video = next_available_path(args.video)
-        if final_video != args.video:
-            _print(f"  '{args.video}' já existe → será salvo como '{final_video}'")
+        _print(f"  Video sera salvo como '{final_video}'")
         base      = os.path.splitext(final_video)[0]
         frame_dir = base + "_frames"
         _print(f"Integrando e gravando frames em '{frame_dir}/'...")
