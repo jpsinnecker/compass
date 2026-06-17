@@ -263,13 +263,27 @@ def dipole_field_2d(rx, ry, theta_src, moment):
 # 3. CAMPO TOTAL SOBRE UMA AGULHA (SI)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def total_field_on(i, j, thetas, xs, ys, cutoff, moment):
+def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
+                   pbc=False, Lx=None, Ly=None):
     """
     Soma o campo dipolar de todas as agulhas vizinhas sobre a agulha (i, j).
 
     Para eficiência computacional, apenas agulhas dentro do raio `cutoff`
     são consideradas. Isso é fisicamente justificado porque o campo dipolar
     decai como 1/r³ — contribuições de agulhas distantes são desprezíveis.
+
+    Condições periódicas de contorno (PBC)
+    ---------------------------------------
+    Quando pbc=True, a rede é tratada como uma célula unitária que se repete
+    infinitamente em x e em y (estrutura periódica, sem bordas). A distância
+    entre duas agulhas é calculada pela "convenção de imagem mínima":
+    para cada par (i,j)-(ni,nj), considera-se não só a distância direta mas
+    também a distância usando as réplicas deslocadas de ±Lx em x e ±Ly em y,
+    escolhendo a menor distância entre as 9 combinações possíveis
+    (a própria célula + 8 réplicas vizinhas).
+
+    Isso elimina os efeitos de borda: agulhas na margem da rede passam a
+    "ver" vizinhas do lado oposto, como se a estrutura fosse infinita.
 
     Parâmetros
     ----------
@@ -278,6 +292,9 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment):
     xs, ys  : arrays 2D das posições fixas das agulhas  [m]
     cutoff  : raio máximo de interação  [m]
     moment  : momento magnético de cada agulha  [A·m²]
+    pbc     : se True, aplica condições periódicas de contorno  [bool]
+    Lx, Ly  : dimensões do período da rede em x e y  [m]
+              (necessários apenas se pbc=True; calculados em make_grid)
 
     Retorna
     -------
@@ -294,7 +311,26 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment):
 
             rx = xi - xs[ni, nj]   # [m]
             ry = yi - ys[ni, nj]   # [m]
-            dist = np.sqrt(rx**2 + ry**2)
+
+            if pbc and Lx and Ly:
+                # convenção de imagem mínima: testa as 9 réplicas
+                # (célula central + 8 vizinhas) e usa a de menor distância
+                best_dist2 = rx*rx + ry*ry
+                best_rx, best_ry = rx, ry
+                for dx_img in (-Lx, 0.0, Lx):
+                    for dy_img in (-Ly, 0.0, Ly):
+                        if dx_img == 0.0 and dy_img == 0.0:
+                            continue
+                        rx_img = rx + dx_img
+                        ry_img = ry + dy_img
+                        d2 = rx_img*rx_img + ry_img*ry_img
+                        if d2 < best_dist2:
+                            best_dist2 = d2
+                            best_rx, best_ry = rx_img, ry_img
+                rx, ry = best_rx, best_ry
+                dist = np.sqrt(best_dist2)
+            else:
+                dist = np.sqrt(rx**2 + ry**2)
 
             if dist > cutoff:
                 continue  # fora do raio de corte: ignora
@@ -423,6 +459,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           frame_dir=None, frame_every=10,
           needle_len=0.042, needle_width=0.010, r_halo=None,
           frame_dpi=120, figsize_inches=None,
+          pbc=False, Lx=None, Ly=None,
           B_ext=0.0, phi_ext_deg=0.0):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
@@ -482,6 +519,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     needle_len  : tamanho das agulhas para renderização  [m]
     needle_width: largura das agulhas  [m]
     r_halo      : raio dos halos de parâmetro de ordem  [m]
+    pbc         : se True, aplica condições periódicas de contorno em x e y
+                  (a rede se comporta como uma estrutura infinita periódica;
+                  agulhas nas bordas interagem com réplicas do lado oposto)
+    Lx, Ly      : dimensões do período da rede em x e y  [m]
+                  (necessários apenas se pbc=True; calculados em make_grid)
     B_ext       : intensidade do campo externo para rótulo nos frames  [T]
     phi_ext_deg : direção do campo externo  [graus]
 
@@ -841,7 +883,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         tau = np.zeros((N, M))
         for i in range(N):
             for j in range(M):
-                Bx, By = total_field_on(i, j, th, xs, ys, cutoff, moment)
+                Bx, By = total_field_on(i, j, th, xs, ys, cutoff, moment,
+                                        pbc=pbc, Lx=Lx, Ly=Ly)
                 Bx += bx_ext
                 By += by_ext
                 mx = moment * np.cos(th[i, j])
@@ -1289,6 +1332,8 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
     xs, ys  : arrays 2D (N×M) com as coordenadas das agulhas  [m]
     thetas  : array 2D (N×M) com os ângulos iniciais  [rad]
     nn_dist : distância entre primeiros vizinhos  [m]  (= 2R em todos os casos)
+    Lx, Ly  : dimensões do período da rede em x e y  [m]
+              (usadas para condições periódicas de contorno, --pbc)
     """
     s3 = np.sqrt(3.0)
 
@@ -1302,7 +1347,8 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
                 xs[i, j] = j * d
                 ys[i, j] = i * d
         thetas = noise * np.random.randn(N, M)
-        return xs, ys, thetas, d
+        Lx, Ly = M * d, N * d   # período da rede para PBC [m]
+        return xs, ys, thetas, d, Lx, Ly
 
     # ── grade triangular equilateral ───────────────────────────────────────
     elif geometry == 'triangular':
@@ -1318,7 +1364,8 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
                 xs[i, j] = j * dx_col + x_off
                 ys[i, j] = i * dy_row
         thetas = noise * np.random.randn(N, M)
-        return xs, ys, thetas, d
+        Lx, Ly = M * dx_col, N * dy_row   # período da rede para PBC [m]
+        return xs, ys, thetas, d, Lx, Ly
 
     # ── grade honeycomb (colmeia) ──────────────────────────────────────────
     elif geometry == 'honeycomb':
@@ -1390,7 +1437,8 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
         xs     = clipped_x.reshape(n_pts, 1)
         ys     = clipped_y.reshape(n_pts, 1)
         thetas = noise * np.random.randn(n_pts, 1)
-        return xs, ys, thetas, d
+        Lx, Ly = W, H   # período aproximado da rede para PBC [m]
+        return xs, ys, thetas, d, Lx, Ly
 
     else:
         raise ValueError(f"Geometria desconhecida: '{geometry}'. "
@@ -1935,6 +1983,13 @@ def main():
                            '0=todas para +x, 3.14=aleatorio total')
     grp2.add_argument('--seed', type=int, default=42,
                       help='Semente do gerador aleatorio (reprodutibilidade)')
+    grp2.add_argument('--pbc', type=int, choices=[0, 1], default=0,
+                      help='Condicoes periodicas de contorno (PBC): '
+                           '0=desligado (padrao, rede finita com bordas), '
+                           '1=ligado (rede tratada como estrutura periodica '
+                           'infinita em x e y; agulhas nas bordas interagem '
+                           'com replicas do lado oposto via convencao de '
+                           'imagem minima)')
 
     # ── grupo 3: campo externo ────────────────────────────────────────────
     grp3 = parser.add_argument_group(
@@ -2006,7 +2061,8 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
+    pbc_str = "  PBC=ligado" if args.pbc else ""
+    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas{pbc_str}")
     _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
     _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
     _print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
@@ -2028,7 +2084,8 @@ def main():
 
     # ── gera grade de posições e ângulos iniciais ─────────────────────────
     # make_grid usa R como parâmetro único; retorna também nn_dist = 2R
-    xs, ys, thetas_init, nn_dist = make_grid(
+    # e Lx, Ly = período da rede para condições periódicas de contorno
+    xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
         args.N, args.M,
         geometry=args.geometry,
         noise=args.noise,
@@ -2047,6 +2104,16 @@ def main():
     needle_width = needle_len * 0.22           # largura do losango [m]
     r_halo     = R * 0.98                      # ligeiramente menor que R para gap visível
     cutoff     = nn_dist * 2.6                 # raio de corte da interação dipolar [m]
+
+    # ── PBC: limita cutoff a min(Lx,Ly)/2 para evitar contagem dupla ───────
+    # Acima desse limite, a convenção de imagem mínima pode contar a mesma
+    # réplica mais de uma vez, gerando resultados fisicamente incorretos.
+    if args.pbc:
+        max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
+        if cutoff > max_cutoff_pbc:
+            _print(f"  PBC: cutoff reduzido de {cutoff*100:.2f}cm para "
+                    f"{max_cutoff_pbc*100:.2f}cm (limite min(Lx,Ly)/2)")
+            cutoff = max_cutoff_pbc
 
     # campo dipolar de referência entre primeiros vizinhos (para exibição)
     B_ref = MU0_OVER_4PI * 2.0 * args.moment / nn_dist**3
@@ -2125,6 +2192,9 @@ def main():
         r_halo=r_halo,
         frame_dpi=args.dpi,
         figsize_inches=figsize_main,
+        pbc=bool(args.pbc),
+        Lx=Lx_period,
+        Ly=Ly_period,
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
     )
