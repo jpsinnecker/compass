@@ -264,7 +264,7 @@ def dipole_field_2d(rx, ry, theta_src, moment):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
-                   pbc=False, Lx=None, Ly=None, n_images=2):
+                   pbc=False, Lx=None, Ly=None, n_images=1):
     """
     Soma o campo dipolar de todas as agulhas vizinhas sobre a agulha (i, j).
 
@@ -278,11 +278,11 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
     infinitamente em x e em y (estrutura periódica, sem bordas). Para cada
     par de agulhas (i,j)-(ni,nj), o campo é somado sobre TODAS as réplicas
     periódicas dentro de ±n_images células em x e em y — não apenas a mais
-    próxima. Com n_images=2 (padrão), cada vizinha contribui através de
-    (2·2+1)² = 25 réplicas (a célula original + 2 réplicas de cada lado
-    em x e em y), garantindo uma soma de Ewald truncada mais precisa do
-    que a convenção de imagem mínima simples (que usa apenas 9 réplicas
-    e escolhe só a mais próxima).
+    próxima. Com n_images=1 (padrão), cada vizinha contribui através de
+    (2·1+1)² = 9 réplicas (a célula original + 1 réplica de cada lado
+    em x e em y — equivalente à convenção de imagem mínima clássica).
+    Aumentar n_images soma mais réplicas distantes, útil quando o cutoff
+    é grande em relação ao período da rede.
 
     Isso elimina os efeitos de borda: agulhas na margem da rede passam a
     "ver" vizinhas do lado oposto (e suas réplicas mais distantes), como
@@ -299,7 +299,7 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
     Lx, Ly   : dimensões do período da rede em x e y  [m]
                (necessários apenas se pbc=True; calculados em make_grid)
     n_images : número de réplicas periódicas a somar de cada lado, em
-               cada direção (padrão: 2). Total de réplicas consideradas
+               cada direção (padrão: 1). Total de réplicas consideradas
                por vizinha = (2·n_images+1)² células.
 
     Retorna
@@ -466,7 +466,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           frame_dir=None, frame_every=10,
           needle_len=0.042, needle_width=0.010, r_halo=None,
           frame_dpi=120, figsize_inches=None,
-          pbc=False, Lx=None, Ly=None, n_images=2,
+          pbc=False, Lx=None, Ly=None, n_images=1,
           B_ext=0.0, phi_ext_deg=0.0):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
@@ -532,8 +532,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     Lx, Ly      : dimensões do período da rede em x e y  [m]
                   (necessários apenas se pbc=True; calculados em make_grid)
     n_images    : número de réplicas periódicas a somar de cada lado em
-                  cada direção quando pbc=True (padrão: 2 → soma sobre
-                  uma grade de réplicas (2·2+1)² = 25 células)
+                  cada direção quando pbc=True (padrão: 1 → soma sobre
+                  uma grade de réplicas (2·1+1)² = 9 células)
     B_ext       : intensidade do campo externo para rótulo nos frames  [T]
     phi_ext_deg : direção do campo externo  [graus]
 
@@ -2000,10 +2000,10 @@ def main():
                            'infinita em x e y; agulhas nas bordas interagem '
                            'com replicas do lado oposto via convencao de '
                            'imagem minima)')
-    grp2.add_argument('--pbc_images', type=int, default=2,
+    grp2.add_argument('--pbc_images', type=int, default=1,
                       help='Numero de replicas periodicas somadas de cada '
-                           'lado, em cada direcao, quando --pbc 1. Padrao: 2 '
-                           '(soma sobre uma grade de (2*2+1)^2=25 celulas). '
+                           'lado, em cada direcao, quando --pbc 1. Padrao: 1 '
+                           '(soma sobre uma grade de (2*1+1)^2=9 celulas). '
                            'Usado apenas se --pbc 1.')
 
     # ── grupo 3: campo externo ────────────────────────────────────────────
