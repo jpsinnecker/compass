@@ -264,7 +264,7 @@ def dipole_field_2d(rx, ry, theta_src, moment):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
-                   pbc=False, Lx=None, Ly=None):
+                   pbc=False, Lx=None, Ly=None, n_images=2):
     """
     Soma o campo dipolar de todas as agulhas vizinhas sobre a agulha (i, j).
 
@@ -275,26 +275,32 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
     Condições periódicas de contorno (PBC)
     ---------------------------------------
     Quando pbc=True, a rede é tratada como uma célula unitária que se repete
-    infinitamente em x e em y (estrutura periódica, sem bordas). A distância
-    entre duas agulhas é calculada pela "convenção de imagem mínima":
-    para cada par (i,j)-(ni,nj), considera-se não só a distância direta mas
-    também a distância usando as réplicas deslocadas de ±Lx em x e ±Ly em y,
-    escolhendo a menor distância entre as 9 combinações possíveis
-    (a própria célula + 8 réplicas vizinhas).
+    infinitamente em x e em y (estrutura periódica, sem bordas). Para cada
+    par de agulhas (i,j)-(ni,nj), o campo é somado sobre TODAS as réplicas
+    periódicas dentro de ±n_images células em x e em y — não apenas a mais
+    próxima. Com n_images=2 (padrão), cada vizinha contribui através de
+    (2·2+1)² = 25 réplicas (a célula original + 2 réplicas de cada lado
+    em x e em y), garantindo uma soma de Ewald truncada mais precisa do
+    que a convenção de imagem mínima simples (que usa apenas 9 réplicas
+    e escolhe só a mais próxima).
 
     Isso elimina os efeitos de borda: agulhas na margem da rede passam a
-    "ver" vizinhas do lado oposto, como se a estrutura fosse infinita.
+    "ver" vizinhas do lado oposto (e suas réplicas mais distantes), como
+    se a estrutura fosse infinita.
 
     Parâmetros
     ----------
-    i, j    : índices da agulha receptora na grade (N×M)
-    thetas  : array 2D dos ângulos atuais de todas as agulhas  [rad]
-    xs, ys  : arrays 2D das posições fixas das agulhas  [m]
-    cutoff  : raio máximo de interação  [m]
-    moment  : momento magnético de cada agulha  [A·m²]
-    pbc     : se True, aplica condições periódicas de contorno  [bool]
-    Lx, Ly  : dimensões do período da rede em x e y  [m]
-              (necessários apenas se pbc=True; calculados em make_grid)
+    i, j     : índices da agulha receptora na grade (N×M)
+    thetas   : array 2D dos ângulos atuais de todas as agulhas  [rad]
+    xs, ys   : arrays 2D das posições fixas das agulhas  [m]
+    cutoff   : raio máximo de interação  [m]
+    moment   : momento magnético de cada agulha  [A·m²]
+    pbc      : se True, aplica condições periódicas de contorno  [bool]
+    Lx, Ly   : dimensões do período da rede em x e y  [m]
+               (necessários apenas se pbc=True; calculados em make_grid)
+    n_images : número de réplicas periódicas a somar de cada lado, em
+               cada direção (padrão: 2). Total de réplicas consideradas
+               por vizinha = (2·n_images+1)² células.
 
     Retorna
     -------
@@ -304,40 +310,41 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
     N, M = thetas.shape
     xi, yi = xs[i, j], ys[i, j]
 
+    # deslocamentos das réplicas periódicas a considerar (0 = célula original)
+    if pbc and Lx and Ly:
+        img_range = range(-n_images, n_images + 1)
+        x_shifts = [k * Lx for k in img_range]
+        y_shifts = [k * Ly for k in img_range]
+    else:
+        x_shifts = [0.0]
+        y_shifts = [0.0]
+
     for ni in range(N):
         for nj in range(M):
-            if ni == i and nj == j:
-                continue  # a agulha não interage com ela mesma
+            if ni == i and nj == j and not pbc:
+                continue  # sem PBC: a agulha não interage com ela mesma
 
-            rx = xi - xs[ni, nj]   # [m]
-            ry = yi - ys[ni, nj]   # [m]
+            rx0 = xi - xs[ni, nj]   # [m]
+            ry0 = yi - ys[ni, nj]   # [m]
 
-            if pbc and Lx and Ly:
-                # convenção de imagem mínima: testa as 9 réplicas
-                # (célula central + 8 vizinhas) e usa a de menor distância
-                best_dist2 = rx*rx + ry*ry
-                best_rx, best_ry = rx, ry
-                for dx_img in (-Lx, 0.0, Lx):
-                    for dy_img in (-Ly, 0.0, Ly):
-                        if dx_img == 0.0 and dy_img == 0.0:
-                            continue
-                        rx_img = rx + dx_img
-                        ry_img = ry + dy_img
-                        d2 = rx_img*rx_img + ry_img*ry_img
-                        if d2 < best_dist2:
-                            best_dist2 = d2
-                            best_rx, best_ry = rx_img, ry_img
-                rx, ry = best_rx, best_ry
-                dist = np.sqrt(best_dist2)
-            else:
-                dist = np.sqrt(rx**2 + ry**2)
+            for dx_img in x_shifts:
+                for dy_img in y_shifts:
+                    # pula a própria agulha na célula original (distância zero)
+                    if ni == i and nj == j and dx_img == 0.0 and dy_img == 0.0:
+                        continue
 
-            if dist > cutoff:
-                continue  # fora do raio de corte: ignora
+                    rx = rx0 + dx_img
+                    ry = ry0 + dy_img
+                    dist = np.sqrt(rx*rx + ry*ry)
 
-            bx, by = dipole_field_2d(rx, ry, thetas[ni, nj], moment)
-            Bx_tot += bx
-            By_tot += by
+                    if dist > cutoff:
+                        continue  # fora do raio de corte: ignora
+
+                    bx, by = dipole_field_2d(rx, ry, thetas[ni, nj], moment)
+                    Bx_tot += bx
+                    By_tot += by
+
+    return Bx_tot, By_tot   # [T]
 
     return Bx_tot, By_tot   # [T]
 
@@ -459,7 +466,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           frame_dir=None, frame_every=10,
           needle_len=0.042, needle_width=0.010, r_halo=None,
           frame_dpi=120, figsize_inches=None,
-          pbc=False, Lx=None, Ly=None,
+          pbc=False, Lx=None, Ly=None, n_images=2,
           B_ext=0.0, phi_ext_deg=0.0):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
@@ -524,6 +531,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                   agulhas nas bordas interagem com réplicas do lado oposto)
     Lx, Ly      : dimensões do período da rede em x e y  [m]
                   (necessários apenas se pbc=True; calculados em make_grid)
+    n_images    : número de réplicas periódicas a somar de cada lado em
+                  cada direção quando pbc=True (padrão: 2 → soma sobre
+                  uma grade de réplicas (2·2+1)² = 25 células)
     B_ext       : intensidade do campo externo para rótulo nos frames  [T]
     phi_ext_deg : direção do campo externo  [graus]
 
@@ -884,7 +894,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         for i in range(N):
             for j in range(M):
                 Bx, By = total_field_on(i, j, th, xs, ys, cutoff, moment,
-                                        pbc=pbc, Lx=Lx, Ly=Ly)
+                                        pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
                 Bx += bx_ext
                 By += by_ext
                 mx = moment * np.cos(th[i, j])
@@ -1990,6 +2000,11 @@ def main():
                            'infinita em x e y; agulhas nas bordas interagem '
                            'com replicas do lado oposto via convencao de '
                            'imagem minima)')
+    grp2.add_argument('--pbc_images', type=int, default=2,
+                      help='Numero de replicas periodicas somadas de cada '
+                           'lado, em cada direcao, quando --pbc 1. Padrao: 2 '
+                           '(soma sobre uma grade de (2*2+1)^2=25 celulas). '
+                           'Usado apenas se --pbc 1.')
 
     # ── grupo 3: campo externo ────────────────────────────────────────────
     grp3 = parser.add_argument_group(
@@ -2061,7 +2076,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    pbc_str = "  PBC=ligado" if args.pbc else ""
+    pbc_str = f"  PBC=ligado (n_images={args.pbc_images})" if args.pbc else ""
     _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas{pbc_str}")
     _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
     _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
@@ -2195,6 +2210,7 @@ def main():
         pbc=bool(args.pbc),
         Lx=Lx_period,
         Ly=Ly_period,
+        n_images=args.pbc_images,
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
     )
