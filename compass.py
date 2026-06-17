@@ -1475,17 +1475,24 @@ def next_available_path(path):
         n += 1
 
 
-def render_video(frame_dir, output_path, fps=24, crf=20):
+def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
     """
     Agrega os PNGs numerados de `frame_dir` em um vídeo MP4 usando ffmpeg.
 
-    Tenta três estratégias em ordem, parando na primeira que funcionar:
+    Tenta estratégias em ordem, parando na primeira que funcionar:
 
-    1. H.264 (libx264) com -f mp4 explícito — melhor qualidade, máxima
-       compatibilidade com players modernos.
-    2. MPEG-4 (mpeg4) com -f mp4 — fallback para builds antigas do ffmpeg
+    1. H.264 via NVENC (h264_nvenc) — encoder de HARDWARE da GPU NVIDIA.
+       Só tentado se use_gpu=True (vindo de --gpu 1) E uma GPU NVIDIA foi
+       detectada (via CuPy) E o ffmpeg instalado tem suporte a NVENC
+       compilado. Tipicamente 5-10x mais rápido que codificação por
+       software para o mesmo conteúdo, mas gera arquivos um pouco
+       maiores para a mesma qualidade percebida (NVENC prioriza
+       velocidade sobre taxa de compressão).
+    2. H.264 (libx264) com -f mp4 explícito — codificação por software
+       (CPU), melhor qualidade/compressão, máxima compatibilidade.
+    3. MPEG-4 (mpeg4) com -f mp4 — fallback para builds antigas do ffmpeg
        (conda macOS, por exemplo) que não incluem libx264.
-    3. Codec nativo do ffmpeg (sem -c:v) — último recurso.
+    4. Codec nativo do ffmpeg (sem -c:v) — último recurso.
 
     O argumento -f mp4 força o formato de saída explicitamente, contornando
     o bug em versões antigas do ffmpeg que não inferem o formato pela extensão
@@ -1516,8 +1523,21 @@ def render_video(frame_dir, output_path, fps=24, crf=20):
     input_pattern = os.path.join(frame_dir, "frame_%05d.png")
     vf = 'pad=ceil(iw/2)*2:ceil(ih/2)*2'
 
-    strategies = [
-        ("H.264 (libx264)",
+    strategies = []
+
+    # NVENC só é oferecido como primeira opção se: (1) o usuário pediu
+    # explicitamente --gpu 1 (mesma filosofia usada para o cálculo físico:
+    # GPU só é usada quando solicitada), E (2) uma GPU NVIDIA foi de fato
+    # detectada nesta máquina (via CuPy). Isso evita perder tempo tentando
+    # NVENC em máquinas sem GPU NVIDIA, ou quando o usuário optou por CPU.
+    if use_gpu and _GPU_AVAILABLE:
+        strategies.append((
+            "H.264 via NVENC (GPU)",
+            ['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', str(crf),
+             '-pix_fmt', 'yuv420p']))
+
+    strategies += [
+        ("H.264 (libx264) — CPU",
          ['-c:v', 'libx264', '-preset', 'fast', '-crf', str(crf),
           '-pix_fmt', 'yuv420p']),
         ("MPEG-4 (mpeg4) — fallback para ffmpeg antigo",
@@ -2718,7 +2738,7 @@ def main():
     # ── geração do vídeo MP4 ──────────────────────────────────────────────
     if final_video and frame_dir and n_frames > 0:
         import shutil
-        ok = render_video(frame_dir, final_video, fps=args.fps)
+        ok = render_video(frame_dir, final_video, fps=args.fps, use_gpu=bool(args.gpu))
         if ok and not args.keep_frames:
             shutil.rmtree(frame_dir)
             _print(f"  Pasta de frames removida: {frame_dir}/")
