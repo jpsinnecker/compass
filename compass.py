@@ -718,7 +718,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           needle_len=0.042, needle_width=0.010, r_halo=None,
           frame_dpi=120, figsize_inches=None,
           pbc=False, Lx=None, Ly=None, n_images=1,
-          B_ext=0.0, phi_ext_deg=0.0, use_gpu=False):
+          B_ext=0.0, phi_ext_deg=0.0, use_gpu=False, show_progress=True):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
 
@@ -1268,6 +1268,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_last_print_step = 0
     _perf_last_print_time = _perf_t_start
 
+    def _finish_progress_bar_if_shown():
+        """Fecha a barra de progresso apenas se ela estava habilitada
+        (--progress_bar 1) — evita uma linha vazia desnecessária no
+        terminal quando a barra está desabilitada."""
+        if show_progress:
+            _print_progress_bar_finish()
+
     # ── loop de integração Velocity-Verlet ────────────────────────────────
     # Estado principal (theta, omega, tau) reside no backend ativo (_xp) —
     # GPU via CuPy se disponível, durante TODO o loop de integração.
@@ -1309,7 +1316,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
-            _print_progress_bar_finish()
+            _finish_progress_bar_if_shown()
             _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
             _stop_reason = "interrompido pelo usuário (Ctrl+I)"
             if frame_dir is not None:
@@ -1384,24 +1391,28 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if sine_log is not None:
             sine_log.append(entry)
 
-        # ── barra de progresso em tempo real ───────────────────────────────
+        # ── barra de progresso em tempo real (opcional) ────────────────────
         # Mostra visualmente a fração concluída da integração, junto com
         # throughput (passos/s) e o backend ativo (CPU/GPU). Atualiza no
         # máximo a cada ~0.15s de wall-clock para a barra parecer fluida
-        # sem sobrecarregar o terminal com escritas excessivas.
-        _perf_now = _time_module.perf_counter()
-        if (_perf_now - _perf_last_print_time) >= 0.15 or step == n_steps:
-            _steps_since = step - _perf_last_print_step
-            _dt_wall     = _perf_now - _perf_last_print_time
-            _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
-            _backend_tag = "GPU" if _active_gpu else "CPU"
-            _frac_done   = step / n_steps if n_steps > 0 else 1.0
-            _print_progress_bar(
-                _frac_done,
-                prefix=f"  Integrando [{_backend_tag}] ",
-                suffix=f"passo {step}/{n_steps}  ({_steps_per_s:.0f} passos/s)")
-            _perf_last_print_step = step
-            _perf_last_print_time = _perf_now
+        # sem sobrecarregar o terminal com escritas excessivas. Pode ser
+        # desabilitada via --progress_bar 0 (ex: ao redirecionar a saída
+        # para um arquivo de log, onde a atualização por \r não se
+        # comporta como em um terminal interativo).
+        if show_progress:
+            _perf_now = _time_module.perf_counter()
+            if (_perf_now - _perf_last_print_time) >= 0.15 or step == n_steps:
+                _steps_since = step - _perf_last_print_step
+                _dt_wall     = _perf_now - _perf_last_print_time
+                _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
+                _backend_tag = "GPU" if _active_gpu else "CPU"
+                _frac_done   = step / n_steps if n_steps > 0 else 1.0
+                _print_progress_bar(
+                    _frac_done,
+                    prefix=f"  Integrando [{_backend_tag}] ",
+                    suffix=f"passo {step}/{n_steps}  ({_steps_per_s:.0f} passos/s)")
+                _perf_last_print_step = step
+                _perf_last_print_time = _perf_now
 
         # ── salva frame periódico ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
@@ -1421,7 +1432,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _S1_count = 0
 
             if _S1_count >= 30:
-                _print_progress_bar_finish()
+                _finish_progress_bar_if_shown()
                 _print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
                 _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
                 _stop_flag.set()
@@ -1471,7 +1482,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 # alinhamento atingido OU S estabilizou → desliga o campo
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
-                _print_progress_bar_finish()
+                _finish_progress_bar_if_shown()
                 if _trigger_A:
                     _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 else:
@@ -1502,7 +1513,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _converged_count = 0
 
             if _converged_count >= 50:
-                _print_progress_bar_finish()
+                _finish_progress_bar_if_shown()
                 _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
                 _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
                 _stop_flag.set()
@@ -1516,7 +1527,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # garante que a barra de progresso seja fechada mesmo se o loop terminou
     # normalmente (atingiu n_steps) sem passar por nenhuma das mensagens
     # acima que já fecham a barra explicitamente
-    _print_progress_bar_finish()
+    _finish_progress_bar_if_shown()
 
     # ── garante sincronização final CPU<->GPU antes de retornar ───────────
     # (o loop pode ter terminado num passo onde _need_cpu_sync era False)
@@ -2673,6 +2684,13 @@ def main():
                            '1=ativado (usa GPU se CuPy estiver instalado e '
                            'funcional; cai para CPU automaticamente caso '
                            'contrario, com aviso no terminal)')
+    grp2.add_argument('--progress_bar', type=int, choices=[0, 1], default=1,
+                      help='Exibe a barra de progresso em tempo real durante '
+                           'a integracao (ex: "Integrando [CPU] [###...] '
+                           '50.0%% passo N/M"): 1=exibe (padrao), '
+                           '0=nao exibe. Util para desabilitar em logs '
+                           'redirecionados para arquivo, onde a atualizacao '
+                           'por \\r nao se comporta como em um terminal.')
 
     # ── grupo 3: campo externo ────────────────────────────────────────────
     grp3 = parser.add_argument_group(
@@ -2936,6 +2954,7 @@ def main():
         B_ext=B_ext_mag,
         phi_ext_deg=phi_ext_deg,
         use_gpu=bool(args.gpu),
+        show_progress=bool(args.progress_bar),
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
