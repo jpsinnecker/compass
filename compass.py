@@ -39,9 +39,10 @@ PARÂMETROS DE LINHA DE COMANDO
 │                    Padrão: 0.1  (bússola de mesa, ~5 cm)   │
 │                    Ref: bolso ≈ 0.01 | náutica ≈ 1.0       │
 │                                                            │
-│  --inertia   float Momento de inércia [kg·m²].             │
-│                    Barra fina: I = (1/12)·massa·L²         │
-│                    Padrão: 1e-7  (0.5 g × 5 cm)           │
+│  --inertia   float Momento de inercia [kg.m2]. Se omitido,  │
+│                    calculado automaticamente da geometria   │
+│                    (lamina de aco: R, needle_frac,           │
+│                    --needle_thickness, --steel_density)      │
 │                                                            │
 │  --damping   float Amortecimento viscoso do ar [N·m·s/rad] │
 │                    Controla o fator de qualidade Q:        │
@@ -287,6 +288,59 @@ MOMENT_DEFAULT = 0.1      # A·m²   (agulha de bússola de mesa típica)
 #   Momento de inércia de barra fina em torno do centro:
 #       I = (1/12) · m · L²  =  (1/12) · 5×10⁻⁴ · (0.05)²  ≈ 1.04×10⁻⁷  kg·m²
 INERTIA_DEFAULT = 1.0e-7  # kg·m²
+
+# Densidade do aço magnético comum (aço-carbono / aço silício para uso
+# eletromagnético, como usado em lâminas de transformador ou bússolas
+# de mesa). Varia tipicamente entre 7700-7900 kg/m³; usamos um valor
+# representativo do aço-carbono comum.
+STEEL_DENSITY_DEFAULT = 7850.0   # kg/m³
+# Espessura padrão de uma lâmina fina cortada de chapa de aço comum
+NEEDLE_THICKNESS_DEFAULT = 0.4e-3   # m  (0.4 mm)
+
+
+def compute_inertia_from_geometry(needle_len, needle_width, thickness,
+                                  density=STEEL_DENSITY_DEFAULT):
+    """
+    Calcula o momento de inércia de uma agulha modelada como uma lâmina
+    retangular fina e homogênea, girando em torno do eixo perpendicular
+    ao plano da lâmina, passando pelo centro de massa (eixo z — o eixo
+    real de rotação de uma agulha de bússola apoiada em um pino).
+
+    Modelo físico
+    -------------
+    Lâmina retangular de comprimento L, largura w, espessura t, massa m,
+    densidade ρ:
+
+        m = ρ · L · w · t                         [kg]
+
+    Momento de inércia de uma placa retangular fina em torno do eixo
+    perpendicular ao seu plano, passando pelo centro (eixo z):
+
+        I = (1/12) · m · (L² + w²)                [kg·m²]
+
+    Esta fórmula generaliza o caso de "barra fina" (I = mL²/12, válido
+    quando w → 0): aqui mantemos o termo w² explicitamente porque agulhas
+    reais cortadas de chapa metálica têm largura não-desprezível, e a
+    espessura t entra apenas através da massa (uma lâmina fina não
+    contribui com um termo de inércia próprio na direção perpendicular
+    ao seu plano — esse termo, m·t²/12, é desprezível para t << L, w).
+
+    Parâmetros
+    ----------
+    needle_len   : comprimento da agulha L  [m]
+    needle_width : largura da agulha w  [m]
+    thickness    : espessura da lâmina t  [m]
+    density      : densidade do material  [kg/m³]
+                   (padrão: aço magnético comum, 7850 kg/m³)
+
+    Retorna
+    -------
+    I : momento de inércia  [kg·m²]
+    """
+    mass = density * needle_len * needle_width * thickness   # [kg]
+    I = (1.0 / 12.0) * mass * (needle_len**2 + needle_width**2)   # [kg·m²]
+    return I
+
 #
 # Amortecimento viscoso (resistência do ar ao giro da agulha).
 # O Q efetivo depende do campo dominante B_eff = max(B_dipolar, B_externo):
@@ -2397,11 +2451,27 @@ def main():
                       help='Momento magnetico de cada agulha [A·m²]. '
                            'Tipico: 0.01 (pequena) a 1.0 (grande). '
                            f'Padrao: {MOMENT_DEFAULT} A·m²')
-    grp2.add_argument('--inertia', type=float, default=INERTIA_DEFAULT,
+    grp2.add_argument('--inertia', type=float, default=None,
                       help='Momento de inercia de cada agulha [kg·m²]. '
-                           'Barra fina: I = (1/12)·massa·comprimento². '
-                           f'Padrao: {INERTIA_DEFAULT:.2e} kg·m² '
-                           '(agulha 0.5 g × 5 cm)')
+                           'Se omitido (padrao), calculado automaticamente '
+                           'a partir da geometria real da agulha (R, '
+                           'needle_frac, espessura) como uma lamina de aco '
+                           'magnetico: I = (1/12)*massa*(L²+largura²), '
+                           'massa = densidade*L*largura*espessura. '
+                           'Se fornecido explicitamente, este valor '
+                           'sobrescreve o calculo automatico.')
+    grp2.add_argument('--needle_thickness', type=float,
+                      default=NEEDLE_THICKNESS_DEFAULT,
+                      help='Espessura da lamina de aco da agulha [m], '
+                           'usada apenas no calculo automatico do momento '
+                           'de inercia (quando --inertia nao e fornecido). '
+                           f'Padrao: {NEEDLE_THICKNESS_DEFAULT*1e3:.2f} mm')
+    grp2.add_argument('--steel_density', type=float,
+                      default=STEEL_DENSITY_DEFAULT,
+                      help='Densidade do aco magnetico [kg/m³], usada '
+                           'apenas no calculo automatico do momento de '
+                           f'inercia. Padrao: {STEEL_DENSITY_DEFAULT:.0f} '
+                           'kg/m³ (aco-carbono comum)')
     grp2.add_argument('--damping', type=float, default=DAMPING_DEFAULT,
                       help='Amortecimento viscoso do ar b [N·m·s/rad]. '
                            'Zero = sem amortecimento (oscila infinitamente). '
@@ -2523,6 +2593,30 @@ def main():
         B_ext_mag   = args.B_ext
         phi_ext_deg = args.phi_ext
 
+    # ── tamanhos derivados de R (calculados aqui para uso no resumo e no
+    #    cálculo automático do momento de inércia, antes de imprimir) ──────
+    # R  = raio do círculo visual de cada agulha
+    # 2R = distância entre vizinhos (nn_dist) em qualquer geometria
+    # needle_len = fração de 2R controlada por --needle_frac
+    # needle_width = 22% de needle_len (proporção visual de bússola)
+    R          = args.R
+    needle_len = args.needle_frac * 2.0 * R   # comprimento da agulha [m]
+    needle_width = needle_len * 0.22           # largura do losango [m]
+
+    # ── momento de inércia: calculado da geometria, ou valor explícito ────
+    # Se o usuário não passou --inertia, calcula automaticamente a partir
+    # das dimensões reais da agulha (comprimento, largura, espessura) e
+    # da densidade do aço, modelando-a como uma lâmina retangular fina.
+    # Se --inertia foi fornecido explicitamente, esse valor tem prioridade.
+    if args.inertia is None:
+        inertia = compute_inertia_from_geometry(
+            needle_len, needle_width, args.needle_thickness,
+            density=args.steel_density)
+        _inertia_auto = True
+    else:
+        inertia = args.inertia
+        _inertia_auto = False
+
     # ── resumo dos parâmetros ─────────────────────────────────────────────
     # formata campo para exibição em unidade mais legível
     def fmt_field(B):
@@ -2559,7 +2653,13 @@ def main():
     _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
     _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
     _print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
-    _print(f"  Inercia      : {args.inertia:.3e} kg.m2  por agulha")
+    if _inertia_auto:
+        _mass_g = args.steel_density * needle_len * needle_width * args.needle_thickness * 1e3
+        _print(f"  Inercia      : {inertia:.3e} kg.m2  por agulha  "
+               f"[calculado: lamina de aco {args.needle_thickness*1e3:.2f}mm, "
+               f"~{_mass_g:.3f}g]")
+    else:
+        _print(f"  Inercia      : {inertia:.3e} kg.m2  por agulha  [valor manual]")
     _print(f"  Amortecimento: {args.damping:.3e} N.m.s/rad  (ar)")
     _print(f"  Campo externo: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} graus")
     _print(f"  Componentes  : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
@@ -2585,16 +2685,10 @@ def main():
         R=args.R,
     )
 
-    # ── tamanhos derivados de R ───────────────────────────────────────────
-    # R  = raio do círculo visual de cada agulha
-    # 2R = distância entre vizinhos (nn_dist) em qualquer geometria
-    # needle_len = fração de 2R controlada por --needle_frac
-    # needle_width = 22% de needle_len (proporção visual de bússola)
+    # ── tamanhos derivados de R que faltam (R/needle_len/needle_width e a
+    #    inércia já foram calculados antes do resumo do terminal) ──────────
     # r_halo = R (exatamente o raio do círculo) — círculos se tocam tangencialmente
     # cutoff = 2.6 * 2R — cobre 1ª e 2ª camadas de vizinhos
-    R          = args.R
-    needle_len = args.needle_frac * 2.0 * R   # comprimento da agulha [m]
-    needle_width = needle_len * 0.22           # largura do losango [m]
     r_halo     = R * 0.98                      # ligeiramente menor que R para gap visível
     cutoff     = nn_dist * 2.6                 # raio de corte da interação dipolar [m]
 
@@ -2671,7 +2765,7 @@ def main():
         thetas_init.copy(), xs, ys,
         t_sim=args.t_sim,
         dt_factor=args.dt_factor,
-        inertia=args.inertia,
+        inertia=inertia,
         damping=args.damping,
         cutoff=cutoff,
         ext_field=(Bext_x, Bext_y),
