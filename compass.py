@@ -1944,7 +1944,8 @@ def main():
                           'Padrao: 0.025 m = 2.5 cm')
     grp.add_argument('--needle_frac', type=float, default=0.80,
                      help='Comprimento da agulha como fracao do diametro 2R '
-                          '(0.0–1.0). Padrao: 0.80  →  agulha = 0.80 * 2R')
+                          '(0.0 a 0.8). Padrao: 0.80  ->  agulha = 0.80 * 2R. '
+                          'Valores fora do intervalo serao limitados (clamp).')
     grp.add_argument('--geometry',
                      choices=['square', 'triangular', 'honeycomb'],
                      default='square',
@@ -2050,6 +2051,14 @@ def main():
                            'B = tempo na ultima coluna: B,M_proj,S,t.')
     args = parser.parse_args()
 
+    # ── valida e limita needle_frac ao intervalo [0, 0.8] ──────────────────
+    # acima de 0.8 as agulhas começam a se tocar/sobrepor visualmente
+    if args.needle_frac < 0.0 or args.needle_frac > 0.8:
+        clamped = max(0.0, min(args.needle_frac, 0.8))
+        _print(f"  Aviso: --needle_frac {args.needle_frac} fora do intervalo "
+                f"[0, 0.8]; ajustado para {clamped}")
+        args.needle_frac = clamped
+
     np.random.seed(args.seed)
 
     # ── converte campo externo para coordenadas cartesianas ───────────────
@@ -2076,8 +2085,10 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    pbc_str = f"  PBC=ligado (n_images={args.pbc_images})" if args.pbc else ""
-    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas{pbc_str}")
+    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
+    pbc_str = (f"ligado  (n_images={args.pbc_images}, soma sobre "
+               f"{(2*args.pbc_images+1)**2} celulas)") if args.pbc else "desligado"
+    _print(f"  PBC          : {pbc_str}")
     _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
     _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
     _print(f"  Momento mag. : {args.moment:.4g} A.m2  por agulha")
