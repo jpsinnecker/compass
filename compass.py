@@ -945,7 +945,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _allow_S1_stop     = (field_mode == 'static')
     # em hysteresis e sine o campo muda continuamente: parada por repouso
     # desabilitada (a rede pode estar momentaneamente parada no cruzamento B=0)
-    _allow_rest_stop   = (field_mode in ('static', 'pulse'))
+    # parada por repouso: em 'static' sempre permitida; em 'pulse' só na
+    # fase de relaxação (campo já zerado) — nunca durante 'field_on', pois
+    # a rede pode ficar momentaneamente travada num mínimo local frustrado
+    # enquanto o campo ainda está ligado tentando alinhá-la
+    _allow_rest_stop   = (field_mode == 'static')
     _stop_reason       = "tempo total atingido"
     _pulse_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
     _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
@@ -1059,9 +1063,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 B_ext_inst=0.0)
 
         # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
-        # Só para em modos static e pulse; em hysteresis/sine o campo muda
-        # e a rede pode ficar momentaneamente parada no cruzamento por zero.
-        if _allow_rest_stop:
+        # Em 'static': sempre permitida. Em 'pulse': só na fase 'relaxing'
+        # (após o campo já ter sido zerado). Em 'hysteresis'/'sine': nunca,
+        # pois o campo muda continuamente e a rede pode estar apenas
+        # momentaneamente parada no cruzamento por zero.
+        _rest_stop_active = _allow_rest_stop or (
+            field_mode == 'pulse' and _pulse_phase == 'relaxing')
+        if _rest_stop_active:
             if omega_max < omega0 * 1e-3:
                 _converged_count += 1
             else:
