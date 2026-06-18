@@ -769,7 +769,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           frame_dpi=120, figsize_inches=None,
           pbc=False, Lx=None, Ly=None, n_images=1,
           B_ext=0.0, phi_ext_deg=0.0, use_gpu=False, show_progress=True,
-          halo_mode='order', domain_tol_deg=15.0):
+          halo_mode='order', domain_tol_deg=15.0, make_images=True):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
 
@@ -825,6 +825,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     callback    : função opcional callback(step, thetas, omegas)
     frame_dir   : diretório onde salvar PNGs de frames (ou None)
     frame_every : intervalo em passos entre frames salvos
+    make_images : bool, default True
+                  Se False, desliga TODA geração de imagem dentro de relax():
+                  - frames PNG por passo (mesmo que frame_dir seja passado)
+                  - hysteresis_loop.png / sine_field.png de resumo ao final
+                  Os CSVs de dados (hysteresis_loop.csv, sine_field.csv) e o
+                  field_log retornado NÃO são afetados — apenas a renderização
+                  matplotlib, que é o custo dominante em campanhas com muitas
+                  chamadas programáticas de relax() (varreduras de parâmetro).
     needle_len  : tamanho das agulhas para renderização  [m]
     needle_width: largura das agulhas  [m]
     r_halo      : raio dos halos de parâmetro de ordem  [m]
@@ -926,6 +934,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     theta_cur = thetas.copy()
     omega_cur = np.zeros((N, M))
     hist      = [(theta_cur.copy(), omega_cur.copy())]
+
+    # make_images=False desliga toda geração de imagem (frames PNG por passo
+    # e PNGs de resumo de histerese/senoidal), independente de frame_dir ter
+    # sido passado. Isso evita custo de matplotlib em varreduras programáticas
+    # de parâmetro, sem afetar os CSVs/field_log retornados.
+    if not make_images and frame_dir is not None:
+        _print(f"  Aviso: make_images=False -> ignorando frame_dir='{frame_dir}' "
+               f"(nenhum PNG sera gerado)")
+        frame_dir = None
 
     if frame_dir is not None:
         os.makedirs(frame_dir, exist_ok=True)
@@ -1642,7 +1659,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(hysteresis_log)
         _print(f"  Dados de histerese salvos: {csv_path}")
-        _plot_hysteresis(hysteresis_log)
+        if make_images:
+            _plot_hysteresis(hysteresis_log)
 
     if sine_log:
         import csv
@@ -1652,7 +1670,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(sine_log)
         _print(f"  Dados de campo senoidal salvos: {csv_path}")
-        _plot_sine(sine_log, field_freq)
+        if make_images:
+            _plot_sine(sine_log, field_freq)
 
     return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason, field_log
 
@@ -3012,6 +3031,19 @@ def main():
     grp4.add_argument('--frame_every', type=int, default=5,
                       help='Salva um frame a cada N passos (menor = mais suave, '
                            'mais lento). Padrao: 5')
+    grp4.add_argument('--make_images', type=int, default=1, choices=[0, 1],
+                      help='1 (padrao) = gera as imagens PNG normalmente '
+                           '(frames, compass_initial.png, compass_equilibrium.png, '
+                           'compass_comparison.png, compass_order_param.png, e '
+                           'hysteresis_loop.png/sine_field.png quando aplicavel). '
+                           '0 = desliga TODA geracao de imagem/PNG, mantendo '
+                           'apenas os CSVs de dados -- util para campanhas de '
+                           'varredura de parametro com muitas execucoes, onde '
+                           'o custo de renderizacao matplotlib domina o tempo '
+                           'total e as imagens nao serao usadas. Nao afeta '
+                           '--video: se --video for passado junto com '
+                           '--make_images 0, nenhum frame existira para montar '
+                           'o video e um aviso sera emitido.')
     grp4.add_argument('--fps', type=int, default=24,
                       help='Quadros por segundo do video MP4. Padrao: 24')
     grp4.add_argument('--dpi', type=int, default=120,
@@ -3216,19 +3248,26 @@ def main():
     ext_kwargs['figsize_inches'] = figsize_main
 
     # ── figura do estado inicial ──────────────────────────────────────────
-    fig0, _ = plot_state(thetas_init, xs, ys,
-                         title="Estado inicial (aleatório)",
-                         needle_len=needle_len, needle_width=needle_width,
-                         **ext_kwargs)
-    plt.tight_layout()
-    plt.savefig("compass_initial.png",
-                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-    plt.close(fig0)
-    _print("Estado inicial salvo.")
+    if args.make_images:
+        fig0, _ = plot_state(thetas_init, xs, ys,
+                             title="Estado inicial (aleatório)",
+                             needle_len=needle_len, needle_width=needle_width,
+                             **ext_kwargs)
+        plt.tight_layout()
+        plt.savefig("compass_initial.png",
+                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
+        plt.close(fig0)
+        _print("Estado inicial salvo.")
 
     # ── integração dinâmica inercial ──────────────────────────────────────
     frame_dir   = None
     final_video = None
+    if args.video and not args.make_images:
+        _print(f"  Aviso: --video '{args.video}' foi pedido junto com "
+               f"--make_images 0. Nenhum frame sera gerado, logo nenhum "
+               f"video sera montado. Ignorando --video.")
+        args.video = None
+
     if args.video:
         import os
         # se o usuário não informou extensão, adiciona .mp4 automaticamente
@@ -3273,6 +3312,7 @@ def main():
         show_progress=bool(args.progress_bar),
         halo_mode=args.halo_mode,
         domain_tol_deg=args.domain_tol,
+        make_images=bool(args.make_images),
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
@@ -3303,65 +3343,66 @@ def main():
     _print(f"  CSV salvo: {csv_path}  ({len(field_log)} pontos)")
 
     # ── figura do estado de equilíbrio ────────────────────────────────────
-    title_eq = (f"Equilíbrio — {args.geometry} {args.N}×{args.M}"
-                + (f"  |  B={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
-                   if B_ext_mag > 0 else ""))
-    fig1, _ = plot_state(thetas_eq, xs, ys,
-                         title=title_eq,
-                         needle_len=needle_len, needle_width=needle_width,
-                         **ext_kwargs)
-    plt.tight_layout()
-    plt.savefig("compass_equilibrium.png",
-                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-    plt.close(fig1)
-    _print("Estado de equilíbrio salvo.")
+    if args.make_images:
+        title_eq = (f"Equilíbrio — {args.geometry} {args.N}×{args.M}"
+                    + (f"  |  B={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
+                       if B_ext_mag > 0 else ""))
+        fig1, _ = plot_state(thetas_eq, xs, ys,
+                             title=title_eq,
+                             needle_len=needle_len, needle_width=needle_width,
+                             **ext_kwargs)
+        plt.tight_layout()
+        plt.savefig("compass_equilibrium.png",
+                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
+        plt.close(fig1)
+        _print("Estado de equilíbrio salvo.")
 
-    # ── figura comparativa lado a lado ────────────────────────────────────
-    fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
-    margin = needle_len * 1.6
-    for ax_ in axes:
-        ax_.set_facecolor('#16213E')
-        ax_.set_aspect('equal')
-        ax_.set_xlim(xs.min() - margin, xs.max() + margin)
-        ax_.set_ylim(ys.min() - margin, ys.max() + margin * 2.5)
-        ax_.tick_params(left=False, bottom=False,
-                        labelleft=False, labelbottom=False)
-        for sp in ax_.spines.values():
-            sp.set_edgecolor('#2C3E50')
+        # ── figura comparativa lado a lado ────────────────────────────────
+        fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
+        margin = needle_len * 1.6
+        for ax_ in axes:
+            ax_.set_facecolor('#16213E')
+            ax_.set_aspect('equal')
+            ax_.set_xlim(xs.min() - margin, xs.max() + margin)
+            ax_.set_ylim(ys.min() - margin, ys.max() + margin * 2.5)
+            ax_.tick_params(left=False, bottom=False,
+                            labelleft=False, labelbottom=False)
+            for sp in ax_.spines.values():
+                sp.set_edgecolor('#2C3E50')
 
-    axes[0].set_title("Estado inicial", color='#ECF0F1',
-                      fontsize=12, fontfamily='monospace')
-    axes[1].set_title("Equilíbrio dipolar", color='#ECF0F1',
-                      fontsize=12, fontfamily='monospace')
+        axes[0].set_title("Estado inicial", color='#ECF0F1',
+                          fontsize=12, fontfamily='monospace')
+        axes[1].set_title("Equilíbrio dipolar", color='#ECF0F1',
+                          fontsize=12, fontfamily='monospace')
 
-    N_g, M_g = thetas_init.shape
-    draw_compass_batch(axes[0], xs, ys, thetas_init,
-                       length=needle_len, width=needle_width)
-    draw_compass_batch(axes[1], xs, ys, thetas_eq,
-                       length=needle_len, width=needle_width)
+        N_g, M_g = thetas_init.shape
+        draw_compass_batch(axes[0], xs, ys, thetas_init,
+                           length=needle_len, width=needle_width)
+        draw_compass_batch(axes[1], xs, ys, thetas_eq,
+                           length=needle_len, width=needle_width)
 
-    # setas de campo externo em ambos os painéis
-    draw_ext_field_on_lattice(axes[0], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
-    draw_ext_field_on_lattice(axes[1], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
+        # setas de campo externo em ambos os painéis
+        draw_ext_field_on_lattice(axes[0], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
+        draw_ext_field_on_lattice(axes[1], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
 
-    bfield_str = (f"  |  B_ext={B_ext_mag:.2f} @ {phi_ext_deg:.0f}°"
-                  if B_ext_mag > 0 else "")
-    fig2.suptitle(
-        f"Rede {args.geometry} {args.N}×{args.M}"
-        f"  |  R={args.R*100:.1f} cm  2R={2*args.R*100:.1f} cm"
-        f"{bfield_str}  |  interação dipolar 2D",
-        color='#BDC3C7', fontsize=11, fontfamily='monospace')
-    plt.tight_layout()
-    plt.savefig("compass_comparison.png",
-                dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-    plt.close(fig2)
-    _print("Comparação salva.")
+        bfield_str = (f"  |  B_ext={B_ext_mag:.2f} @ {phi_ext_deg:.0f}°"
+                      if B_ext_mag > 0 else "")
+        fig2.suptitle(
+            f"Rede {args.geometry} {args.N}×{args.M}"
+            f"  |  R={args.R*100:.1f} cm  2R={2*args.R*100:.1f} cm"
+            f"{bfield_str}  |  interação dipolar 2D",
+            color='#BDC3C7', fontsize=11, fontfamily='monospace')
+        plt.tight_layout()
+        plt.savefig("compass_comparison.png",
+                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
+        plt.close(fig2)
+        _print("Comparação salva.")
 
-    # ── parâmetro de ordem global ─────────────────────────────────────────
-    # hist contém tuplas (thetas, omegas); extraímos só os thetas
-    plot_order_parameter([th for th, _ in thetas_hist],
-                         "compass_order_param.png",
-                         dt=sim_dt)
+        # ── parâmetro de ordem global ────────────────────────────────────
+        # hist contém tuplas (thetas, omegas); extraímos só os thetas
+        plot_order_parameter([th for th, _ in thetas_hist],
+                             "compass_order_param.png",
+                             dt=sim_dt)
 
     # ── geração do vídeo MP4 ──────────────────────────────────────────────
     if final_video and frame_dir and n_frames > 0:
