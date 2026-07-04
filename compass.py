@@ -2783,6 +2783,110 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
                  zorder=2)
 
 
+def draw_halos_batch(ax, xs, ys, thetas, needle_len, r_halo=None,
+                     halo_mode='order', domain_tol_deg=15.0):
+    """
+    Desenha os halos coloridos de todas as agulhas em um eixo (V43 —
+    lógica extraída de plot_state para reutilização na figura de
+    comparação lado a lado e em qualquer outro painel).
+
+    Cálculo vetorizado via deslocamentos de array (em vez de loops
+    Python por agulha), e desenho via PatchCollection (1 chamada para
+    todos os círculos, em vez de N×M chamadas individuais).
+
+    Modos (halo_mode):
+      'order'   : verde=alinhado com vizinhos, vermelho=frustrado —
+                  média de cos(Δθ) com os vizinhos diretos da grade.
+      'domains' : cada região conexa de orientação similar (dentro de
+                  domain_tol_deg) recebe uma cor categórica distinta;
+                  domínios pequenos (< max(3; 2% das agulhas)) ficam em
+                  cinza neutro para não degenerar a paleta.
+
+    Retorna
+    -------
+    (n_domains_found, n_significant) : contagens quando
+        halo_mode='domains'; (None, None) no modo 'order'.
+    """
+    N, M = thetas.shape
+    _r = r_halo if r_halo is not None else needle_len * 0.58
+    _n_domains_found = None
+    _n_significant   = None
+
+    if halo_mode == 'domains':
+        # ── modo domínios: cada região conexa de orientação similar
+        # recebe uma cor categórica distinta, identificando domínios
+        # magnéticos (paredes de domínio = mudança abrupta de cor).
+        #
+        # Domínios muito pequenos (tipicamente 1-poucas agulhas, fruto
+        # de ruído residual numa rede ainda não totalmente relaxada)
+        # recebem uma cor CINZA NEUTRA em vez de uma cor distinta da
+        # paleta — caso contrário, com centenas de domínios pequenos,
+        # a paleta categórica degenera visualmente num gradiente
+        # contínuo (matizes adjacentes muito próximos), escondendo os
+        # poucos domínios grandes que de fato importam para a leitura.
+        # O limiar é proporcional ao tamanho da rede (ou um mínimo
+        # absoluto de 3 agulhas, o que for maior), e os domínios
+        # "significativos" remanescentes recebem cores ordenadas do
+        # maior para o menor, maximizando contraste entre domínios
+        # espacialmente vizinhos (que tendem a ter rótulos numéricos
+        # próximos, já que o union-find rotula em ordem de varredura).
+        domain_labels, _n_domains_found = label_magnetic_domains(
+            thetas, tol_deg=domain_tol_deg)
+        K_total = N * M
+        _unique_labels, _inverse, _counts = np.unique(
+            domain_labels, return_inverse=True, return_counts=True)
+        _inverse = _inverse.ravel()   # NumPy recente retorna shape igual à entrada (N,M); precisamos de (K,)
+        _min_domain_size = max(3, int(0.02 * K_total))
+        _is_significant = _counts >= _min_domain_size
+        _n_significant = int(np.sum(_is_significant))
+
+        # ordena domínios significativos do maior para o menor, para
+        # que a paleta atribua cores na mesma ordem (maior domínio
+        # recebe a primeira cor da paleta, e assim por diante)
+        _sig_idx = np.where(_is_significant)[0]
+        _sig_order = _sig_idx[np.argsort(-_counts[_sig_idx])]
+        _color_rank = np.full(len(_unique_labels), -1, dtype=int)
+        _color_rank[_sig_order] = np.arange(len(_sig_order))
+
+        palette = _domain_color_palette(max(_n_significant, 1))
+        _gray = np.array([0.45, 0.45, 0.48, 1.0])
+        per_label_colors = np.tile(_gray, (len(_unique_labels), 1))
+        if _n_significant > 0:
+            per_label_colors[_sig_order] = palette[:_n_significant]
+
+        colors = per_label_colors[_inverse]
+    else:
+        # ── modo ordem (padrão): verde=alinhado, vermelho=frustrado —
+        # média de cos(Δθ) com os vizinhos diretos (até 4: cima/baixo/
+        # esquerda/direita), tratando bordas da grade corretamente
+        # (vizinhos fora da grade não contam)
+        align_sum   = np.zeros((N, M))
+        align_count = np.zeros((N, M))
+        for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            # dst = região de (i,j) que tem vizinho válido em (i+di, j+dj);
+            # src = mesma região, deslocada por (di, dj) — é o vizinho
+            # correspondente de cada elemento de dst, par a par
+            dst_i0, dst_i1 = max(0, -di), N - max(0, di)
+            dst_j0, dst_j1 = max(0, -dj), M - max(0, dj)
+            src_i0, src_i1 = dst_i0 + di, dst_i1 + di
+            src_j0, src_j1 = dst_j0 + dj, dst_j1 + dj
+            delta = thetas[dst_i0:dst_i1, dst_j0:dst_j1] - thetas[src_i0:src_i1, src_j0:src_j1]
+            align_sum[dst_i0:dst_i1, dst_j0:dst_j1]   += np.cos(delta)
+            align_count[dst_i0:dst_i1, dst_j0:dst_j1] += 1.0
+
+        align_avg = np.where(align_count > 0, align_sum / np.maximum(align_count, 1.0), 0.0)
+        colors = cm.RdYlGn((align_avg.ravel() + 1.0) / 2.0)
+
+    halo_patches = [plt.Circle((x, y), _r)
+                    for x, y in zip(xs.ravel(), ys.ravel())]
+    _halo_alpha = 0.35 if halo_mode == 'domains' else 0.20
+    pc_halos = PatchCollection(
+        halo_patches, facecolor=colors, edgecolor='none',
+        alpha=_halo_alpha, zorder=1)
+    ax.add_collection(pc_halos)
+    return _n_domains_found, _n_significant
+
+
 def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                needle_len=0.42, needle_width=0.10, r_halo=None,
                B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
@@ -2850,85 +2954,12 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
     N, M = thetas.shape
 
     # ── halos coloridos: parâmetro de ordem local OU domínios magnéticos ──
-    # Cálculo vetorizado via deslocamentos de array (em vez de loops
-    # Python por agulha), e desenho via PatchCollection (1 chamada para
-    # todos os círculos, em vez de N×M chamadas individuais).
+    # (lógica extraída para draw_halos_batch — V43 — para reutilização na
+    # figura de comparação lado a lado; comportamento idêntico ao anterior)
     if show_order:
-        _r = r_halo if r_halo is not None else needle_len * 0.58
-        _n_domains_found = None   # exposto no retorno só quando halo_mode='domains'
-
-        if halo_mode == 'domains':
-            # ── modo domínios: cada região conexa de orientação similar
-            # recebe uma cor categórica distinta, identificando domínios
-            # magnéticos (paredes de domínio = mudança abrupta de cor).
-            #
-            # Domínios muito pequenos (tipicamente 1-poucas agulhas, fruto
-            # de ruído residual numa rede ainda não totalmente relaxada)
-            # recebem uma cor CINZA NEUTRA em vez de uma cor distinta da
-            # paleta — caso contrário, com centenas de domínios pequenos,
-            # a paleta categórica degenera visualmente num gradiente
-            # contínuo (matizes adjacentes muito próximos), escondendo os
-            # poucos domínios grandes que de fato importam para a leitura.
-            # O limiar é proporcional ao tamanho da rede (ou um mínimo
-            # absoluto de 3 agulhas, o que for maior), e os domínios
-            # "significativos" remanescentes recebem cores ordenadas do
-            # maior para o menor, maximizando contraste entre domínios
-            # espacialmente vizinhos (que tendem a ter rótulos numéricos
-            # próximos, já que o union-find rotula em ordem de varredura).
-            domain_labels, _n_domains_found = label_magnetic_domains(
-                thetas, tol_deg=domain_tol_deg)
-            K_total = N * M
-            _unique_labels, _inverse, _counts = np.unique(
-                domain_labels, return_inverse=True, return_counts=True)
-            _inverse = _inverse.ravel()   # NumPy recente retorna shape igual à entrada (N,M); precisamos de (K,)
-            _min_domain_size = max(3, int(0.02 * K_total))
-            _is_significant = _counts >= _min_domain_size
-            _n_significant = int(np.sum(_is_significant))
-
-            # ordena domínios significativos do maior para o menor, para
-            # que a paleta atribua cores na mesma ordem (maior domínio
-            # recebe a primeira cor da paleta, e assim por diante)
-            _sig_idx = np.where(_is_significant)[0]
-            _sig_order = _sig_idx[np.argsort(-_counts[_sig_idx])]
-            _color_rank = np.full(len(_unique_labels), -1, dtype=int)
-            _color_rank[_sig_order] = np.arange(len(_sig_order))
-
-            palette = _domain_color_palette(max(_n_significant, 1))
-            _gray = np.array([0.45, 0.45, 0.48, 1.0])
-            per_label_colors = np.tile(_gray, (len(_unique_labels), 1))
-            if _n_significant > 0:
-                per_label_colors[_sig_order] = palette[:_n_significant]
-
-            colors = per_label_colors[_inverse]
-        else:
-            # ── modo ordem (padrão): verde=alinhado, vermelho=frustrado —
-            # média de cos(Δθ) com os vizinhos diretos (até 4: cima/baixo/
-            # esquerda/direita), tratando bordas da grade corretamente
-            # (vizinhos fora da grade não contam)
-            align_sum   = np.zeros((N, M))
-            align_count = np.zeros((N, M))
-            for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                # dst = região de (i,j) que tem vizinho válido em (i+di, j+dj);
-                # src = mesma região, deslocada por (di, dj) — é o vizinho
-                # correspondente de cada elemento de dst, par a par
-                dst_i0, dst_i1 = max(0, -di), N - max(0, di)
-                dst_j0, dst_j1 = max(0, -dj), M - max(0, dj)
-                src_i0, src_i1 = dst_i0 + di, dst_i1 + di
-                src_j0, src_j1 = dst_j0 + dj, dst_j1 + dj
-                delta = thetas[dst_i0:dst_i1, dst_j0:dst_j1] - thetas[src_i0:src_i1, src_j0:src_j1]
-                align_sum[dst_i0:dst_i1, dst_j0:dst_j1]   += np.cos(delta)
-                align_count[dst_i0:dst_i1, dst_j0:dst_j1] += 1.0
-
-            align_avg = np.where(align_count > 0, align_sum / np.maximum(align_count, 1.0), 0.0)
-            colors = cm.RdYlGn((align_avg.ravel() + 1.0) / 2.0)
-
-        halo_patches = [plt.Circle((x, y), _r)
-                        for x, y in zip(xs.ravel(), ys.ravel())]
-        _halo_alpha = 0.35 if halo_mode == 'domains' else 0.20
-        pc_halos = PatchCollection(
-            halo_patches, facecolor=colors, edgecolor='none',
-            alpha=_halo_alpha, zorder=1)
-        ax.add_collection(pc_halos)
+        _n_domains_found, _n_significant = draw_halos_batch(
+            ax, xs, ys, thetas, needle_len, r_halo=r_halo,
+            halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
 
     # ── agulhas ───────────────────────────────────────────────────────────
     draw_compass_batch(ax, xs, ys, thetas,
@@ -3687,6 +3718,28 @@ def main():
                           fontsize=12, fontfamily='monospace')
 
         N_g, M_g = thetas_init.shape
+        # ── halos (V43): mesmos modo/tolerância das demais figuras ──────
+        # A comparação nunca desenhava halos (em nenhum modo); agora usa a
+        # mesma rotina de plot_state — em 'domains', o título de cada
+        # painel ganha a contagem de domínios daquele estado.
+        _nd0, _ns0 = draw_halos_batch(axes[0], xs, ys, thetas_init,
+                                      needle_len, r_halo=r_halo,
+                                      halo_mode=args.halo_mode,
+                                      domain_tol_deg=args.domain_tol)
+        _nd1, _ns1 = draw_halos_batch(axes[1], xs, ys, thetas_eq,
+                                      needle_len, r_halo=r_halo,
+                                      halo_mode=args.halo_mode,
+                                      domain_tol_deg=args.domain_tol)
+        if args.halo_mode == 'domains':
+            axes[0].set_title(
+                f"Estado inicial — {_ns0} domínios principais "
+                f"(de {_nd0})", color='#ECF0F1', fontsize=12,
+                fontfamily='monospace')
+            axes[1].set_title(
+                f"Equilíbrio dipolar — {_ns1} domínios principais "
+                f"(de {_nd1})", color='#ECF0F1', fontsize=12,
+                fontfamily='monospace')
+
         draw_compass_batch(axes[0], xs, ys, thetas_init,
                            length=needle_len, width=needle_width)
         draw_compass_batch(axes[1], xs, ys, thetas_eq,
@@ -3696,7 +3749,7 @@ def main():
         draw_ext_field_on_lattice(axes[0], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
         draw_ext_field_on_lattice(axes[1], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
 
-        bfield_str = (f"  |  B_ext={B_ext_mag:.2f} @ {phi_ext_deg:.0f}°"
+        bfield_str = (f"  |  B_ext={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
                       if B_ext_mag > 0 else "")
         fig2.suptitle(
             f"Rede {args.geometry} {args.N}×{args.M}"
