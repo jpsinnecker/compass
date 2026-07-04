@@ -881,7 +881,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           frame_dpi=120, figsize_inches=None,
           pbc=False, Lx=None, Ly=None, n_images=1,
           B_ext=0.0, phi_ext_deg=0.0, use_gpu=False, show_progress=True,
-          halo_mode='order', domain_tol_deg=15.0, make_images=True):
+          halo_mode='order', domain_tol_deg=15.0, make_images=True,
+          hyst_spacing='linear', hyst_log_k=5.0,
+          field_delay=0.0, t_pulse=None, torque_tol=1e-3):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
 
@@ -1339,42 +1341,66 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             B(t) = B_max · sin(2π · field_freq · t)
             Direção: phi_ext. Frequência: field_freq [Hz].
 
-        'pulse'
-            Fase 1 (campo aplicado): B = B_max (constante) até uma das
-            condições ocorrer:
-              A) S >= 0.99 por 20 passos consecutivos (alinhamento total)
-              B) S estabiliza: variação relativa < 5% entre passos
-                 consecutivos por 10+ passos (sistema travou num
-                 equilíbrio, possivelmente frustrado, sem energia para
-                 continuar evoluindo com o campo ligado)
-            Fase 2 (relaxação): B = 0 após A ou B, sistema relaxa livre
-            pelo tempo restante até t_sim.
-            A transição entre fases é controlada pela flag _pulse_relaxing,
-            atualizada no loop principal. field_at() consulta essa flag.
+        'pulse'  (linha do tempo V41)
+            Fase 0 (espera):  B = 0 durante field_delay [s].
+            Fase 1 (pulso):   B = B_max durante t_pulse [s], se t_pulse
+              foi fornecido. Se t_pulse=None (comportamento legado), o
+              campo permanece até uma das condições:
+              A) S >= 0.99 por 20 passos consecutivos, ou
+              B) S estabiliza (variação < 5% na janela deslizante).
+            Fase 2 (estabilização): B = 0; a simulação encerra quando a
+              rede atinge equilíbrio real (ω_max pequeno E torque médio
+              |τ| < torque_tol · τ_ref, por 50 passos) ou em t_sim.
+
+        'step_pos'
+            B = 0 durante field_delay [s]; depois o campo é aplicado e
+            MANTIDO até o fim. Encerra antes se equilibrar (mesmo
+            critério ω+torque da fase 2 do pulso).
+
+        'step_neg'
+            Campo aplicado desde t = 0; em t = field_delay é removido
+            (zerado) e assim permanece. Encerra antes se equilibrar.
         """
         if field_mode == 'static':
             return Bext_x0, Bext_y0
 
         elif field_mode == 'hysteresis':
             # Ciclo completo: 0→+Bmax→0→-Bmax→0→+Bmax
-            # 5 segmentos lineares iguais de t5 = t_sim/5
+            # 5 segmentos de t5 = t_sim/5. Dentro de cada segmento, u0 é a
+            # fração percorrida a partir da extremidade B=0 do segmento.
+            #
+            # hyst_spacing='linear' (padrão): |B| = Bmax·u0  (V40 e anteriores)
+            # hyst_spacing='log'   : |B| = Bmax·sinh(k·u0)/sinh(k)
+            #     Espaçamento tipo log simétrico (via sinh, pois o log puro
+            #     não cruza zero): dB/dt pequeno perto de B=0 → amostragem
+            #     FINA em campo na região da transição/coercividade; dB/dt
+            #     grande perto de ±Bmax → amostragem GROSSA na saturação.
+            #     k (hyst_log_k) controla a concentração: k→0 recupera o
+            #     linear; k=5 concentra ~15x mais pontos perto de B=0 do
+            #     que perto da saturação.
             T  = t_sim if t_sim > 0 else 1.0
             t5 = T / 5.0
-            if t <= t5:
-                # segmento 1: rampa 0 → +B_max
-                B_scalar = B_max * (t / t5)
-            elif t <= 2.0 * t5:
-                # segmento 2: rampa +B_max → 0
-                B_scalar = B_max * (1.0 - (t - t5) / t5)
-            elif t <= 3.0 * t5:
-                # segmento 3: rampa 0 → -B_max
-                B_scalar = -B_max * ((t - 2.0 * t5) / t5)
-            elif t <= 4.0 * t5:
-                # segmento 4: rampa -B_max → 0
-                B_scalar = -B_max * (1.0 - (t - 3.0 * t5) / t5)
+            if t <= t5:                      # seg 1: 0 → +Bmax
+                u0, sgn = (t / t5), +1.0
+            elif t <= 2.0 * t5:              # seg 2: +Bmax → 0
+                u0, sgn = (1.0 - (t - t5) / t5), +1.0
+            elif t <= 3.0 * t5:              # seg 3: 0 → -Bmax
+                u0, sgn = ((t - 2.0 * t5) / t5), -1.0
+            elif t <= 4.0 * t5:              # seg 4: -Bmax → 0
+                u0, sgn = (1.0 - (t - 3.0 * t5) / t5), -1.0
+            else:                            # seg 5: 0 → +Bmax
+                u0, sgn = ((t - 4.0 * t5) / t5), +1.0
+            if hyst_spacing == 'log' and hyst_log_k > 1e-9:
+                # clamp só no modo log: o passo final pode cair além de
+                # t_sim (u0 ligeiramente > 1) e o sinh amplificaria esse
+                # overshoot exponencialmente. No modo linear o overshoot
+                # residual (~dt/t5 de B_max) é mantido por compatibilidade
+                # bit-a-bit com V40 e anteriores.
+                u0 = min(max(u0, 0.0), 1.0)
+                g = np.sinh(hyst_log_k * u0) / np.sinh(hyst_log_k)
             else:
-                # segmento 5: rampa 0 → +B_max
-                B_scalar = B_max * ((t - 4.0 * t5) / t5)
+                g = u0
+            B_scalar = sgn * B_max * g
             return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'sine':
@@ -1382,11 +1408,36 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'pulse':
-            # fase 1: campo ligado; fase 2: campo desligado (relaxação)
+            # Linha do tempo (V41):
+            #   [0, field_delay)                : B = 0   (espera inicial)
+            #   [field_delay, fim do pulso)     : B = B_max
+            #   [fim do pulso, ...)             : B = 0   (estabilização)
+            # O "fim do pulso" é field_delay + t_pulse se t_pulse foi dado;
+            # senão (legado), é quando o critério de S dispara
+            # (_pulse_relaxing, controlado no loop principal).
+            if t < field_delay:
+                return 0.0, 0.0
+            if t_pulse is not None:
+                if t < field_delay + t_pulse:
+                    return Bext_x0, Bext_y0
+                return 0.0, 0.0
             if _pulse_relaxing[0]:
                 return 0.0, 0.0
-            else:
+            return Bext_x0, Bext_y0
+
+        elif field_mode == 'step_pos':
+            # Degrau positivo: B=0 durante field_delay, depois campo
+            # aplicado e mantido até o fim.
+            if t < field_delay:
+                return 0.0, 0.0
+            return Bext_x0, Bext_y0
+
+        elif field_mode == 'step_neg':
+            # Degrau negativo: campo aplicado desde t=0; removido (zerado)
+            # em t=field_delay e assim permanece até o fim.
+            if t < field_delay:
                 return Bext_x0, Bext_y0
+            return 0.0, 0.0
 
         else:
             return Bext_x0, Bext_y0
@@ -1510,9 +1561,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # enquanto o campo ainda está ligado tentando alinhá-la
     _allow_rest_stop   = (field_mode == 'static')
     _stop_reason       = "tempo total atingido"
-    _pulse_phase   = "field_on"   # 'field_on' → 'relaxing' → 'done'
+    # fases do pulso (V41): 'delay' → 'field_on' → 'relaxing' → 'done'
+    _pulse_phase   = "delay" if (field_mode == 'pulse' and field_delay > 0) \
+                     else "field_on"
     _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
     _S_window         = []           # janela deslizante de S recentes (pulse)
+    # V41: torque de referência para o critério de equilíbrio dos modos
+    # pulse/step_pos/step_neg: τ_ref = I·ω0² = m·B_eff (torque característico
+    # do campo dominante). Equilíbrio real = ω_max pequeno E torque médio
+    # |τ| < torque_tol·τ_ref (ω pequeno sozinho pode ser só um ponto de
+    # retorno da oscilação, com torque grande).
+    _tau_ref = inertia * omega0 * omega0
+    _step_after_announced = False    # controle de mensagem dos modos step
     # janela cobre pelo menos 2 períodos naturais de oscilação (2 * 1/dt_factor
     # passos), garantindo que ciclos completos de oscilação sejam capturados
     # antes de declarar estabilidade — evita disparo falso em picos/vales
@@ -1669,7 +1729,41 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
 
-        # ── modo pulse: desliga o campo quando S>=0.99 OU quando S estabiliza ──
+        # ── V41: transições de fase temporais (pulse com delay/t_pulse e steps) ──
+        if field_mode == 'pulse':
+            # fim da espera inicial: campo liga
+            if _pulse_phase == 'delay' and t_now >= field_delay:
+                _pulse_phase = 'field_on'
+                _finish_progress_bar_if_shown()
+                _print(f"\n  Pulso: espera inicial concluída em t={t_now:.4f}s  campo LIGADO")
+                tau_xp = _torques_xp(theta_xp, *field_at(t_now))
+            # fim do pulso por duração fixa (t_pulse fornecido)
+            if (_pulse_phase == 'field_on' and t_pulse is not None
+                    and t_now >= field_delay + t_pulse):
+                _pulse_relaxing[0] = True
+                _pulse_phase = 'relaxing'
+                _finish_progress_bar_if_shown()
+                _print(f"\n  Pulso: duração t_pulse={t_pulse:.4f}s concluída em "
+                       f"t={t_now:.4f}s  campo zerado, estabilizando")
+                tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
+                if frame_dir is not None:
+                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
+                    _save_frame(step, theta_cur, omega_cur,
+                                stop_label="campo zerado - estabilizando",
+                                B_ext_inst=0.0)
+        elif field_mode in ('step_pos', 'step_neg') and not _step_after_announced:
+            if t_now >= field_delay:
+                _step_after_announced = True
+                _finish_progress_bar_if_shown()
+                if field_mode == 'step_pos':
+                    _print(f"\n  Step+: campo LIGADO em t={t_now:.4f}s (permanece até o fim)")
+                else:
+                    _print(f"\n  Step-: campo REMOVIDO em t={t_now:.4f}s (permanece zerado)")
+                tau_xp = _torques_xp(theta_xp, *field_at(t_now))
+
+        # ── modo pulse (legado, t_pulse=None): desliga o campo quando S>=0.99
+        # OU quando S estabiliza ──
         # Condição A: S >= 0.99 por 20 passos consecutivos (alinhamento total)
         # Condição B: dentro de uma janela deslizante cobrindo pelo menos
         #             2 períodos naturais de oscilação (_S_WINDOW_SIZE
@@ -1680,7 +1774,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         #             passageiros do sistema sub-amortecido (onde a
         #             diferença instantânea entre passos pode ser pequena
         #             mesmo longe de uma estabilização real).
-        if field_mode == 'pulse' and _pulse_phase == 'field_on':
+        if (field_mode == 'pulse' and _pulse_phase == 'field_on'
+                and t_pulse is None):
             # condição A: S >= 0.99
             if S_now >= 0.99:
                 _S99_count += 1
@@ -1725,15 +1820,28 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="campo zerado - relaxando",
                                 B_ext_inst=0.0)
 
-        # ── condição 2: rede em repouso (ω_max → 0) ───────────────────────
-        # Em 'static': sempre permitida. Em 'pulse': só na fase 'relaxing'
-        # (após o campo já ter sido zerado). Em 'hysteresis'/'sine': nunca,
-        # pois o campo muda continuamente e a rede pode estar apenas
-        # momentaneamente parada no cruzamento por zero.
+        # ── condição 2: rede em equilíbrio ─────────────────────────────────
+        # Em 'static': ω_max → 0 (comportamento original, inalterado).
+        # Em 'pulse' (fase 'relaxing') e nos modos 'step_pos'/'step_neg'
+        # (após field_delay): critério V41 de equilíbrio REAL — ω_max
+        # pequeno E torque médio |τ| < torque_tol·τ_ref, ambos por 50
+        # passos. O torque entra porque ω≈0 sozinho pode ser apenas um
+        # ponto de retorno da oscilação (com torque grande); ω e τ pequenos
+        # juntos caracterizam o equilíbrio ("torque total pequeno").
+        # Em 'hysteresis'/'sine': nunca, pois o campo muda continuamente.
+        _in_step_final = (field_mode in ('step_pos', 'step_neg')
+                          and t_now >= field_delay)
         _rest_stop_active = _allow_rest_stop or (
-            field_mode == 'pulse' and _pulse_phase == 'relaxing')
+            field_mode == 'pulse' and _pulse_phase == 'relaxing') or \
+            _in_step_final
         if _rest_stop_active:
-            if omega_max < omega0 * 1e-3:
+            _needs_torque_check = (field_mode in ('pulse', 'step_pos',
+                                                   'step_neg'))
+            _eq_now = (omega_max < omega0 * 1e-3)
+            if _eq_now and _needs_torque_check and torque_tol > 0:
+                tau_mean = float(abs(tau_xp).mean())
+                _eq_now = (tau_mean < torque_tol * _tau_ref)
+            if _eq_now:
                 _converged_count += 1
             else:
                 _converged_count = 0
@@ -3078,14 +3186,46 @@ def main():
                            'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
                            'Padrao: 2.0 s')
     grp2.add_argument('--field_mode',
-                      choices=['static', 'hysteresis', 'sine', 'pulse'],
+                      choices=['static', 'hysteresis', 'sine', 'pulse',
+                               'step_pos', 'step_neg'],
                       default='static',
                       help='Modo do campo externo: '
                            'static=constante (padrao), '
                            'hysteresis=ciclo completo 0->+Bmax->0->-Bmax->0->+Bmax (5 rampas), '
                            'sine=senoidal Hmax*sin(2pi*f*t), '
-                           'pulse=aplica campo ate S>=0.99 depois zera e relaxa. '
+                           'pulse=espera field_delay, aplica por t_pulse (ou ate '
+                           'S>=0.99 se t_pulse nao dado), zera e estabiliza, '
+                           'step_pos=B=0 por field_delay depois campo LIGADO ate o fim, '
+                           'step_neg=campo desde t=0, REMOVIDO em field_delay ate o fim. '
                            'Amplitude=--B_ext, direcao=--phi_ext.')
+    grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
+                      default='linear',
+                      help='Espacamento da rampa de histerese: linear (padrao) '
+                           'ou log (tipo log simetrico via sinh) -- dB/dt pequeno '
+                           'perto de B=0 (amostragem FINA em campo na regiao da '
+                           'transicao/coercividade) e grande perto de +-Bmax '
+                           '(amostragem grossa na saturacao). '
+                           'Apenas para --field_mode hysteresis.')
+    grp2.add_argument('--hyst_log_k', type=float, default=5.0,
+                      help='Concentracao do espacamento log da histerese: '
+                           'k->0 recupera o linear; k=5 (padrao) concentra ~15x '
+                           'mais pontos perto de B=0 do que na saturacao. '
+                           'Apenas com --hyst_spacing log.')
+    grp2.add_argument('--field_delay', type=float, default=0.0,
+                      help='Delta_t de espera [s]: em pulse, tempo com B=0 antes '
+                           'do pulso; em step_pos, tempo com B=0 antes de ligar; '
+                           'em step_neg, tempo com campo LIGADO antes de remover. '
+                           'Padrao: 0.')
+    grp2.add_argument('--t_pulse', type=float, default=None,
+                      help='Duracao do pulso [s] (apenas --field_mode pulse). '
+                           'Se omitido, usa o criterio legado: campo ate S>=0.99 '
+                           'ou plato de S.')
+    grp2.add_argument('--torque_tol', type=float, default=1e-3,
+                      help='Tolerancia relativa do criterio de equilibrio por '
+                           'torque nos modos pulse/step_pos/step_neg: encerra '
+                           'quando omega_max pequeno E media |tau| < tol * tau_ref '
+                           '(tau_ref = I*omega0^2) por 50 passos. 0 desliga o '
+                           'criterio de torque (mantem so omega). Padrao: 1e-3.')
     grp2.add_argument('--field_freq', type=float, default=1.0,
                       help='Frequencia do campo senoidal [Hz]. '
                            'Apenas para --field_mode sine. Padrao: 1.0 Hz')
@@ -3320,9 +3460,23 @@ def main():
     if args.field_mode == 'sine':
         field_mode_str = f"sine  f={args.field_freq:.3f} Hz"
     elif args.field_mode == 'hysteresis':
-        field_mode_str = "hysteresis  (0->+Bmax->0->-Bmax->0->+Bmax)"
+        field_mode_str = ("hysteresis  (0->+Bmax->0->-Bmax->0->+Bmax, "
+                          f"espacamento {args.hyst_spacing}"
+                          + (f" k={args.hyst_log_k:g}" if args.hyst_spacing == 'log' else "")
+                          + ")")
     elif args.field_mode == 'pulse':
-        field_mode_str = "pulse  (campo -> S>=0.99 ou S estavel -> zera -> relaxa)"
+        if args.t_pulse is not None:
+            field_mode_str = (f"pulse  (espera {args.field_delay:g}s -> campo por "
+                              f"{args.t_pulse:g}s -> zera -> estabiliza)")
+        else:
+            field_mode_str = (f"pulse  (espera {args.field_delay:g}s -> campo ate "
+                              f"S>=0.99/plato -> zera -> estabiliza)")
+    elif args.field_mode == 'step_pos':
+        field_mode_str = (f"step_pos  (B=0 por {args.field_delay:g}s -> campo "
+                          f"LIGADO ate o fim)")
+    elif args.field_mode == 'step_neg':
+        field_mode_str = (f"step_neg  (campo desde t=0 -> REMOVIDO em "
+                          f"{args.field_delay:g}s)")
     _print(f"  Modo campo   : {field_mode_str}")
     _print(f"  t_sim        : {args.t_sim:.3f} s  dt_factor={args.dt_factor}")
     _print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
@@ -3451,6 +3605,11 @@ def main():
         halo_mode=args.halo_mode,
         domain_tol_deg=args.domain_tol,
         make_images=bool(args.make_images),
+        hyst_spacing=args.hyst_spacing,
+        hyst_log_k=args.hyst_log_k,
+        field_delay=args.field_delay,
+        t_pulse=args.t_pulse,
+        torque_tol=args.torque_tol,
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
