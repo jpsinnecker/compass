@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V07 do relatório}
+\large Versão V08 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -410,7 +410,17 @@ V42 & Parâmetro \code{--t\_sim\_full} \{0,1\}: com 1, a simulação roda
 até o fim de \code{t\_sim}, desativando todas as paradas antecipadas por
 critério físico ($S{=}1{,}00$, repouso, equilíbrio por torque) --- útil
 para séries temporais de comprimento uniforme em varreduras. Ctrl+I e
-Ctrl+C permanecem ativos; padrão (0) bit-idêntico à V41.
+Ctrl+C permanecem ativos; padrão (0) bit-idêntico à V41. \\
+V43 & Correção reportada pelo usuário: a figura de comparação
+(\code{compass\_comparison.png}) não desenhava halo algum (em nenhum
+modo) --- os domínios apareciam apenas em \code{compass\_initial.png},
+\code{compass\_equilibrium.png} e nos vídeos. A lógica de halos foi
+extraída para \code{draw\_halos\_batch()} (reutilizável) e aplicada aos
+dois painéis da comparação, com a contagem de domínios no título de
+cada painel no modo \code{domains}. Corrigido também o supertítulo da
+comparação, que exibia ``B\_ext=0.00'' para campos em mT (formatação
+\code{\%.2f} sobre valores pequenos). Figuras de \code{plot\_state}
+pixel-idênticas e física bit-idêntica à V42.
 \emph{(Versão atual.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Scripts satélites (registro de versões
@@ -1159,7 +1169,11 @@ python3 compass_simV40.py --N 24 --M 24 --R 0.01 --noise 0.6 \
 Cada região conexa de agulhas com orientação similar (dentro de
 \code{--domain\_tol} graus) recebe uma cor; domínios pequenos aparecem
 em cinza. Tolerâncias menores (por exemplo, o padrão $15^\circ$)
-fragmentam mais; maiores agregam mais.
+fragmentam mais; maiores agregam mais. A partir da V43, os halos
+(de domínio ou de ordem) aparecem em \emph{todas} as figuras —
+\code{compass\_initial}, \code{compass\_equilibrium}, os frames de
+vídeo e também a \code{compass\_comparison}, cujos painéis mostram a
+contagem de domínios de cada estado no título.
 
 \subsection*{B.9 --- Condições periódicas de contorno e
 reprodutibilidade}
@@ -1225,6 +1239,10 @@ registro de versões e os Apêndices A e B. \\
 V07 & 04/07/2026 & Documentada a V42 do código: parâmetro
 \code{--t\_sim\_full} (execução até o fim de \code{t\_sim}, sem paradas
 antecipadas por critério físico). \\
+V08 & 04/07/2026 & Documentada a V43 do código: halos (ordem e
+domínios) agora também na figura de comparação, com contagem de
+domínios por painel; correção da formatação de \code{B\_ext} no
+supertítulo da comparação. \\
 \bottomrule
 \end{tabular}
 
