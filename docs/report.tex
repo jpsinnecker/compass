@@ -14,6 +14,7 @@
 \usepackage{booktabs}
 \usepackage{longtable}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{siunitx}
 \usepackage{hyperref}
 \usepackage{xcolor}
@@ -26,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V03 do relatório}
+\large Versão V04 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -337,7 +338,13 @@ ganho medido de $\sim 3\times$ em execuções pequenas (2{,}03~s $\to$
 amortecimento~$\times$~semente~$\times$~geometria, chamando o simulador
 programaticamente) e \code{damping\_sweep\_analysis.py} (análise
 estatística completa), ambos validados ponta a ponta
-(Seção~\ref{sec:campanha}).
+(Seção~\ref{sec:campanha});
+\item \textbf{Otimizações de desempenho implementadas (04/07)}: o tensor
+dipolar pré-computado (\textbf{V40}) e a paralelização da campanha com
+\emph{manifest} incremental e retomada (\code{damping\_sweep} V02) ---
+detalhes e medições na Seção~\ref{sec:melhorias}. Ganho medido da V40:
+\textbf{35--45$\times$} por rodada, reduzindo a campanha completa de
+$\sim$7--8~h para $\sim$15~min em um único núcleo.
 \end{enumerate}
 
 % ======================================================================
@@ -379,13 +386,19 @@ V38 & Visualização de domínios magnéticos: \code{--halo\_mode domains},
 \code{--domain\_tol}; rotulagem por \emph{union--find}; domínios pequenos
 em cinza. \\
 V39 & Parâmetro \code{--make\_images} \{0,1\}: suprime toda a geração
-de PNG preservando CSVs; ganho $\sim 3\times$ em redes pequenas.
-\emph{(Versão atual.)} \\
+de PNG preservando CSVs; ganho $\sim 3\times$ em redes pequenas. \\
+V40 & Tensor de interação dipolar pré-computado: passos por produto
+matriz--vetor (BLAS/cuBLAS); ganho medido de \textbf{35--45$\times$};
+validação ao \emph{epsilon} de máquina; proteção de memória com
+\emph{fallback} automático. \emph{(Versão atual.)} \\
 \midrule
-\multicolumn{2}{@{}l}{\emph{Scripts satélites (não versionados no mesmo
-contador):}} \\
---- & \code{damping\_sweep.py}: orquestração da campanha
+\multicolumn{2}{@{}l}{\emph{Scripts satélites (registro de versões
+próprio):}} \\
+--- & \code{damping\_sweep} V01: orquestração da campanha
 damping~$\times$~seed~$\times$~geometria. \\
+--- & \code{damping\_sweep} V02: execução paralela
+(\code{--n\_workers}), \emph{manifest} incremental e retomada
+(\code{--resume}). \\
 --- & \code{damping\_sweep\_analysis.py}: métricas de laço, detecção de
 avalanches, ajuste MLE de lei de potência, gráficos. \\
 \bottomrule
@@ -576,10 +589,13 @@ a resultado tipo~B. Ambos exigem a campanha completa para confirmação.
 
 Parâmetros definidos: rede $30\times30$ (900 agulhas), 8 valores de $Q$
 log-espaçados em $[0{,}05;\,15]$, 5 sementes, 3 geometrias
-$\Rightarrow$ 120 rodadas de histerese + 120 de relaxação. Custo medido:
-$\sim$2--2{,}5~min por rodada de histerese em CPU
-($\approx$~7--8~h de campanha serial em um núcleo) --- viável de um dia
-para o outro no servidor \code{jps@mumax}, sem necessidade de GPU.
+$\Rightarrow$ 120 rodadas de histerese + 120 de relaxação. Custo com o
+código V39: $\sim$2--2{,}5~min por rodada ($\approx$~7--8~h de campanha
+serial). \textbf{Com a otimização V40} (tensor pré-computado,
+Seção~\ref{sec:melhorias}): $\sim$3{,}3--3{,}4~s por rodada
+$\Rightarrow$ \textbf{$\sim$15~min de campanha serial em um único
+núcleo}, e alguns minutos com \code{--n\_workers} no servidor
+\code{jps@mumax} --- sem necessidade de GPU.
 
 % ======================================================================
 \section{Roteiro passo a passo dos estudos propostos}
@@ -715,37 +731,59 @@ substancialmente mais baratos.
 \subsection{Desempenho}
 
 \begin{enumerate}
-\item \textbf{Pré-computação do tensor de interação dipolar (alto
-impacto).} As posições das agulhas são fixas --- apenas os ângulos
-evoluem --- mas a implementação atual reconstrói a cada passo de
-integração as matrizes $K \times K$ de geometria (deslocamentos,
-distâncias, potências de $r$, máscaras de \emph{cutoff} e a soma sobre
-imagens PBC). Como o campo dipolar é \emph{linear} nos momentos
-$(m_x, m_y)$, toda a geometria pode ser condensada, uma única vez antes
-do laço, em quatro matrizes constantes $A_{xx}, A_{xy}, A_{yx}, A_{yy}$
-($K \times K$, com as imagens periódicas já somadas), reduzindo cada
-passo a quatro produtos matriz--vetor executados por BLAS/cuBLAS.
-Estimativa: 5--20$\times$ por passo em CPU, mais em GPU; memória de
-$\sim$26~MB para $K = 900$ e $\sim$0{,}8~GB para $K = 5000$ (float64) ---
-folgado na RTX~3090. Reduziria a campanha completa de $\sim$7--8~h para
-potencialmente menos de 1~h e viabilizaria as redes grandes do
-Estudo~4;
-\item \textbf{Paralelização da campanha (alto impacto, baixo esforço).}
-As rodadas do \code{damping\_sweep.py} são independentes; um
-\emph{pool} de processos (\code{--n\_workers}) daria ganho quase linear
-no número de núcleos do servidor. Complementos de robustez: escrita
-\emph{incremental} do \code{manifest.csv} (hoje escrito apenas ao final
---- vulnerabilidade já manifestada em interrupção no meio da campanha) e
-modo \code{--resume} que pula rodadas concluídas;
-\item \textbf{Precisão simples opcional na GPU.} \code{float32} dobra o
-\emph{throughput} de memória; para estatística de avalanches deve ser
-suficiente --- validar contra \code{float64} em um caso antes de
-adotar;
+\item \textbf{Pré-computação do tensor de interação dipolar ---
+IMPLEMENTADA (V40, 04/07).} As posições das agulhas são fixas --- apenas
+os ângulos evoluem --- mas até a V39 as matrizes $K \times K$ de
+geometria (deslocamentos, distâncias, potências de $r$, máscaras de
+\emph{cutoff} e a soma sobre imagens PBC) eram reconstruídas a cada
+passo de integração. Como o campo dipolar é \emph{linear} nos momentos
+$(m_x, m_y)$, toda a geometria foi condensada, uma única vez antes do
+laço, em três matrizes constantes $A_{xx}, A_{xy}, A_{yy}$
+($A_{yx} = A_{xy}$; imagens periódicas já somadas), reduzindo cada passo
+a produtos matriz--vetor via BLAS/cuBLAS.
+
+\emph{Validação} (três níveis): torques do tensor vs.\ método por passo
+idênticos ao \emph{epsilon} de máquina (erro relativo máximo
+$3 \times 10^{-16}$, nas 3 geometrias, com e sem PBC); trajetória
+completa de histerese com 172 passos com $t$ e $B$ bit-idênticos à V39 e
+$M$, $S$ concordando em $5 \times 10^{-12}$ (acúmulo esperado de
+reassociação de ponto flutuante); os 4 modos de campo e o comportamento
+de \mbox{Ctrl+C} (código 130) preservados.
+
+\emph{Resultado medido} (rede $30\times30$, mesmos parâmetros do
+\emph{baseline}): de 117{,}8~s / 148{,}0~s por rodada de histerese para
+\textbf{3{,}4~s / 3{,}3~s} --- ganho de \textbf{35--45$\times$}, acima
+da estimativa inicial de 5--20$\times$. O tensor ocupa apenas 19~MB para
+$K = 900$. Proteção de memória embutida: acima de 4~GB estimados
+(K~$\gtrsim$~13.000), o código informa e cai automaticamente para o
+método por passo. A campanha completa de $\sim$7--8~h passou a
+$\sim$15~min seriais;
+\item \textbf{Paralelização da campanha --- IMPLEMENTADA
+(\code{damping\_sweep} V02, 04/07).} Três recursos: \code{--n\_workers~N}
+executa rodadas em processos independentes (cada worker em diretório de
+trabalho próprio, evitando colisão dos arquivos incidentais gravados
+pelo simulador); \emph{manifest} \textbf{incremental}, atualizado após
+cada rodada concluída (a versão anterior só o escrevia ao final --- uma
+interrupção perdia todo o registro, vulnerabilidade que chegou a se
+manifestar durante os testes); e \code{--resume~1}, que retoma campanha
+interrompida pulando rodadas já registradas.
+
+\emph{Validação}: execução paralela com 4 \emph{workers} produz CSVs
+bit-idênticos aos da execução serial; retomada total (``nada a fazer'')
+e parcial (interrupção simulada) funcionam; o script de análise lê o
+\emph{manifest} da V02 sem alteração. O ganho de tempo é $\sim$linear no
+número de núcleos --- não mensurável no ambiente de desenvolvimento
+(1 núcleo), a confirmar no servidor;
+\item \textbf{Precisão simples opcional na GPU (proposta).}
+\code{float32} dobra o \emph{throughput} de memória; para estatística de
+avalanches deve ser suficiente --- validar contra \code{float64} em um
+caso antes de adotar;
 \item \textbf{Passo de tempo adaptativo no regime sobreamortecido
-(investigar com cautela).} Com $Q \ll 1$ a dinâmica é lenta e o
-$\Delta t$ atrelado a $T_0$ é conservador; um passo maior, limitado pela
-escala viscosa, reduziria o custo justamente das rodadas mais lentas.
-Exige estudo de convergência dedicado antes de adoção.
+(proposta; investigar com cautela).} Com $Q \ll 1$ a dinâmica é lenta e
+o $\Delta t$ atrelado a $T_0$ é conservador; um passo maior, limitado
+pela escala viscosa, reduziria o custo justamente das rodadas mais
+lentas. Exige estudo de convergência dedicado antes de adoção. Com o
+ganho da V40, deixou de ser prioridade.
 \end{enumerate}
 
 Duas otimizações relevantes já estão implementadas e não devem ser
@@ -929,6 +967,11 @@ comando da V39). \\
 V03 & 04/07/2026 & Adicionadas as Seções~\ref{sec:roteiro} (roteiro
 passo a passo dos estudos propostos) e \ref{sec:melhorias} (melhorias
 propostas para o código: desempenho e visual). \\
+V04 & 04/07/2026 & Documentada a implementação das melhorias de
+desempenho 1 e 2 (código V40: tensor pré-computado, 35--45$\times$;
+\code{damping\_sweep} V02: paralelização, \emph{manifest} incremental,
+retomada), com validações e medições; atualizados os custos da campanha
+e o registro de versões. \\
 \bottomrule
 \end{tabular}
 
