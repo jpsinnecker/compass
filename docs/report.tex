@@ -26,7 +26,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V02 do relatório}
+\large Versão V03 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -582,6 +582,204 @@ $\sim$2--2{,}5~min por rodada de histerese em CPU
 para o outro no servidor \code{jps@mumax}, sem necessidade de GPU.
 
 % ======================================================================
+\section{Roteiro passo a passo dos estudos propostos}
+\label{sec:roteiro}
+% ======================================================================
+
+Esta seção detalha, em formato operacional, os quatro estudos
+identificados como candidatos a publicação, do central aos satélites.
+Para cada um: a pergunta, os passos de simulação, a análise, o resultado
+esperado e o destino editorial. Todos usam exclusivamente capacidades já
+implementadas (V39 + scripts de campanha), salvo onde indicado.
+
+\subsection{Estudo 1 (central): amortecimento como parâmetro de
+controle de histerese e avalanches}
+
+\textbf{Pergunta.} O fator de qualidade $Q$ controla a classe de
+universalidade das avalanches e a forma do laço de histerese sob
+acoplamento dipolar completo? A resposta depende da geometria?
+
+\begin{enumerate}
+\item \textbf{Calibração} ($\sim$30~min): agulha isolada em modo pulso;
+ajustar o envelope do decaimento livre e validar que o $Q$ medido bate
+com $Q = \omega_0 I / b$. Garante que a grade de amortecimentos cobre de
+fato os dois regimes;
+\item \textbf{Campanha de histerese}: rede $30\times30$; 8 valores de
+$Q$ log-espaçados em $[0{,}05;\,15]$; 5 sementes; 3 geometrias; ciclo de
+5 rampas com $B_{\max} = 8\,B_{\mathrm{ref}}$ e duração $\propto T_0$
+(120 rodadas, $\sim$4{,}5~h em CPU serial);
+\item \textbf{Campanha de relaxação}: mesmas combinações com $B = 0$,
+partindo do mesmo ruído, até platô de $S$; estatística de domínios no
+estado final (120 rodadas, $\sim$3~h);
+\item \textbf{Análise} (\code{damping\_sweep\_analysis.py}): área,
+$B_c$ e $M_r$ vs.\ $Q$ por geometria; $\tau(Q)$ por MLE com avalanches
+agregadas entre sementes; tamanho/número de domínios vs.\ $Q$;
+\item \textbf{Robustez} (obrigatória antes de conclusões): convergência
+em $\Delta t$ nos extremos de $Q$; tamanhos $N = 20$ e $40$ no ponto
+$Q \approx 1$; comparação com/sem PBC;
+\item \textbf{Decisão e redação}: critério A/B da
+Seção~\ref{sec:pesquisa}; enquadramento ``modelo para \emph{artificial
+spin ice} / nanoímãs em arranjo'' na introdução.
+\end{enumerate}
+
+\textbf{Resultado esperado.} O piloto sugere $\tau$ crescente com $Q$
+nas três geometrias --- se confirmado com estatística plena e sobrevivendo
+aos diagnósticos de robustez, é candidato a resultado tipo~B.
+\textbf{Destino:} ACS Materials Au (resultado A) ou tentativa em PRL
+(resultado B), com ACS Physical Chemistry Au de reserva.
+
+\subsection{Estudo 2 (satélite): frustração geométrica e cinética de
+formação de domínios}
+
+\textbf{Pergunta.} A frustração geométrica (triangular $>$ honeycomb $>$
+quadrada) acelera ou retarda o engrossamento (\emph{coarsening}) dos
+domínios? A não-monotonicidade do tamanho de domínio com $Q$ vista no
+piloto da rede triangular é real?
+
+\begin{enumerate}
+\item Relaxação livre longa ($B = 0$) nas três geometrias, mesmas
+sementes, para 3--4 valores de $Q$ representativos;
+\item Registrar $S(t)$ e rotular domínios em instantes intermediários
+--- \emph{requer instrumentação pequena}: hoje a estatística de domínios
+é calculada apenas no estado final; adicionar \emph{snapshots} periódicos
+da rotulagem ao longo da trajetória;
+\item Extrair o tempo até o platô de $S$ e a lei de crescimento do
+tamanho característico de domínio $L(t) \sim t^{n}$, comparando o
+expoente $n$ entre geometrias e regimes de amortecimento.
+\end{enumerate}
+
+\textbf{Destino:} pode compor o artigo central (seção de domínios) ou,
+se a interação frustração~$\times$~inércia for rica, artigo próprio em
+ACS Physical Chemistry Au. Custo computacional baixo (sem rampas de
+campo).
+
+\subsection{Estudo 3 (satélite): memória do \emph{director} após pulso}
+
+\textbf{Pergunta.} Após um pulso de campo saturante, o \emph{director}
+(direção preferencial emergente, conceito do trabalho de
+1998~\cite{prb1998}) que se forma na relaxação guarda memória da direção
+do pulso, ou é apagado e redeterminado pelo ruído inicial? Monte Carlo
+de equilíbrio não pode responder isso --- exige trajetória temporal
+real.
+
+\begin{enumerate}
+\item Modo pulso com direção $\varphi$ do campo varrida (por exemplo,
+$0^\circ$ a $90^\circ$ em passos de $15^\circ$), várias sementes,
+2--3 valores de $Q$;
+\item Medir a direção do \emph{director} final (orientação média dos
+domínios principais) em função de $\varphi$;
+\item Quantificar a correlação direcional
+$\langle \cos 2(\theta_{\mathrm{dir}} - \varphi) \rangle$ e sua
+dependência com $Q$ --- a hipótese interessante é que a memória seja
+mais forte no regime sobreamortecido (sem oscilações que ``sacodem'' o
+sistema para fora do vale selecionado pelo pulso).
+\end{enumerate}
+
+\textbf{Destino:} conecta-se à literatura recente de \emph{clocked
+dynamics} e treinamento em \emph{artificial spin ice}; bom candidato a
+segundo artigo. Custo moderado.
+
+\subsection{Estudo 4 (satélite): condições de contorno e tamanho finito
+na escala de domínios}
+
+\textbf{Pergunta.} Quanto a borda livre distorce a estatística de
+domínios e avalanches em relação ao limite periódico? Sistemas dipolares
+de longo alcance são notoriamente sensíveis à forma da amostra; a
+resposta é metodologicamente útil para toda a comunidade que simula
+essas redes sem PBC.
+
+\begin{enumerate}
+\item Varrer $N \in \{14, 20, 30, 40\}$ com e sem PBC, em $Q \approx 1$
+e nos dois extremos;
+\item Repetir as análises de domínio e avalanche; extrapolar a escala
+característica de domínio com $1/N$;
+\item Quantificar o desvio sistemático borda-livre vs.\ periódico.
+\end{enumerate}
+
+\textbf{Destino:} apêndice/seção de métodos do artigo central, ou nota
+metodológica independente. O ponto $N = 40$ sem otimizações é caro
+($\mathcal{O}(K^2)$ com $K = 1600$) --- este estudo é o principal
+motivador da otimização de desempenho proposta na
+Seção~\ref{sec:melhorias}.
+
+% ======================================================================
+\section{Melhorias propostas para o código}
+\label{sec:melhorias}
+% ======================================================================
+
+Análise do código na versão V39 identificou as seguintes oportunidades,
+ordenadas por impacto estimado. Nenhuma é bloqueante para o Estudo~1,
+que já é viável como está; as de desempenho tornam os Estudos~2--4
+substancialmente mais baratos.
+
+\subsection{Desempenho}
+
+\begin{enumerate}
+\item \textbf{Pré-computação do tensor de interação dipolar (alto
+impacto).} As posições das agulhas são fixas --- apenas os ângulos
+evoluem --- mas a implementação atual reconstrói a cada passo de
+integração as matrizes $K \times K$ de geometria (deslocamentos,
+distâncias, potências de $r$, máscaras de \emph{cutoff} e a soma sobre
+imagens PBC). Como o campo dipolar é \emph{linear} nos momentos
+$(m_x, m_y)$, toda a geometria pode ser condensada, uma única vez antes
+do laço, em quatro matrizes constantes $A_{xx}, A_{xy}, A_{yx}, A_{yy}$
+($K \times K$, com as imagens periódicas já somadas), reduzindo cada
+passo a quatro produtos matriz--vetor executados por BLAS/cuBLAS.
+Estimativa: 5--20$\times$ por passo em CPU, mais em GPU; memória de
+$\sim$26~MB para $K = 900$ e $\sim$0{,}8~GB para $K = 5000$ (float64) ---
+folgado na RTX~3090. Reduziria a campanha completa de $\sim$7--8~h para
+potencialmente menos de 1~h e viabilizaria as redes grandes do
+Estudo~4;
+\item \textbf{Paralelização da campanha (alto impacto, baixo esforço).}
+As rodadas do \code{damping\_sweep.py} são independentes; um
+\emph{pool} de processos (\code{--n\_workers}) daria ganho quase linear
+no número de núcleos do servidor. Complementos de robustez: escrita
+\emph{incremental} do \code{manifest.csv} (hoje escrito apenas ao final
+--- vulnerabilidade já manifestada em interrupção no meio da campanha) e
+modo \code{--resume} que pula rodadas concluídas;
+\item \textbf{Precisão simples opcional na GPU.} \code{float32} dobra o
+\emph{throughput} de memória; para estatística de avalanches deve ser
+suficiente --- validar contra \code{float64} em um caso antes de
+adotar;
+\item \textbf{Passo de tempo adaptativo no regime sobreamortecido
+(investigar com cautela).} Com $Q \ll 1$ a dinâmica é lenta e o
+$\Delta t$ atrelado a $T_0$ é conservador; um passo maior, limitado pela
+escala viscosa, reduziria o custo justamente das rodadas mais lentas.
+Exige estudo de convergência dedicado antes de adoção.
+\end{enumerate}
+
+Duas otimizações relevantes já estão implementadas e não devem ser
+refeitas: a renderização vetorizada (17--30$\times$, V35) e a
+codificação de vídeo por NVENC quando \code{--gpu 1}.
+
+\subsection{Aspecto visual}
+
+\begin{enumerate}
+\item \textbf{Modo figura de publicação} (\code{--fig\_style paper}):
+fundo branco, paleta segura para daltonismo, exportação vetorial
+(PDF/SVG), fontes dimensionadas para coluna de artigo e sem elementos de
+HUD (cronômetro, indicador de campo). As figuras atuais (tema escuro,
+PNG) são ótimas para tela e vídeo, mas inadequadas para o manuscrito ---
+esta é a melhoria visual de maior valor imediato para a publicação;
+\item \textbf{\emph{Inset} do laço de histerese ao vivo no vídeo}:
+painel de canto traçando $M(B)$ em tempo real durante o modo histerese
+--- comunica o experimento inteiro em um único vídeo (apresentações e
+material suplementar);
+\item \textbf{Destaque visual de avalanches}: realçar agulhas que
+giraram acima de um limiar nos últimos $n$ passos, mostrando a
+propagação espacial das avalanches e conectando o vídeo à estatística
+do artigo;
+\item \textbf{Desenho de paredes de domínio}: traçar as arestas entre
+domínios de rótulos distintos (complementa os halos coloridos; leitura
+mais limpa em redes grandes);
+\item \textbf{Seta da magnetização líquida}: vetor $\vec M$ global
+sobreposto à rede, com módulo e direção instantâneos;
+\item \textbf{Halo em modo energia}: mapa de calor da energia dipolar
+por agulha, revelando frustração local e prováveis núcleos de
+avalanche.
+\end{enumerate}
+
+% ======================================================================
 \section{Próximos passos}
 % ======================================================================
 
@@ -728,6 +926,9 @@ $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 V01 & 04/07/2026 & Versão inicial. \\
 V02 & 04/07/2026 & Adicionado o Apêndice~A (parâmetros de linha de
 comando da V39). \\
+V03 & 04/07/2026 & Adicionadas as Seções~\ref{sec:roteiro} (roteiro
+passo a passo dos estudos propostos) e \ref{sec:melhorias} (melhorias
+propostas para o código: desempenho e visual). \\
 \bottomrule
 \end{tabular}
 
