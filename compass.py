@@ -883,7 +883,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           B_ext=0.0, phi_ext_deg=0.0, use_gpu=False, show_progress=True,
           halo_mode='order', domain_tol_deg=15.0, make_images=True,
           hyst_spacing='linear', hyst_log_k=5.0,
-          field_delay=0.0, t_pulse=None, torque_tol=1e-3):
+          field_delay=0.0, t_pulse=None, torque_tol=1e-3,
+          t_sim_full=False):
     """
     Integra a dinâmica inercial real de cada agulha sem atrito no pino.
 
@@ -1552,14 +1553,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     # S=1 como critério de parada só faz sentido em campo estático.
     # Em hysteresis e sine o campo oscila; em pulse queremos continuar
     # após S=1 para observar a relaxação com campo zerado.
-    _allow_S1_stop     = (field_mode == 'static')
+    # V42: t_sim_full=True desativa TODAS as paradas antecipadas por
+    # critério físico (S=1.00, rede em repouso, equilíbrio por torque) —
+    # a simulação roda até o fim de t_sim. Interrupções do usuário
+    # (Ctrl+I, Ctrl+C) continuam funcionando normalmente.
+    _allow_S1_stop     = (field_mode == 'static') and (not t_sim_full)
     # em hysteresis e sine o campo muda continuamente: parada por repouso
     # desabilitada (a rede pode estar momentaneamente parada no cruzamento B=0)
     # parada por repouso: em 'static' sempre permitida; em 'pulse' só na
     # fase de relaxação (campo já zerado) — nunca durante 'field_on', pois
     # a rede pode ficar momentaneamente travada num mínimo local frustrado
     # enquanto o campo ainda está ligado tentando alinhá-la
-    _allow_rest_stop   = (field_mode == 'static')
+    _allow_rest_stop   = (field_mode == 'static') and (not t_sim_full)
     _stop_reason       = "tempo total atingido"
     # fases do pulso (V41): 'delay' → 'field_on' → 'relaxing' → 'done'
     _pulse_phase   = "delay" if (field_mode == 'pulse' and field_delay > 0) \
@@ -1831,9 +1836,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         # Em 'hysteresis'/'sine': nunca, pois o campo muda continuamente.
         _in_step_final = (field_mode in ('step_pos', 'step_neg')
                           and t_now >= field_delay)
-        _rest_stop_active = _allow_rest_stop or (
-            field_mode == 'pulse' and _pulse_phase == 'relaxing') or \
-            _in_step_final
+        _rest_stop_active = (not t_sim_full) and (_allow_rest_stop or (
+            field_mode == 'pulse' and _pulse_phase == 'relaxing') or
+            _in_step_final)
         if _rest_stop_active:
             _needs_torque_check = (field_mode in ('pulse', 'step_pos',
                                                    'step_neg'))
@@ -3185,6 +3190,14 @@ def main():
                            'Em hysteresis: cobre 1 ciclo completo (0->Hmax->-Hmax->Hmax). '
                            'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
                            'Padrao: 2.0 s')
+    grp2.add_argument('--t_sim_full', type=int, default=0, choices=[0, 1],
+                      help='1 = roda ate o FIM de t_sim, desativando todas as '
+                           'paradas antecipadas por criterio fisico (S=1.00, '
+                           'rede em repouso, equilibrio por torque nos modos '
+                           'pulse/step). Util para series temporais de '
+                           'comprimento uniforme em varreduras. Interrupcoes '
+                           'do usuario (Ctrl+I/Ctrl+C) continuam ativas. '
+                           '0 (padrao) = paradas antecipadas normais.')
     grp2.add_argument('--field_mode',
                       choices=['static', 'hysteresis', 'sine', 'pulse',
                                'step_pos', 'step_neg'],
@@ -3610,6 +3623,7 @@ def main():
         field_delay=args.field_delay,
         t_pulse=args.t_pulse,
         torque_tol=args.torque_tol,
+        t_sim_full=bool(args.t_sim_full),
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
