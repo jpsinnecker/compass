@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V08 do relatório}
+\large Versão V09 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -420,8 +420,16 @@ dois painéis da comparação, com a contagem de domínios no título de
 cada painel no modo \code{domains}. Corrigido também o supertítulo da
 comparação, que exibia ``B\_ext=0.00'' para campos em mT (formatação
 \code{\%.2f} sobre valores pequenos). Figuras de \code{plot\_state}
-pixel-idênticas e física bit-idêntica à V42.
-\emph{(Versão atual.)} \\
+pixel-idênticas e física bit-idêntica à V42. \\
+V44 & Painel de progresso vivo de 2 linhas: barra e status periódico
+reescritos em cima de si mesmos (códigos ANSI com invariante de cursor),
+eliminando o empilhamento de linhas no terminal --- causado pelo status
+de 2~s que fechava a barra com \emph{newline} a cada ciclo. Detecção de
+TTY: em saída redirecionada (log/pipe) mantém o comportamento de log
+sem códigos de escape. Validado com emulador de terminal
+(\code{pyte}): tela final com exatamente 1 linha de barra + 1 de
+status; mensagens intercaladas (transições de fase) limpas; física
+bit-idêntica. \emph{(Versão atual.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Scripts satélites (registro de versões
 próprio):}} \\
@@ -1243,6 +1251,8 @@ V08 & 04/07/2026 & Documentada a V43 do código: halos (ordem e
 domínios) agora também na figura de comparação, com contagem de
 domínios por painel; correção da formatação de \code{B\_ext} no
 supertítulo da comparação. \\
+V09 & 04/07/2026 & Documentada a V44 do código: painel de progresso de
+2 linhas (barra + status) atualizado no lugar, com detecção de TTY. \\
 \bottomrule
 \end{tabular}
 
