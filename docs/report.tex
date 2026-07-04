@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V05 do relatório}
+\large Versão V06 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -154,15 +154,24 @@ fração \code{needle\_frac} do diâmetro ocupada pela agulha.
 Ambos os cálculos automáticos podem ser sobrescritos por parâmetros
 explícitos do usuário.
 
-\paragraph{Recursos do simulador (estado atual, V39).}
-Três geometrias de rede (quadrada, triangular, honeycomb); quatro modos
-de campo externo (estático, pulso com critério de saturação/platô,
-histerese em 5 segmentos $0 \to +B \to 0 \to -B \to 0 \to +B$, senoidal);
-condições de contorno periódicas com imagens da estrutura; parâmetro de
-ordem de alinhamento $S \in [0,1]$ monitorado em tempo real; backend
-opcional em GPU (CuPy); exportação de vídeo MP4, imagens de resumo e
-séries temporais em CSV $(t, B, M, S)$; visualização de domínios
-magnéticos por coloração dos halos; e instrumentação de desempenho.
+\paragraph{Recursos do simulador (estado atual, V41).}
+Três geometrias de rede (quadrada, triangular, honeycomb); \textbf{seis}
+modos de campo externo: estático; pulso com temporização explícita
+(espera $\Delta t$ $\to$ campo por $t_{\mathrm{pulse}}$ $\to$ zero até o
+equilíbrio, com critério legado de saturação/platô se
+$t_{\mathrm{pulse}}$ não for dado); histerese em 5 segmentos
+($0 \to +B \to 0 \to -B \to 0 \to +B$) com espaçamento linear ou
+log-simétrico (amostragem fina em campo perto da transição de
+coercividade, grossa na saturação); senoidal; e degraus
+\code{step\_pos} ($B{=}0$ por $\Delta t$, depois campo mantido) e
+\code{step\_neg} (campo desde $t{=}0$, removido em $\Delta t$).
+Condições de contorno periódicas com imagens da estrutura; parâmetro
+de ordem de alinhamento $S \in [0,1]$ monitorado em tempo real; critério
+de equilíbrio real (velocidade \emph{e} torque médio pequenos) para os
+modos pulso/degrau; backend opcional em GPU (CuPy); exportação de vídeo
+MP4, imagens de resumo e séries temporais em CSV $(t, B, M, S)$;
+visualização de domínios magnéticos por coloração dos halos; tensor
+dipolar pré-computado (V40); e instrumentação de desempenho.
 
 % ======================================================================
 \section{Cronologia do desenvolvimento}
@@ -390,7 +399,14 @@ de PNG preservando CSVs; ganho $\sim 3\times$ em redes pequenas. \\
 V40 & Tensor de interação dipolar pré-computado: passos por produto
 matriz--vetor (BLAS/cuBLAS); ganho medido de \textbf{35--45$\times$};
 validação ao \emph{epsilon} de máquina; proteção de memória com
-\emph{fallback} automático. \emph{(Versão atual.)} \\
+\emph{fallback} automático. \\
+V41 & Novos protocolos de campo: histerese com espaçamento
+log-simétrico (\code{--hyst\_spacing log}, amostragem $\sim$15$\times$
+mais fina perto de $B{=}0$ para $k{=}5$); pulso com temporização
+explícita (\code{--field\_delay}, \code{--t\_pulse}) e critério de
+equilíbrio por torque (\code{--torque\_tol}); modos degrau
+\code{step\_pos}/\code{step\_neg}. Modos legados bit-idênticos à V40.
+\emph{(Versão atual.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Scripts satélites (registro de versões
 próprio):}} \\
@@ -902,8 +918,28 @@ Coeficiente de amortecimento viscoso $b$. Zero = oscilação perpétua. \\
 \code{--t\_sim} & 2{,}0 & s & Tempo físico total simulado (soma dos
 $\Delta t$ integrados). \\
 \code{--field\_mode} & static & --- & \code{static},
-\code{hysteresis} (ciclo de 5 rampas), \code{sine} ou \code{pulse}
-(campo até $S \geq 0{,}99$/platô, depois zera). \\
+\code{hysteresis} (ciclo de 5 rampas), \code{sine}, \code{pulse}
+(espera $\to$ pulso $\to$ estabilização), \code{step\_pos} ($B{=}0$ por
+\code{field\_delay}, depois mantido) ou \code{step\_neg} (campo desde
+$t{=}0$, removido em \code{field\_delay}). \\
+\code{--hyst\_spacing} & linear & --- & Espaçamento da rampa de
+histerese: \code{linear} ou \code{log} (log-simétrico via sinh ---
+$dB/dt$ pequeno perto de $B{=}0$, amostragem fina na região da
+coercividade; grande perto de $\pm B_{\max}$). \\
+\code{--hyst\_log\_k} & 5{,}0 & --- & Concentração do espaçamento
+\code{log}: $k \to 0$ recupera o linear; $k{=}5$ concentra
+$\sim$15$\times$ mais pontos perto de $B{=}0$. \\
+\code{--field\_delay} & 0{,}0 & s & $\Delta t$ de espera: no
+\code{pulse}, tempo com $B{=}0$ antes do pulso; no \code{step\_pos},
+antes de ligar; no \code{step\_neg}, tempo com campo ligado antes de
+remover. \\
+\code{--t\_pulse} & --- & s & Duração do pulso (\code{pulse}). Se
+omitido, critério legado: campo até $S \geq 0{,}99$ ou platô de $S$. \\
+\code{--torque\_tol} & $10^{-3}$ & --- & Tolerância relativa do critério
+de equilíbrio nos modos pulso/degrau: encerra quando $\omega_{\max}$
+pequeno \emph{e} $\langle|\tau|\rangle < \mathrm{tol}\cdot\tau_{\mathrm{ref}}$
+($\tau_{\mathrm{ref}} = I\omega_0^2$) por 50 passos; 0 desliga o
+critério de torque. \\
 \code{--field\_freq} & 1{,}0 & Hz & Frequência do campo senoidal
 (apenas \code{sine}). \\
 \code{--dt\_factor} & 0{,}05 & --- & Fração do período natural $T_0$
@@ -1075,6 +1111,31 @@ No modo histerese, o laço $M(B)$ é exportado em
 \code{--make\_images 1}). A ordem das colunas dos CSVs é controlada por
 \code{--csv\_order \{t,B\}}.
 
+\medskip\noindent
+Protocolos introduzidos na V41 --- histerese com amostragem fina na
+região da coercividade, pulso temporizado e degraus:
+\begin{verbatim}
+# histerese com espacamento log-simetrico: dB ~15x mais fino
+# perto de B=0 (transicao/coercividade) do que na saturacao
+python3 compass_simV41.py --N 20 --M 20 --field_mode hysteresis \
+    --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0
+
+# pulso temporizado: espera 0.2 s -> campo por 0.3 s -> zera e
+# encerra quando equilibrar (omega e torque medio pequenos)
+python3 compass_simV41.py --N 15 --M 15 --field_mode pulse \
+    --field_delay 0.2 --t_pulse 0.3 --B_ext 0.005 --t_sim 6.0
+
+# degrau positivo: B=0 por 0.3 s, depois campo LIGADO ate o fim
+python3 compass_simV41.py --N 15 --M 15 --field_mode step_pos \
+    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+
+# degrau negativo: campo desde t=0, REMOVIDO em 0.3 s
+python3 compass_simV41.py --N 15 --M 15 --field_mode step_neg \
+    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+\end{verbatim}
+Sem \code{--t\_pulse}, o modo \code{pulse} mantém o comportamento
+legado (campo até $S \geq 0{,}99$ ou platô).
+
 \subsection*{B.8 --- Visualização de domínios magnéticos}
 
 Cenário de demonstração que produz domínios claros e bem separados
@@ -1145,6 +1206,11 @@ e o registro de versões. \\
 V05 & 04/07/2026 & Adicionado o Apêndice~B (exemplos de uso: GPU,
 vídeo/figuras em alta resolução, regimes de amortecimento, geometria das
 agulhas, modos de campo, domínios, PBC e campanha completa). \\
+V06 & 04/07/2026 & Documentada a V41 do código: histerese com
+espaçamento log-simétrico, pulso com temporização explícita
+($\Delta t$ + $t_{\mathrm{pulse}}$ + equilíbrio por torque) e modos
+degrau \code{step\_pos}/\code{step\_neg}; atualizados a Seção~2, o
+registro de versões e os Apêndices A e B. \\
 \bottomrule
 \end{tabular}
 
