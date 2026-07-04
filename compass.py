@@ -233,43 +233,101 @@ def _print(*args, **kwargs):
     sys.stdout.flush()
 
 
-def _print_progress_bar(frac, prefix="", suffix="", bar_width=40):
-    """
-    Imprime/atualiza uma barra de progresso em texto na MESMA linha do
-    terminal (sobrescrevendo, via \\r sem newline final), no estilo:
+def _progress_ansi_ok():
+    """True se stdout é um terminal interativo (TTY) — habilita o painel
+    vivo de 2 linhas com códigos ANSI. Em saída redirecionada (log/pipe),
+    retorna False e o código usa o comportamento legado (sem códigos de
+    escape, que poluiriam o arquivo)."""
+    import sys
+    if _PROGRESS_REGION['ansi'] is None:
+        try:
+            _PROGRESS_REGION['ansi'] = bool(sys.stdout.isatty())
+        except Exception:
+            _PROGRESS_REGION['ansi'] = False
+    return _PROGRESS_REGION['ansi']
 
-        Integrando: [###############             ] 52.3%  (passo 524/1007)
+
+# estado do painel vivo da barra de progresso (V44):
+#   'open' : True enquanto as 2 linhas (barra + status) estão na tela
+#   'ansi' : cache da detecção de TTY (None = ainda não verificado)
+_PROGRESS_REGION = {'open': False, 'ansi': None}
+
+
+def _print_progress_bar(frac, prefix="", suffix="", status_line=None,
+                        bar_width=40):
+    """
+    Imprime/atualiza o painel de progresso (V44): DUAS linhas vivas,
+    reescritas em cima de si mesmas a cada atualização —
+
+        Integrando [CPU] [########            ]  42.3%  passo 970/2294
+        [passo 970/2294]  t=2.4310s  B=+0.0000mT  S=0.4415  w_max=3.1rad/s
+
+    Em terminal interativo (TTY): usa códigos ANSI (subir cursor +
+    limpar linha) para reescrever as duas linhas no lugar, sem empilhar
+    linhas novas. Em saída redirecionada (não-TTY): comportamento legado
+    (barra em \\r numa única linha; o status é impresso pelo chamador
+    como linhas normais de log).
 
     Parâmetros
     ----------
-    frac      : fração concluída, entre 0.0 e 1.0
-    prefix    : texto antes da barra (ex: "Integrando: ")
-    suffix    : texto depois da porcentagem (ex: "(passo 524/1007)")
-    bar_width : número de caracteres da barra em si
+    frac        : fração concluída, entre 0.0 e 1.0
+    prefix      : texto antes da barra (ex: "Integrando [CPU] ")
+    suffix      : texto depois da porcentagem (ex: "passo 524/1007")
+    status_line : segunda linha do painel (status periódico), ou None
+    bar_width   : número de caracteres da barra em si
 
-    Nota: usa \\r (retorno de carro sem newline) para sobrescrever a
-    mesma linha repetidamente. Qualquer _print() chamado enquanto a
-    barra está "aberta" deve vir depois de _print_progress_bar_finish(),
-    ou a saída ficará misturada na mesma linha.
+    Nota: qualquer _print() de mensagem normal enquanto o painel está
+    aberto deve vir depois de _print_progress_bar_finish(), que move o
+    cursor para baixo do painel e o marca como fechado.
     """
     import sys
     frac = max(0.0, min(1.0, frac))
     n_filled = int(round(frac * bar_width))
     bar = '#' * n_filled + ' ' * (bar_width - n_filled)
     pct = frac * 100.0
-    line = f"\r{prefix}[{bar}] {pct:5.1f}%  {suffix}"
-    sys.stdout.write(line)
-    sys.stdout.flush()
+    bar_line = f"{prefix}[{bar}] {pct:5.1f}%  {suffix}"
+
+    if _progress_ansi_ok():
+        status = status_line if status_line is not None else ""
+        # Protocolo com invariante de cursor (V44): ao FIM de cada desenho,
+        # o cursor fica estacionado na COLUNA 0 DA LINHA DA BARRA (topo do
+        # painel). Cada atualização então redesenha para baixo:
+        #   limpa linha (\x1b[K) + barra + desce ("\n\r", robusto com ou
+        #   sem tradução ONLCR do driver do terminal) + limpa + status +
+        #   sobe (\x1b[1A) + volta à coluna 0 (\r).
+        # Isso independe da posição em que o texto termina (sem depender
+        # de \n retornar à coluna 0, o que varia entre terminais/ptys) e
+        # funciona no rodapé da tela (o "\n" provoca o scroll necessário).
+        seq = ("\x1b[K" + bar_line + "\n\r" +
+               "\x1b[K" + status + "\x1b[1A\r")
+        sys.stdout.write(seq)
+        sys.stdout.flush()
+        _PROGRESS_REGION['open'] = True
+    else:
+        # legado (não-TTY): barra sobrescrevendo a própria linha via \r
+        sys.stdout.write("\r" + bar_line)
+        sys.stdout.flush()
 
 
 def _print_progress_bar_finish():
     """
-    Fecha a barra de progresso aberta por _print_progress_bar, emitindo
-    um \\r\\n para que a próxima saída comece numa linha nova e limpa.
+    Fecha o painel de progresso: move o cursor para uma linha nova e
+    limpa abaixo do painel (as 2 linhas finais permanecem visíveis) e
+    marca o painel como fechado. Em modo ANSI é seguro chamar com o
+    painel já fechado (não emite nada — evita linhas em branco
+    espúrias).
     """
     import sys
-    sys.stdout.write('\r\n')
-    sys.stdout.flush()
+    if _progress_ansi_ok():
+        if _PROGRESS_REGION['open']:
+            # cursor está na coluna 0 da linha da barra: desce 2 linhas
+            # (barra -> status -> linha nova abaixo do painel)
+            sys.stdout.write('\n\r\n\r')
+            sys.stdout.flush()
+            _PROGRESS_REGION['open'] = False
+    else:
+        sys.stdout.write('\r\n')
+        sys.stdout.flush()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. CONSTANTES FÍSICAS (Sistema Internacional — SI)
@@ -1528,6 +1586,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_last_print_step = 0
     _perf_last_print_time = _perf_t_start
     _last_status_print_time = _perf_t_start
+    _status_text = f"  [passo 0/{n_steps}]  aguardando primeiro status..."
+    _last_bar_suffix = f"passo 0/{n_steps}"
 
     def _finish_progress_bar_if_shown():
         """Fecha a barra de progresso apenas se ela estava habilitada
@@ -1681,28 +1741,44 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
                 _backend_tag = "GPU" if _active_gpu else "CPU"
                 _frac_done   = step / n_steps if n_steps > 0 else 1.0
+                _last_bar_suffix = (f"passo {step}/{n_steps}  "
+                                    f"({_steps_per_s:.0f} passos/s)")
                 _print_progress_bar(
                     _frac_done,
                     prefix=f"  Integrando [{_backend_tag}] ",
-                    suffix=f"passo {step}/{n_steps}  ({_steps_per_s:.0f} passos/s)")
+                    suffix=_last_bar_suffix,
+                    status_line=_status_text)
                 _perf_last_print_step = step
                 _perf_last_print_time = _perf_now
 
         # ── status periódico independente (campo, S, ω) ────────────────────
         # Mostra a evolução do campo externo, parâmetro de ordem e velocidade
         # angular ao longo do tempo, a cada ~2s de wall-clock — SEMPRE ativo,
-        # independente de --progress_bar, usando _print() normal (linha
-        # nova) em vez da barra com \r. Isso garante que informação sobre o
-        # andamento da simulação continue disponível mesmo quando a barra
-        # está desabilitada (ex: saída redirecionada para arquivo de log,
-        # onde \r não se comporta como em um terminal interativo).
+        # independente de --progress_bar.
+        # V44: com a barra habilitada em terminal interativo, o status é a
+        # 2a linha do painel vivo, reescrita em cima de si mesma (não gera
+        # mais uma linha permanente a cada ciclo — que era o que fazia a
+        # barra "empilhar" linhas). Sem barra, ou em saída redirecionada
+        # (não-TTY), permanece o comportamento de log: uma linha nova por
+        # ciclo via _print().
         _status_now = _time_module.perf_counter()
         if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
-            if show_progress:
-                _print_progress_bar_finish()
             B_status = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
-            _print(f"  [passo {step}/{n_steps}]  t={t_now:.4f}s  "
-                   f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  w_max={omega_max:.3f}rad/s")
+            _status_text = (f"  [passo {step}/{n_steps}]  t={t_now:.4f}s  "
+                            f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
+                            f"w_max={omega_max:.3f}rad/s")
+            if show_progress and _progress_ansi_ok():
+                _backend_tag = "GPU" if _active_gpu else "CPU"
+                _frac_done   = step / n_steps if n_steps > 0 else 1.0
+                _print_progress_bar(
+                    _frac_done,
+                    prefix=f"  Integrando [{_backend_tag}] ",
+                    suffix=_last_bar_suffix,
+                    status_line=_status_text)
+            else:
+                if show_progress:
+                    _print_progress_bar_finish()
+                _print(_status_text)
             _last_status_print_time = _status_now
 
         # ── salva frame periódico ──────────────────────────────────────────
