@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V04 do relatório}
+\large Versão V05 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -953,6 +953,176 @@ $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 \endgroup
 
 % ======================================================================
+\section{Apêndice: exemplos de uso}
+\label{app:exemplos}
+% ======================================================================
+
+Receitas de linha de comando para os casos de uso mais frequentes,
+verificadas contra a versão V40. Todos os comandos assumem
+\code{python3 compass\_simV40.py} como base; a barra invertida final
+indica continuação de linha no \emph{shell}.
+
+\subsection*{B.1 --- Execução básica (equilíbrio dipolar)}
+
+Rede quadrada $8\times8$ com todos os padrões (agulha de aço com
+momento e inércia calculados automaticamente, sem campo externo):
+\begin{verbatim}
+python3 compass_simV40.py --N 8 --M 8 --geometry square
+\end{verbatim}
+Gera as imagens de resumo (estado inicial, equilíbrio, comparação,
+parâmetro de ordem) e o CSV \code{compass\_field\_log.csv} no diretório
+corrente. Para as outras redes: \code{--geometry triangular} ou
+\code{--geometry honeycomb}.
+
+\subsection*{B.2 --- GPU ligada e desligada}
+
+A CPU é o padrão (\code{--gpu 0}). Com a otimização V40, a CPU já
+resolve redes médias em segundos; a GPU vale para redes grandes:
+\begin{verbatim}
+# CPU (padrao) -- rede media
+python3 compass_simV40.py --N 30 --M 30 --t_sim 5.0
+
+# GPU (CuPy/RTX 3090) -- rede grande; requer cupy instalado
+python3 compass_simV40.py --N 60 --M 60 --t_sim 5.0 --gpu 1
+\end{verbatim}
+Com \code{--gpu 1}, a codificação do vídeo também usa o
+\emph{encoder} de hardware NVENC quando disponível. Se o CuPy não
+estiver funcional, o programa avisa e cai para CPU automaticamente.
+
+\subsection*{B.3 --- Vídeo e figuras em boa resolução}
+
+Para redes acima de $15\times15$, usar \code{--dpi} 150--200. Menor
+\code{--frame\_every} = animação mais suave (mais frames):
+\begin{verbatim}
+python3 compass_simV40.py --N 20 --M 20 --t_sim 4.0 \
+    --video demo --dpi 180 --fps 30 --frame_every 3
+\end{verbatim}
+O vídeo recebe numeração automática (\code{demo0000.mp4},
+\code{demo0001.mp4}, \dots). Para manter também os PNGs individuais dos
+frames após montar o vídeo, acrescentar \code{--keep\_frames}. Para
+apenas figuras estáticas em alta resolução (sem vídeo), basta omitir
+\code{--video} e usar \code{--dpi 200}.
+
+\subsection*{B.4 --- Varreduras rápidas: sem imagens, sem barra}
+
+Em campanhas com muitas execuções, desligar toda a geração de imagens
+(mantém os CSVs de dados) e a barra de progresso:
+\begin{verbatim}
+python3 compass_simV40.py --N 8 --M 8 --t_sim 1.0 \
+    --make_images 0 --progress_bar 0
+\end{verbatim}
+Ganho de $\sim 3\times$ em redes pequenas, onde a renderização domina o
+tempo.
+
+\subsection*{B.5 --- Controle do amortecimento (regimes dinâmicos)}
+
+O regime é caracterizado pelo fator de qualidade $Q$, impresso no
+cabeçalho de cada execução junto com a classificação
+(sub-/super-amortecido). O valor exato de $Q$ depende do campo
+dominante (dipolar ou externo); os valores abaixo, com os demais
+parâmetros no padrão, ilustram os três regimes:
+\begin{verbatim}
+# subamortecido (Q >> 1): oscila visivelmente antes de estabilizar
+python3 compass_simV40.py --N 10 --M 10 --damping 5e-8 --video sub
+
+# intermediario (Q ~ 1): crossover
+python3 compass_simV40.py --N 10 --M 10 --damping 1e-6 --video meio
+
+# sobreamortecido (Q << 1): relaxacao monotona, sem oscilacao
+python3 compass_simV40.py --N 10 --M 10 --damping 5e-5 --video sobre
+\end{verbatim}
+Conferir o $Q$ impresso no cabeçalho e ajustar \code{--damping} até o
+regime desejado. \code{--damping 0} desliga a dissipação (oscilação
+perpétua).
+
+\subsection*{B.6 --- Tamanho e espaçamento das agulhas}
+
+O raio $R$ do círculo circunscrito define o espaçamento da rede
+($r_{nn} = 2R$); \code{--needle\_frac} define o comprimento da agulha
+como fração de $2R$; a espessura da lâmina afeta os cálculos
+automáticos de inércia e momento:
+\begin{verbatim}
+# agulhas de 1 cm de raio, ocupando metade do diametro disponivel
+python3 compass_simV40.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
+
+# lamina mais fina (0.2 mm): agulha mais leve -> oscila mais rapido
+python3 compass_simV40.py --N 12 --M 12 --needle_thickness 2e-4
+
+# sobrescrever os calculos automaticos com valores explicitos
+python3 compass_simV40.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
+\end{verbatim}
+
+\subsection*{B.7 --- Campo externo e modos dinâmicos}
+
+\begin{verbatim}
+# campo estatico de 1 mT a 45 graus
+python3 compass_simV40.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
+
+# ciclo de histerese completo (5 rampas) com exportacao CSV
+python3 compass_simV40.py --N 20 --M 20 --field_mode hysteresis \
+    --B_ext 0.002 --t_sim 10.0 --video hist --dpi 160
+
+# pulso: campo ate saturar (S >= 0.99 ou plato), depois relaxa
+python3 compass_simV40.py --N 15 --M 15 --field_mode pulse \
+    --B_ext 0.005 --t_sim 6.0 --video pulso
+
+# campo senoidal de 0.5 Hz (t_sim deve cobrir varios periodos)
+python3 compass_simV40.py --N 15 --M 15 --field_mode sine \
+    --B_ext 0.002 --field_freq 0.5 --t_sim 8.0
+\end{verbatim}
+No modo histerese, o laço $M(B)$ é exportado em
+\code{hysteresis\_loop.csv} (e \code{hysteresis\_loop.png} se
+\code{--make\_images 1}). A ordem das colunas dos CSVs é controlada por
+\code{--csv\_order \{t,B\}}.
+
+\subsection*{B.8 --- Visualização de domínios magnéticos}
+
+Cenário de demonstração que produz domínios claros e bem separados
+(rede quadrada com pouco ruído inicial e relaxação longa):
+\begin{verbatim}
+python3 compass_simV40.py --N 24 --M 24 --R 0.01 --noise 0.6 \
+    --t_sim 8.0 --damping 3e-6 \
+    --halo_mode domains --domain_tol 35 --video dominios --dpi 160
+\end{verbatim}
+Cada região conexa de agulhas com orientação similar (dentro de
+\code{--domain\_tol} graus) recebe uma cor; domínios pequenos aparecem
+em cinza. Tolerâncias menores (por exemplo, o padrão $15^\circ$)
+fragmentam mais; maiores agregam mais.
+
+\subsection*{B.9 --- Condições periódicas de contorno e
+reprodutibilidade}
+
+\begin{verbatim}
+# rede tratada como estrutura periodica infinita (1 replica por lado)
+python3 compass_simV40.py --N 16 --M 16 --pbc 1 --pbc_images 1
+
+# reprodutibilidade exata: fixar a semente do ruido inicial
+python3 compass_simV40.py --N 10 --M 10 --seed 123
+\end{verbatim}
+
+\subsection*{B.10 --- Campanha científica completa (scripts satélites)}
+
+\begin{verbatim}
+# validacao rapida do ambiente (segundos)
+python3 damping_sweepV02.py --out_dir resultados --quick_test 1
+
+# campanha completa do Estudo 1, paralela em 8 nucleos
+python3 damping_sweepV02.py --out_dir resultados \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 \
+    --Q_min 0.05 --Q_max 15.0 \
+    --geometries square,triangular,honeycomb --n_workers 8
+
+# retomar campanha interrompida (pula rodadas ja registradas)
+python3 damping_sweepV02.py --out_dir resultados ... --resume 1
+
+# analise: metricas de laco, avalanches, tau(Q), dominios
+python3 damping_sweep_analysis.py --sweep_dir resultados \
+    --out_dir analise
+\end{verbatim}
+Evitar combinar \code{--n\_workers} $> 1$ com \code{--use\_gpu 1}
+(contenção da GPU entre processos).
+
+% ======================================================================
 \section*{Histórico de versões deste relatório}
 \addcontentsline{toc}{section}{Histórico de versões deste relatório}
 % ======================================================================
@@ -972,6 +1142,9 @@ desempenho 1 e 2 (código V40: tensor pré-computado, 35--45$\times$;
 \code{damping\_sweep} V02: paralelização, \emph{manifest} incremental,
 retomada), com validações e medições; atualizados os custos da campanha
 e o registro de versões. \\
+V05 & 04/07/2026 & Adicionado o Apêndice~B (exemplos de uso: GPU,
+vídeo/figuras em alta resolução, regimes de amortecimento, geometria das
+agulhas, modos de campo, domínios, PBC e campanha completa). \\
 \bottomrule
 \end{tabular}
 
