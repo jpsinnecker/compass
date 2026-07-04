@@ -759,6 +759,118 @@ def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
     return tau_flat
 
 
+# ── V40: tensor de interação dipolar pré-computado ─────────────────────────
+# Limite de memória para os 3 blocos K×K do tensor (float64). Acima disso,
+# relax() cai automaticamente para o cálculo por passo (método antigo).
+TENSOR_MEM_LIMIT_BYTES = 4.0e9   # 4 GB
+
+
+def precompute_dipolar_tensor(x_flat, y_flat, cutoff,
+                              pbc=False, Lx=None, Ly=None, n_images=1):
+    """
+    Pré-computa o tensor de interação dipolar da rede (V40).
+
+    Motivação: as POSIÇÕES das agulhas são fixas durante toda a simulação
+    — apenas os ângulos θ evoluem. Além disso, o campo dipolar é LINEAR
+    nos momentos (mx, my) das fontes. Logo, toda a geometria par-a-par
+    (distâncias, potências de r, máscaras de cutoff e a soma sobre
+    imagens periódicas) pode ser condensada, UMA ÚNICA VEZ antes do loop
+    de integração, em três matrizes constantes K×K:
+
+        Bx_a = Σ_b [ Axx[a,b]·mx_b + Axy[a,b]·my_b ]
+        By_a = Σ_b [ Axy[a,b]·mx_b + Ayy[a,b]·my_b ]   (Ayx = Axy)
+
+    com
+        Axx[a,b] = (μ₀/4π)(3 rx²/r⁵ − 1/r³)
+        Axy[a,b] = (μ₀/4π)(3 rx·ry/r⁵)
+        Ayy[a,b] = (μ₀/4π)(3 ry²/r⁵ − 1/r³)
+
+    Cada passo de integração se reduz então a produtos matriz-vetor
+    (BLAS na CPU, cuBLAS na GPU), em vez de reconstruir ~10 arrays K×K
+    com raízes quadradas e máscaras a cada passo — mesma física, mesmos
+    valores por par (a menos de reassociação de ponto flutuante), custo
+    por passo drasticamente menor.
+
+    A máscara reproduz exatamente a semântica de
+    compute_torques_vectorized: auto-interação excluída apenas na imagem
+    de deslocamento zero (réplicas periódicas da própria agulha
+    contribuem, como devem), e cutoff aplicado por imagem.
+
+    Parâmetros
+    ----------
+    x_flat, y_flat : arrays 1D (K,) com as posições [m], no backend
+                     desejado (NumPy/CPU ou CuPy/GPU — o tensor é criado
+                     no mesmo backend dos arrays de entrada)
+    cutoff         : raio máximo de interação [m]
+    pbc, Lx, Ly, n_images : condições periódicas (ver relax())
+
+    Retorna
+    -------
+    (Axx, Axy, Ayy) : três matrizes (K, K) no backend de entrada, em
+                      unidades de T/(A·m²) — campo por unidade de momento.
+    """
+    if _GPU_AVAILABLE and hasattr(x_flat, 'get'):
+        xp = cp
+    else:
+        xp = np
+    K = x_flat.shape[0]
+
+    if pbc and Lx and Ly:
+        img_range = range(-n_images, n_images + 1)
+        x_shifts = [k * Lx for k in img_range]
+        y_shifts = [k * Ly for k in img_range]
+    else:
+        x_shifts = [0.0]
+        y_shifts = [0.0]
+
+    Axx = xp.zeros((K, K))
+    Axy = xp.zeros((K, K))
+    Ayy = xp.zeros((K, K))
+
+    for dx_img in x_shifts:
+        for dy_img in y_shifts:
+            rx = (x_flat[:, None] - x_flat[None, :]) - dx_img
+            ry = (y_flat[:, None] - y_flat[None, :]) - dy_img
+            r2 = rx*rx + ry*ry
+
+            is_self = (r2 < 1e-24)
+            valid   = (~is_self) & (r2 <= cutoff*cutoff)
+
+            r2_safe = xp.where(valid, r2, 1.0)
+            r  = xp.sqrt(r2_safe)
+            r3 = r2_safe * r
+            r5 = r2_safe * r2_safe * r
+
+            axx = MU0_OVER_4PI * (3.0 * rx * rx / r5 - 1.0 / r3)
+            axy = MU0_OVER_4PI * (3.0 * rx * ry / r5)
+            ayy = MU0_OVER_4PI * (3.0 * ry * ry / r5 - 1.0 / r3)
+
+            Axx += xp.where(valid, axx, 0.0)
+            Axy += xp.where(valid, axy, 0.0)
+            Ayy += xp.where(valid, ayy, 0.0)
+
+    return Axx, Axy, Ayy
+
+
+def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext):
+    """
+    Calcula os torques usando o tensor pré-computado (V40): quatro
+    produtos matriz-vetor por passo. Fisicamente idêntico a
+    compute_torques_vectorized (diferenças apenas de reassociação de
+    ponto flutuante, ~1e-13 relativo).
+    """
+    if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
+        xp = cp
+    else:
+        xp = np
+    Axx, Axy, Ayy = tensor
+    mx = moment * xp.cos(theta_flat)
+    my = moment * xp.sin(theta_flat)
+    Bx = Axx @ mx + Axy @ my + bx_ext
+    By = Axy @ mx + Ayy @ my + by_ext
+    return mx * By - my * Bx
+
+
 def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           inertia=INERTIA_DEFAULT, damping=DAMPING_DEFAULT,
           cutoff=3.5, ext_field=(0.0, 0.0), moment=MOMENT_DEFAULT,
@@ -1295,6 +1407,26 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     x_flat_xp = _local_to_backend(xs.ravel())
     y_flat_xp = _local_to_backend(ys.ravel())
 
+    # ── V40: pré-computa o tensor de interação dipolar ────────────────────
+    # Posições fixas + campo linear nos momentos => toda a geometria K×K
+    # (distâncias, cutoff, imagens PBC) é condensada em 3 matrizes
+    # constantes ANTES do loop; cada passo vira produtos matriz-vetor
+    # (BLAS/cuBLAS). Fallback automático para o método por passo se o
+    # tensor não couber no limite de memória.
+    _dipolar_tensor = None
+    _K_total = int(x_flat_xp.shape[0])
+    _tensor_bytes = 3.0 * _K_total * _K_total * 8.0
+    if _tensor_bytes <= TENSOR_MEM_LIMIT_BYTES:
+        _dipolar_tensor = precompute_dipolar_tensor(
+            x_flat_xp, y_flat_xp, cutoff,
+            pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
+        _print(f"  Tensor dipolar pré-computado: 3 matrizes {_K_total}x{_K_total} "
+               f"({_tensor_bytes/1e6:.0f} MB) — passos via matriz-vetor (V40)")
+    else:
+        _print(f"  Tensor dipolar NÃO pré-computado ({_tensor_bytes/1e9:.1f} GB "
+               f"excede o limite de {TENSOR_MEM_LIMIT_BYTES/1e9:.0f} GB) — "
+               f"usando cálculo por passo (método V39)")
+
     def _torques_xp(theta_flat_xp, bx_ext, by_ext):
         """
         Versão GPU-resident: recebe e retorna arrays no backend ativo
@@ -1303,7 +1435,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         — theta/omega/tau permanecem na GPU durante toda a simulação,
         só sendo convertidos para CPU quando estritamente necessário
         (salvar frame, gravar histórico, log CSV).
+
+        V40: usa o tensor pré-computado quando disponível (produtos
+        matriz-vetor); senão, cai para o cálculo completo por passo.
         """
+        if _dipolar_tensor is not None:
+            return compute_torques_from_tensor(
+                theta_flat_xp, _dipolar_tensor, moment, bx_ext, by_ext)
         return compute_torques_vectorized(
             theta_flat_xp, x_flat_xp, y_flat_xp, moment, cutoff,
             bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
