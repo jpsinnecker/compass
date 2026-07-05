@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V10 do relatório}
+\large Versão V11 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -1037,8 +1037,11 @@ $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 % ======================================================================
 
 Receitas de linha de comando para os casos de uso mais frequentes,
-verificadas contra a versão V45. Todos os comandos assumem
-\code{python3 compass\_simV45.py} como base; a barra invertida final
+verificadas contra a versão V45. Os comandos usam \code{compass.py}
+como nome do executável --- uma cópia da versão atual do simulador
+(\code{compass\_simV45.py}), mantida com esse nome estável para uso
+diário; assim os exemplos podem ser copiados e colados diretamente. A
+barra invertida final
 indica continuação de linha no \emph{shell}.
 
 \subsection*{B.1 --- Execução básica (equilíbrio dipolar)}
@@ -1046,7 +1049,7 @@ indica continuação de linha no \emph{shell}.
 Rede quadrada $8\times8$ com todos os padrões (agulha de aço com
 momento e inércia calculados automaticamente, sem campo externo):
 \begin{verbatim}
-python3 compass_simV45.py --N 8 --M 8 --geometry square
+python3 compass.py --N 8 --M 8 --geometry square
 \end{verbatim}
 Gera as imagens de resumo (estado inicial, equilíbrio, comparação,
 parâmetro de ordem) e o CSV \code{compass\_field\_log.csv} no diretório
@@ -1059,10 +1062,10 @@ A CPU é o padrão (\code{--gpu 0}). Com a otimização V40, a CPU já
 resolve redes médias em segundos; a GPU vale para redes grandes:
 \begin{verbatim}
 # CPU (padrao) -- rede media
-python3 compass_simV45.py --N 30 --M 30 --t_sim 5.0
+python3 compass.py --N 30 --M 30 --t_sim 5.0
 
 # GPU (CuPy/RTX 3090) -- rede grande; requer cupy instalado
-python3 compass_simV45.py --N 60 --M 60 --t_sim 5.0 --gpu 1
+python3 compass.py --N 60 --M 60 --t_sim 5.0 --gpu 1
 \end{verbatim}
 Com \code{--gpu 1}, a codificação do vídeo também usa o
 \emph{encoder} de hardware NVENC quando disponível. Se o CuPy não
@@ -1073,7 +1076,7 @@ estiver funcional, o programa avisa e cai para CPU automaticamente.
 Para redes acima de $15\times15$, usar \code{--dpi} 150--200. Menor
 \code{--frame\_every} = animação mais suave (mais frames):
 \begin{verbatim}
-python3 compass_simV45.py --N 20 --M 20 --t_sim 4.0 \
+python3 compass.py --N 20 --M 20 --t_sim 4.0 \
     --video demo --dpi 180 --fps 30 --frame_every 3
 \end{verbatim}
 O vídeo recebe numeração automática (\code{demo0000.mp4},
@@ -1087,7 +1090,7 @@ apenas figuras estáticas em alta resolução (sem vídeo), basta omitir
 Em campanhas com muitas execuções, desligar toda a geração de imagens
 (mantém os CSVs de dados) e a barra de progresso:
 \begin{verbatim}
-python3 compass_simV45.py --N 8 --M 8 --t_sim 1.0 \
+python3 compass.py --N 8 --M 8 --t_sim 1.0 \
     --make_images 0 --progress_bar 0
 \end{verbatim}
 Ganho de $\sim 3\times$ em redes pequenas, onde a renderização domina o
@@ -1104,13 +1107,13 @@ dominante (dipolar ou externo); os valores abaixo, com os demais
 parâmetros no padrão, ilustram os três regimes:
 \begin{verbatim}
 # subamortecido (Q >> 1): oscila visivelmente antes de estabilizar
-python3 compass_simV45.py --N 10 --M 10 --damping 5e-8 --video sub
+python3 compass.py --N 10 --M 10 --damping 5e-8 --video sub
 
 # intermediario (Q ~ 1): crossover
-python3 compass_simV45.py --N 10 --M 10 --damping 1e-6 --video meio
+python3 compass.py --N 10 --M 10 --damping 1e-6 --video meio
 
 # sobreamortecido (Q << 1): relaxacao monotona, sem oscilacao
-python3 compass_simV45.py --N 10 --M 10 --damping 5e-5 --video sobre
+python3 compass.py --N 10 --M 10 --damping 5e-5 --video sobre
 \end{verbatim}
 Conferir o $Q$ impresso no cabeçalho e ajustar \code{--damping} até o
 regime desejado. \code{--damping 0} desliga a dissipação (oscilação
@@ -1124,13 +1127,13 @@ como fração de $2R$; a espessura da lâmina afeta os cálculos
 automáticos de inércia e momento:
 \begin{verbatim}
 # agulhas de 1 cm de raio, ocupando metade do diametro disponivel
-python3 compass_simV45.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
+python3 compass.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
 
 # lamina mais fina (0.2 mm): agulha mais leve -> oscila mais rapido
-python3 compass_simV45.py --N 12 --M 12 --needle_thickness 2e-4
+python3 compass.py --N 12 --M 12 --needle_thickness 2e-4
 
 # sobrescrever os calculos automaticos com valores explicitos
-python3 compass_simV45.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
+python3 compass.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
 \end{verbatim}
 
 \subsection*{B.7 --- Campo externo: os seis modos}
@@ -1141,7 +1144,7 @@ amplitude é \code{--B\_ext} e a direção \code{--phi\_ext}.
 \medskip\noindent\textbf{(1) static} --- campo constante (ou nulo)
 durante toda a simulação:
 \begin{verbatim}
-python3 compass_simV45.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
+python3 compass.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
 \end{verbatim}
 
 \noindent\textbf{(2) hysteresis} --- ciclo de 5 rampas
@@ -1151,11 +1154,11 @@ tempo real. Espaçamento \code{linear} (padrão) ou \code{log} (amostragem
 $\sim$15$\times$ mais fina na região da coercividade):
 \begin{verbatim}
 # linear, com video de painel duplo (agulhas + curva M x H)
-python3 compass_simV45.py --N 20 --M 20 --field_mode hysteresis \
+python3 compass.py --N 20 --M 20 --field_mode hysteresis \
     --B_ext 0.002 --t_sim 10.0 --video hist --dpi 160
 
 # espacamento log-simetrico (fino perto de B=0)
-python3 compass_simV45.py --N 20 --M 20 --field_mode hysteresis \
+python3 compass.py --N 20 --M 20 --field_mode hysteresis \
     --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0
 \end{verbatim}
 
@@ -1163,7 +1166,7 @@ python3 compass_simV45.py --N 20 --M 20 --field_mode hysteresis \
 $B(t) = B_{\max}\sin(2\pi f t)$; \code{--t\_sim} deve cobrir vários
 períodos:
 \begin{verbatim}
-python3 compass_simV45.py --N 15 --M 15 --field_mode sine \
+python3 compass.py --N 15 --M 15 --field_mode sine \
     --B_ext 0.002 --field_freq 0.5 --t_sim 8.0
 \end{verbatim}
 
@@ -1173,25 +1176,25 @@ python3 compass_simV45.py --N 15 --M 15 --field_mode sine \
 $S \geq 0{,}99$ ou platô):
 \begin{verbatim}
 # temporizado: espera 0.2 s -> campo 0.3 s -> zera e estabiliza
-python3 compass_simV45.py --N 15 --M 15 --field_mode pulse \
+python3 compass.py --N 15 --M 15 --field_mode pulse \
     --field_delay 0.2 --t_pulse 0.3 --B_ext 0.005 --t_sim 6.0
 
 # legado (sem t_pulse): campo ate saturar, depois relaxa
-python3 compass_simV45.py --N 15 --M 15 --field_mode pulse \
+python3 compass.py --N 15 --M 15 --field_mode pulse \
     --B_ext 0.005 --t_sim 6.0
 \end{verbatim}
 
 \noindent\textbf{(5) step\_pos} --- $B{=}0$ por \code{field\_delay},
 depois campo ligado e mantido até o fim:
 \begin{verbatim}
-python3 compass_simV45.py --N 15 --M 15 --field_mode step_pos \
+python3 compass.py --N 15 --M 15 --field_mode step_pos \
     --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
 \end{verbatim}
 
 \noindent\textbf{(6) step\_neg} --- campo desde $t{=}0$, removido em
 \code{field\_delay} e mantido em zero até o fim:
 \begin{verbatim}
-python3 compass_simV45.py --N 15 --M 15 --field_mode step_neg \
+python3 compass.py --N 15 --M 15 --field_mode step_neg \
     --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
 \end{verbatim}
 
@@ -1206,7 +1209,7 @@ equilíbrio e \code{--t\_sim\_full 1} desativa a parada antecipada
 Cenário de demonstração que produz domínios claros e bem separados
 (rede quadrada com pouco ruído inicial e relaxação longa):
 \begin{verbatim}
-python3 compass_simV45.py --N 24 --M 24 --R 0.01 --noise 0.6 \
+python3 compass.py --N 24 --M 24 --R 0.01 --noise 0.6 \
     --t_sim 8.0 --damping 3e-6 \
     --halo_mode domains --domain_tol 35 --video dominios --dpi 160
 \end{verbatim}
@@ -1224,10 +1227,10 @@ reprodutibilidade}
 
 \begin{verbatim}
 # rede tratada como estrutura periodica infinita (1 replica por lado)
-python3 compass_simV45.py --N 16 --M 16 --pbc 1 --pbc_images 1
+python3 compass.py --N 16 --M 16 --pbc 1 --pbc_images 1
 
 # reprodutibilidade exata: fixar a semente do ruido inicial
-python3 compass_simV45.py --N 10 --M 10 --seed 123
+python3 compass.py --N 10 --M 10 --seed 123
 \end{verbatim}
 
 \subsection*{B.10 --- Campanha científica completa (scripts satélites)}
@@ -1294,6 +1297,10 @@ duplo agulhas + $M\times H$). Revisão editorial: Apêndice~B.7
 reescrito como referência dos seis modos de campo (sem redundância);
 versões dos comandos de exemplo padronizadas para V45; título do
 Apêndice~A atualizado; cronologia da Fase~6 estendida até a V45. \\
+V11 & 05/07/2026 & Nos exemplos do Apêndice~B, o executável passou a ser
+referido como \code{compass.py} (cópia estável da versão atual), para
+cópia e colagem direta. O registro de versões (V01--V45) é preservado
+no corpo e nas tabelas. \\
 \bottomrule
 \end{tabular}
 
