@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V52
+compass.py — Simulation of a compass-needle lattice V53
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -456,8 +456,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                                bx_ext, by_ext,
-                                pbc=False, Lx=None, Ly=None, n_images=1):
+                               bx_ext, by_ext,
+                               pbc=False, Lx=None, Ly=None, n_images=1):
     if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
         xp = cp
     else:
@@ -2006,7 +2006,7 @@ def main():
                      help='Numero de COLUNAS de agulhas')
     grp.add_argument('--R', type=float, default=0.025,
                      help='Raio do circulo que envolve cada agulha [m]. '
-                           'A distancia entre centros de vizinhos = 2R. '
+                           'A distancia entre centers de vizinhos = 2R. '
                            'Padrao: 0.025 m = 2.5 cm')
     grp.add_argument('--needle_frac', type=float, default=0.80,
                      help='Comprimento da agulha como fracao do diametro 2R '
