@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V53
+compass.py — Simulation of a compass-needle lattice V54
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -240,7 +240,7 @@ def _print_progress_bar(frac, bar_width=40, step=0, n_steps=0, steps_per_s=0,
 
     if _progress_ansi_ok():
         seq = ("\x1b[K" + line1 + "\n\r" +
-               "\x1b[K" + line2 + "\n\r" +
+               \x1b[K" + line2 + "\n\r" +
                "\x1b[K" + line3 + "\x1b[2A\r")
         sys.stdout.write(seq)
         sys.stdout.flush()
@@ -2200,6 +2200,8 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
+    _print(f"  Version      : V54")
+    _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
             _gpu_name = cp.cuda.runtime.getDeviceProperties(0)['name'].decode()
