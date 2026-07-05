@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V56
+compass.py — Simulation of a compass-needle lattice V57
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -1718,7 +1718,7 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     # ── direction dial (circle + arrow): centered next to the text lines ──
     arrow_cx = px + box_w - pad - 0.01 * xspan
     arrow_cy = py_top - 0.048 * yspan
-    r_dial   = needle_len * 0.55
+    r_dial   = needle_len * 0.55 * 1.30
     
     dial = plt.Circle((arrow_cx, arrow_cy), r_dial, facecolor='#080818',
                       edgecolor='#5A5A8A', lw=0.7, zorder=20)
@@ -1729,21 +1729,36 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     
     if field_on and abs(f) > 1e-5:
         phi_arrow = (phi_ext_deg + 180.0) % 360.0 if f < 0 else phi_ext_deg
-        arrow_len = (0.35 + 0.65 * abs(f)) * r_dial
-        
-        x_tail = arrow_cx
-        y_tail = arrow_cy
-        x_head = arrow_cx + arrow_len * np.cos(np.deg2rad(phi_arrow))
-        y_head = arrow_cy + arrow_len * np.sin(np.deg2rad(phi_arrow))
-        arrow_color = color
-        ax.annotate(
-            '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
-            arrowprops=dict(
-                arrowstyle='->', color=arrow_color, lw=1.8,
-                mutation_scale=10),
-            zorder=21)
-    else:
-        ax.plot(arrow_cx, arrow_cy, 'o', ms=2, color='#555555', zorder=21)
+        # Scale arrow length: full diameter at |f|=1, shrinks toward center
+        arrow_len = abs(f) * (2.0 * r_dial)
+
+        cos_a = np.cos(np.deg2rad(phi_arrow))
+        sin_a = np.sin(np.deg2rad(phi_arrow))
+
+        # Arrow geometry (centered in the circle)
+        shaft_w  = r_dial * 0.28          # shaft half-width
+        head_w   = r_dial * 0.60          # head half-width
+        head_len = min(r_dial * 0.65, arrow_len * 0.55)  # head length
+
+        # Tail position (centered on arrow_cx/cy)
+        x_tail = arrow_cx - (arrow_len / 2.0) * cos_a
+        y_tail = arrow_cy - (arrow_len / 2.0) * sin_a
+
+        from matplotlib.patches import FancyArrow
+        fat_arrow = FancyArrow(
+            x_tail, y_tail,
+            arrow_len * cos_a, arrow_len * sin_a,
+            width=shaft_w * 2,
+            head_width=head_w * 2,
+            head_length=head_len,
+            length_includes_head=True,
+            facecolor=color,
+            edgecolor='#1A1A2E',
+            linewidth=0.8,
+            zorder=22,
+            transform=ax.transData,
+        )
+        ax.add_patch(fat_arrow)
 
     # ── 1. arrows at the sites ─────────────────
     if field_on:
@@ -2177,7 +2192,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V56")
+    _print(f"  Version      : V57")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
