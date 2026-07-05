@@ -1,7 +1,7 @@
 % ======================================================================
-% Development Report for the compass_sim Project — V12
-% Generated on 05/07/2026. Covered history: 15/06/2026 to 04/07/2026.
-% Compile with: pdflatex relatorio_projeto_V12_EN.tex (twice for references)
+% Development Report for the compass_sim Project — V13
+% Generated on 05/07/2026. Covered history: 15/06/2026 to 05/07/2026.
+% Compile with: pdflatex relatorio_projeto_V13_EN.tex (twice for references)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -488,7 +488,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V47, extr
 \code{--fps} & 24 & --- & Video frames per second. \\
 \code{--dpi} & 120 & --- & Frame resolution (arrays $>15\times15$: use 150--200). \\
 \code{--keep\_frames} & off & --- & Keeps the intermediate PNG folder after MP4 generation. \\
-\code{--hyst\_autoscale} & off & --- & Enables automatic scaling of the axes in both the live simulation frames (dual panel) and the final hysteresis plots (V47). \\
+\code{--hyst\_autoscale} & 0 & --- & Enables automatic scaling of the axes in both the live simulation frames (dual panel) and the final hysteresis plots (0/1; V47). \\
 \code{--csv\_order} & t & --- & CSV column order: \code{t} $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 \end{longtable}
 \endgroup
@@ -576,7 +576,7 @@ One example per mode, covering the full range of \code{--field\_mode}. The ampli
 python3 compass.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
 \end{verbatim}
 
-\noindent\textbf{(2) hysteresis} --- five-ramp cycle ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$). The video (V45) shows needles and the $M\times H$ curve traced in real time, side by side. Spacing can be \code{linear} (default) or \code{log} ($\sim$15$\times$ finer sampling in the coercivity region):
+\noindent\textbf{(2) hysteresis} --- five-ramp cycle ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$). The video (V45) shows needles and the $M\times H$ curve traced in real time, side by side. Spacing can be \code{linear} (default) or \code{log} ($\sim$15$\times$ finer sampling in the coercivity region:
 \begin{verbatim}
 # linear, with dual-panel video (needles + M x H curve)
 python3 compass.py --N 20 --M 20 --field_mode hysteresis \
