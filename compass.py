@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V54
+compass.py — Simulation of a compass-needle lattice V55
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -240,7 +240,7 @@ def _print_progress_bar(frac, bar_width=40, step=0, n_steps=0, steps_per_s=0,
 
     if _progress_ansi_ok():
         seq = ("\x1b[K" + line1 + "\n\r" +
-               \x1b[K" + line2 + "\n\r" +
+               "\x1b[K" + line2 + "\n\r" +
                "\x1b[K" + line3 + "\x1b[2A\r")
         sys.stdout.write(seq)
         sys.stdout.flush()
@@ -1638,14 +1638,6 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
                               color='#FFD700'):
     """Represents the external field in the image."""
     b_val = B_signed if B_signed is not None else B_ext
-    if b_val < 0:
-        phi_ext_deg_inst = (phi_ext_deg + 180.0) % 360.0
-    else:
-        phi_ext_deg_inst = phi_ext_deg
-
-    phi      = np.deg2rad(phi_ext_deg_inst)
-    cos_phi  = np.cos(phi)
-    sin_phi  = np.sin(phi)
     
     B_max_ref = B_ext_max if (B_ext_max and B_ext_max > 0) else max(abs(b_val), 1e-30)
     
@@ -1732,16 +1724,21 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
                       edgecolor='#5A5A8A', lw=0.7, zorder=20)
     ax.add_patch(dial)
     
-    phi_inst = np.deg2rad(phi_ext_deg_inst)
-    cos_phi_inst = np.cos(phi_inst)
-    sin_phi_inst = np.sin(phi_inst)
+    f = b_val / B_max_ref if B_max_ref > 0 else 0.0
+    f = max(-1.0, min(f, 1.0))
     
-    if field_on:
+    if field_on and abs(f) > 1e-5:
+        if f < 0:
+            phi_arrow = (phi_ext_deg + 180.0) % 360.0
+        else:
+            phi_arrow = phi_ext_deg
+        arrow_len = abs(f) * r_dial
+        
         x_tail = arrow_cx
         y_tail = arrow_cy
-        x_head = arrow_cx + r_dial * cos_phi_inst
-        y_head = arrow_cy + r_dial * sin_phi_inst
-        arrow_color = color if field_on else '#555555'
+        x_head = arrow_cx + arrow_len * np.cos(np.deg2rad(phi_arrow))
+        y_head = arrow_cy + arrow_len * np.sin(np.deg2rad(phi_arrow))
+        arrow_color = color
         ax.annotate(
             '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
             arrowprops=dict(
@@ -1751,28 +1748,11 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     else:
         ax.plot(arrow_cx, arrow_cy, 'o', ms=2, color='#555555', zorder=21)
 
-    # ── sign indicator next to the bar (bottom right) ──
-    sign_cx = px + bar_w + arrow_zone_w / 2.0
-    sign_cy = bar_y + bar_h / 2.0
-    r_sign = bar_h * 0.8
-    
-    sign_circle = plt.Circle((sign_cx, sign_cy), r_sign, facecolor='#252540',
-                            edgecolor='#5A5A8A', lw=0.6, zorder=20)
-    ax.add_patch(sign_circle)
-    
-    if field_on:
-        arrow_dir = 1.0 if b_val >= 0 else -1.0
-        x_tail_s = sign_cx - r_sign * 0.4 * arrow_dir
-        x_head_s = sign_cx + r_sign * 0.4 * arrow_dir
-        ax.annotate(
-            '', xy=(x_head_s, sign_cy), xytext=(x_tail_s, sign_cy),
-            arrowprops=dict(
-                arrowstyle='->', color=color, lw=1.5,
-                mutation_scale=6),
-            zorder=21)
-
     # ── 1. arrows at the sites ─────────────────
     if field_on:
+        phi_inst = np.deg2rad(phi_ext_deg + 180.0 if b_val < 0 else phi_ext_deg)
+        cos_phi  = np.cos(phi_inst)
+        sin_phi  = np.sin(phi_inst)
         alen_sites = needle_len * 0.35
         dx_a = alen_sites * cos_phi
         dy_a = alen_sites * sin_phi
@@ -2200,7 +2180,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V54")
+    _print(f"  Version      : V55")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
