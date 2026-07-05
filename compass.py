@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V50
+compass.py — Simulation of a compass-needle lattice V51
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -408,13 +408,13 @@ def _plot_hysteresis(log, hyst_autoscale=False):
     ax2.legend(lines, ['M (proj.)', 'B (mT)'], facecolor='#1A1A2E',
                edgecolor='#2C3E50', labelcolor='#ECF0F1', fontsize=8)
 
-    fig.suptitle("Simulação de Histerese Magnética — Rede de Bússolas",
+    fig.suptitle("Magnetic Hysteresis Simulation — Compass Array",
                  color='#BDC3C7', fontsize=12, fontfamily='monospace')
     plt.tight_layout()
     plt.savefig("hysteresis_loop.png", dpi=130, bbox_inches='tight',
                 facecolor='#1A1A2E')
     plt.close(fig)
-    _print("  Gráfico de histerese salvo: hysteresis_loop.png")
+    _print("  Hysteresis plot saved: hysteresis_loop.png")
 
 
 def _plot_sine(log, freq):
@@ -448,7 +448,7 @@ def _plot_sine(log, freq):
     plt.savefig("sine_field.png", dpi=130, bbox_inches='tight',
                 facecolor='#1A1A2E')
     plt.close(fig)
-    _print("  Gráfico senoidal salvo: sine_field.png")
+    _print("  Sinusoidal plot saved: sine_field.png")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -624,21 +624,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
-    _print(f"  Dinamica inercial:")
+    _print(f"  Dinamical inercial:")
     _print(f"    r_nn    = {r_nn*100:.2f} cm")
-    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar entre vizinhos)")
+    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighborurs)")
     if B_ext_mag > 0:
-        _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (campo externo)")
-    _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (campo dominante)")
+        _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (External Field)")
+    _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
     _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
-    _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} de T0)")
-    _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} passos")
+    _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
+    _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
     if Q > 2:
-        q_desc = "sub-amortecido (oscila)"
+        q_desc = "sub-damping(oscilates)"
     elif Q > 0.5:
-        q_desc = "criticamente amortecido"
+        q_desc = "critically damped"
     else:
-        q_desc = "super-amortecido"
+        q_desc = "overdamped"
     _print(f"    Q       = {Q:.1f}  ({q_desc})")
     _print()
 
@@ -776,7 +776,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             draw_halos_batch(axL, xs, ys, th, needle_len, r_halo=r_halo,
                              halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
             draw_compass_batch(axL, xs, ys, th,
-                               length=needle_len, width=needle_width)
+                              length=needle_len, width=needle_width)
             
             draw_ext_field_on_lattice(
                 axL, xs, ys,
@@ -896,7 +896,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     break
                 elif ch == b'\x03':
                     _restore_terminal()
-                    sys.stdout.write("\r\n  Abortado (Ctrl+C) — encerramento imediato.\r\n")
+                    sys.stdout.write("\r\n  Aborted (Ctrl+C) — immediate shutdown.\r\n")
                     sys.stdout.flush()
                     _os._exit(130)
         except Exception:
@@ -968,8 +968,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     _pulse_relaxing = [False]
 
-    _print("  [Ctrl+I para interromper e salvar o video agora]")
-    _print("  [Ctrl+C para abortar IMEDIATAMENTE, sem salvar nada]")
+    _print("  [Ctrl+I to stop and e save video]")
+    _print("  [Ctrl+C to ABORT withou saving]")
 
     x_flat_xp = _local_to_backend(xs.ravel())
     y_flat_xp = _local_to_backend(ys.ravel())
@@ -981,12 +981,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _dipolar_tensor = precompute_dipolar_tensor(
             x_flat_xp, y_flat_xp, cutoff,
             pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
-        _print(f"  Tensor dipolar pré-computado: 3 matrizes {_K_total}x{_K_total} "
-               f"({_tensor_bytes/1e6:.0f} MB) — passos via matriz-vetor (V40)")
+        _print(f"  Pre calculated Diploar Tensor: 3 matrixes {_K_total}x{_K_total} "
+               f"({_tensor_bytes/1e6:.0f} MB) — step matriz-vetor (V40)")
     else:
-        _print(f"  Tensor dipolar NÃO pré-computado ({_tensor_bytes/1e9:.1f} GB "
-               f"excede o limite de {TENSOR_MEM_LIMIT_BYTES/1e9:.0f} GB) — "
-               f"usando cálculo por passo (método V39)")
+        _print(f"  Dipolar tensor NOT precomputed ({_tensor_bytes/1e9:.1f} GB "
+               f"exceeds the limit of {TENSOR_MEM_LIMIT_BYTES/1e9:.0f} GB) — "
+               f"using step-by-step calculation (V39 method)")
 
     def _torques_xp(theta_flat_xp, bx_ext, by_ext):
         if _dipolar_tensor is not None:
@@ -1038,13 +1038,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         if _stop_flag.is_set():
             _finish_progress_bar_if_shown()
-            _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
-            _stop_reason = "interrompido pelo usuário (Ctrl+I)"
+            _print(f"\n  Stopped (Ctrl+I) at t={t_now:.4f}s  (step {step}/{n_steps})")
+            _stop_reason = "interrupted by user (Ctrl+I)"
             if frame_dir is not None:
                 theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                 omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                 _save_frame(step, theta_cur, omega_cur,
-                            stop_label="■ interrompido (Ctrl+I)")
+                            stop_label="■ interrupted (Ctrl+I)")
             break
 
         bx_new, by_new = field_at(t_now)
@@ -1249,14 +1249,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if _converged_count >= 50:
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Rede em repouso em t={t_now:.4f}s  (passo {step}/{n_steps})  S={S_now:.4f}")
-                _stop_reason = f"rede em repouso em t = {t_now:.4f} s"
+                _print(f"\n  Lattice at rest at t={t_now:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
+                _stop_reason = f"lattice at rest at t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="● rede em repouso")
+                                stop_label="● lattice at rest")
                 break
 
     _finish_progress_bar_if_shown()
@@ -1273,12 +1273,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_ms_per_step = (_perf_total_s / _perf_steps_done * 1000.0) if _perf_steps_done > 0 else 0.0
     _perf_backend_tag = "GPU" if _active_gpu else "CPU"
     _print()
-    _print(f"  ── desempenho ({_perf_backend_tag}) ──────────────────────────")
-    _print(f"  Tempo de integracao : {_perf_total_s:.3f} s  (wall-clock)")
-    _print(f"  Passos executados   : {_perf_steps_done}")
-    _print(f"  Throughput          : {_perf_steps_per_s:.1f} passos/s  "
-           f"({_perf_ms_per_step:.4f} ms/passo)")
-    _print(f"  Agulhas na rede     : {N*M}  (K = N x M)")
+    _print(f"  ── performance ({_perf_backend_tag}) ──────────────────────────")
+    _print(f"  Integration time    : {_perf_total_s:.3f} s  (wall-clock)")
+    _print(f"  Steps executed      : {_perf_steps_done}")
+    _print(f"  Throughput          : {_perf_steps_per_s:.1f} steps/s  "
+           f"({_perf_ms_per_step:.4f} ms/step)")
+    _print(f"  Needles in lattice  : {N*M}  (K = N x M)")
 
     _stop_flag.set()
     _restore_terminal()
@@ -1290,7 +1290,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w = csv.writer(f)
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(hysteresis_log)
-        _print(f"  Dados de histerese salvos: {csv_path}")
+        _print(f"  Hysteresis data saved: {csv_path}")
         if make_images:
             _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale)
 
@@ -1301,7 +1301,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w = csv.writer(f)
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(sine_log)
-        _print(f"  Dados de campo senoidal salvos: {csv_path}")
+        _print(f"  Sinusoidal field data saved: {csv_path}")
         if make_images:
             _plot_sine(sine_log, field_freq)
 
@@ -1324,7 +1324,7 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
     import subprocess, shutil, os
 
     if not shutil.which('ffmpeg'):
-        _print("AVISO: ffmpeg não encontrado.")
+        _print("WARNING: ffmpeg not found.")
         return False
 
     input_pattern = os.path.join(frame_dir, "frame_%05d.png")
@@ -1341,15 +1341,15 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
         ("H.264 (libx264) — CPU",
          ['-c:v', 'libx264', '-preset', 'fast', '-crf', str(crf),
           '-pix_fmt', 'yuv420p']),
-        ("MPEG-4 (mpeg4) — fallback para ffmpeg antigo",
+        ("MPEG-4 (mpeg4) — fallback for old ffmpeg",
          ['-c:v', 'mpeg4', '-q:v', '5',
           '-pix_fmt', 'yuv420p']),
-        ("codec padrão do ffmpeg",
+        ("default ffmpeg codec",
          ['-pix_fmt', 'yuv420p']),
     ]
 
-    _print(f"\nMontando vídeo MP4: {output_path}")
-    _print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
+    _print(f"\nAssembling MP4 video: {output_path}")
+    _print(f"  Source : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
 
     for desc, codec_args in strategies:
         cmd = [
@@ -1367,14 +1367,14 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
         if result.returncode == 0:
             size_mb = os.path.getsize(output_path) / 1024**2
             _print(f"  Codec : {desc}")
-            _print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
+            _print(f"  Saved : {output_path}  ({size_mb:.1f} MB)")
             return True
         else:
             last_err = result.stderr.strip().splitlines()
-            short_err = last_err[-1] if last_err else "(sem mensagem)"
-            _print(f"  [{desc}] falhou: {short_err}")
+            short_err = last_err[-1] if last_err else "(no message)"
+            _print(f"  [{desc}] failed: {short_err}")
 
-    _print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo.")
+    _print(f"\nERROR: ffmpeg failed to assemble the video.")
     return False
 
 
@@ -1921,7 +1921,7 @@ def animate_relaxation(thetas_hist, xs, ys,
                         interval=interval, blit=False)
     if save_gif:
         ani.save(save_gif, writer='pillow', fps=12, dpi=90)
-        _print(f"GIF salvo em: {save_gif}")
+        _print(f"GIF saved at: {save_gif}")
     return fig, ani
 
 
@@ -1938,18 +1938,18 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
 
     if dt is not None:
         time_ax = np.arange(len(order_params)) * 20 * dt
-        xlabel  = "Tempo  t  [s]"
+        xlabel  = "Time  t  [s]"
     else:
         time_ax = np.arange(len(order_params))
-        xlabel  = "Snapshot (a cada 20 passos)"
+        xlabel  = "Snapshot (every 20 steps)"
 
     fig, ax = plt.subplots(figsize=(8, 3.5), facecolor='#1A1A2E')
     ax.set_facecolor('#0F3460')
     ax.plot(time_ax, order_params, color='#E94560', lw=2)
     ax.set_xlabel(xlabel, color='#BDC3C7')
-    ax.set_ylabel(r"Parâmetro de ordem $S = |\langle e^{i\theta}\rangle|$",
+    ax.set_ylabel(r"Order parameter $S = |\langle e^{i\theta}\rangle|$",
                   color='#BDC3C7')
-    ax.set_title("Evolução do parâmetro de ordem magnético global",
+    ax.set_title("Global Magnetic Order Parameter Evolution",
                  color='#ECF0F1', fontfamily='monospace')
     ax.tick_params(colors='#7F8C8D')
     ax.set_ylim(0, 1.05)
@@ -1958,7 +1958,7 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
         spine.set_edgecolor('#2C3E50')
     plt.tight_layout()
     plt.savefig(outpath, dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
-    _print(f"Parâmetro de ordem salvo em: {outpath}")
+    _print(f"Order parameter saved at: {outpath}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2006,7 +2006,7 @@ def main():
                            'Se omitido (padrao), calculado automaticamente '
                            'a partir da geometria real da agulha (R, '
                            'needle_frac, espessura) como uma lamina de aco '
-                           'sensivel: I = (1/12)*massa*(L²+largura²), '
+                           'magnetico: I = (1/12)*massa*(L²+largura²), '
                            'massa = densidade*L*largura*espessura. '
                            'Se fornecido explicitamente, este valor '
                            'sobrescreve o calculo automatico.')
@@ -2179,40 +2179,40 @@ def main():
             _gpu_name = "GPU CUDA"
         _print(f"  Backend      : GPU ({_gpu_name}) via CuPy  [--gpu 1]")
     elif args.gpu and not _GPU_AVAILABLE:
-        _print(f"  Backend      : CPU (NumPy)  [--gpu 1 solicitado, mas GPU indisponivel]")
+        _print(f"  Backend      : CPU (NumPy)  [--gpu 1 requested, but GPU unavailable]")
         if _GPU_ERROR_MSG:
             if 'CUDA headers' in _GPU_ERROR_MSG or 'CUDA_PATH' in _GPU_ERROR_MSG:
-                _print(f"  GPU indisponivel: faltam os headers do CUDA Toolkit.")
-                _print(f"  Solucao: pip install cupy-cuda12x[ctk]")
+                _print(f"  GPU unavailable: missing CUDA Toolkit headers.")
+                _print(f"  Solution: pip install cupy-cuda12x[ctk]")
             else:
-                _print(f"  GPU indisponivel: {_GPU_ERROR_MSG[:70]}")
+                _print(f"  GPU unavailable: {_GPU_ERROR_MSG[:70]}")
         else:
-            _print(f"  GPU indisponivel: cupy nao instalado")
+            _print(f"  GPU unavailable: cupy not installed")
     else:
-        _gpu_hint = " (GPU detectada, use --gpu 1 para ativar)" if _GPU_AVAILABLE else ""
+        _gpu_hint = " (GPU detected, use --gpu 1 to activate)" if _GPU_AVAILABLE else ""
         _print(f"  Backend      : CPU (NumPy)  [--gpu 0]{_gpu_hint}")
-    _print(f"  Rede         : {args.geometry}  {args.N}x{args.M} agulhas")
-    pbc_str = (f"ligado  (n_images={args.pbc_images}, soma sobre "
-               f"{(2*args.pbc_images+1)**2} celulas)") if args.pbc else "desligado"
+    _print(f"  Array        : {args.geometry}  {args.N}x{args.M} needles")
+    pbc_str = (f"on  (n_images={args.pbc_images}, sum over "
+               f"{(2*args.pbc_images+1)**2} cells)") if args.pbc else "off"
     _print(f"  PBC          : {pbc_str}")
-    _print(f"  Raio R       : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
-    _print(f"  Agulha       : {args.needle_frac*100:.0f}% de 2R = {args.needle_frac*2*args.R*100:.2f} cm")
+    _print(f"  Radius R     : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
+    _print(f"  Needle R     : {args.needle_frac*100:.0f}% of 2R = {args.needle_frac*2*args.R*100:.2f} cm")
     if _moment_auto:
         _Bsat_used = _Ms_used * 4.0 * np.pi * 1e-7
-        _print(f"  Momento mag. : {moment:.4g} A.m2  por agulha  ")
+        _print(f"  Mag Moment.  : {moment:.4g} A.m2  per needle")
     else:
-        _print(f"  Momento mag. : {moment:.4g} A.m2  por agulha  [valor manual]")
+        _print(f"  Mag Moment.  : {moment:.4g} A.m2  per needle [manual value]")
     if _inertia_auto:
         _mass_g = args.steel_density * needle_len * needle_width * args.needle_thickness * 1e3
-        _print(f"  Inercia      : {inertia:.3e} kg.m2  por agulha  ")
+        _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle")
     else:
-        _print(f"  Inercia      : {inertia:.3e} kg.m2  por agulha  [valor manual]")
-    _print(f"  Amortecimento: {args.damping:.3e} N.m.s/rad  (ar)")
-    _print(f"  Campo externo: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} graus")
-    _print(f"  Componentes  : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
+        _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle [manual value]")
+    _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air)")
+    _print(f"  External Field: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} degrees")
+    _print(f"  Components   : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
     field_mode_str = args.field_mode
-    _print(f"  Modo campo   : {field_mode_str}")
-    _print(f"  Semente noise: {args.seed}")
+    _print(f"  Field Mode   : {field_mode_str}")
+    _print(f"  Noise Seed   : {args.seed}")
     _print(f"{'═'*62}\n")
 
     xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
@@ -2233,11 +2233,11 @@ def main():
             cutoff = max_cutoff_pbc
 
     B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
-    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
+    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (Between neighbourhgs)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
-        dom = "DOMINANTE" if ratio > 1 else "fraco"
-        _print(f"  B_ext/B_ref  : {ratio:.3f}  (campo externo {dom})")
+        dom = "DOMINANT" if ratio > 1 else "weak"
+        _print(f"  B_ext/B_ref  : {ratio:.3f}  (External Field - {dom})")
     _print()
 
     ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
@@ -2267,13 +2267,13 @@ def main():
         plt.savefig("compass_initial.png",
                     dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig0)
-        _print("Estado inicial salvo.")
+        _print("Initial State Saved.")
 
     frame_dir   = None
     final_video = None
     if args.video and not args.make_images:
-        _print(f"  Aviso: --video '{args.video}' foi pedido junto com "
-               f"--make_images 0. Ignorando --video.")
+        _print(f"  Warning: --video '{args.video}' was requested along with "
+               f"--make_images 0. Ignoring --video.")
         args.video = None
 
     if args.video:
@@ -2281,12 +2281,12 @@ def main():
         if not os.path.splitext(args.video)[1]:
             args.video = args.video + ".mp4"
         final_video = next_available_path(args.video)
-        _print(f"  Video sera salvo as '{final_video}'")
+        _print(f"  Video filename: '{final_video}'")
         base      = os.path.splitext(final_video)[0]
         frame_dir = base + "_frames"
-        _print(f"Integrando e gravando frames em '{frame_dir}/'...")
+        _print(f"Integrating and saving frames at '{frame_dir}/'...")
     else:
-        _print("Integrando dinâmica inercial...")
+        _print("Integrating inertial dynamics...")
 
     thetas_eq, omegas_eq, thetas_hist, n_frames, sim_dt, stop_reason, field_log = relax(
         thetas_init.copy(), xs, ys,
@@ -2325,8 +2325,8 @@ def main():
         t_sim_full=bool(args.t_sim_full),
         hyst_autoscale=bool(args.hyst_autoscale),
     )
-    frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
-    _print(f"Integracao concluida - {stop_reason}{frames_str}")
+    frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
+    _print(f"Integration completed - {stop_reason}{frames_str}")
 
     import csv as _csv, os as _os
     if args.video and final_video:
@@ -2335,20 +2335,20 @@ def main():
         csv_path = "compass_field_log.csv"
 
     if args.csv_order == 'B':
-        header = ['B_aplicado_T', 'M_proj', 'S', 't_s']
+        header = ['B_applied_T', 'M_proj', 'S', 't_s']
         rows   = [(B, Mp, S, t) for (t, B, Mp, S) in field_log]
     else:
-        header = ['t_s', 'B_aplicado_T', 'M_proj', 'S']
+        header = ['t_s', 'B_applied_T', 'M_proj', 'S']
         rows   = field_log
 
     with open(csv_path, 'w', newline='') as f:
         w = _csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
-    _print(f"  CSV salvo: {csv_path}  ({len(field_log)} pontos)")
+    _print(f"  CSV saved: {csv_path}  ({len(field_log)} points)")
 
     if args.make_images:
-        title_eq = (f"Equilíbrio — {args.geometry} {args.N}×{args.M}"
+        title_eq = (f"Equilibrium — {args.geometry} {args.N}×{args.M}"
                     + (f"  |  B={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
                        if B_ext_mag > 0 else ""))
         fig1, _ = plot_state(thetas_eq, xs, ys,
@@ -2359,7 +2359,7 @@ def main():
         plt.savefig("compass_equilibrium.png",
                     dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig1)
-        _print("Estado de equilíbrio salvo.")
+        _print("Equilibrium state saved.")
 
         fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
         margin = needle_len * 1.6
@@ -2375,9 +2375,9 @@ def main():
             for sp in ax_.spines.values():
                 sp.set_edgecolor('#2C3E50')
 
-        axes[0].set_title("Estado inicial", color='#ECF0F1',
+        axes[0].set_title("Initial State", color='#ECF0F1',
                           fontsize=12, fontfamily='monospace')
-        axes[1].set_title("Equilíbrio dipolar", color='#ECF0F1',
+        axes[1].set_title("Dipolar Equilibrium", color='#ECF0F1',
                           fontsize=12, fontfamily='monospace')
 
         N_g, M_g = thetas_init.shape
@@ -2391,12 +2391,12 @@ def main():
                                       domain_tol_deg=args.domain_tol)
         if args.halo_mode == 'domains':
             axes[0].set_title(
-                f"Estado inicial — {_ns0} domínios principais "
-                f"(de {_nd0})", color='#ECF0F1', fontsize=12,
+                f"Initial State — {_ns0} main domains "
+                f"(out of {_nd0})", color='#ECF0F1', fontsize=12,
                 fontfamily='monospace')
             axes[1].set_title(
-                f"Equilíbrio dipolar — {_ns1} domínios principais "
-                f"(de {_nd1})", color='#ECF0F1', fontsize=12,
+                f"Dipolar Equilibrium — {_ns1} main domains "
+                f"(out of {_nd1})", color='#ECF0F1', fontsize=12,
                 fontfamily='monospace')
 
         draw_compass_batch(axes[0], xs, ys, thetas_init,
@@ -2410,15 +2410,15 @@ def main():
         bfield_str = (f"  |  B_ext={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
                       if B_ext_mag > 0 else "")
         fig2.suptitle(
-            f"Rede {args.geometry} {args.N}×{args.M}"
+            f"Array {args.geometry} {args.N}×{args.M}"
             f"  |  R={args.R*100:.1f} cm  2R={2*args.R*100:.1f} cm"
-            f"{bfield_str}  |  interação dipolar 2D",
+            f"{bfield_str}  |  2D dipolar interaction",
             color='#BDC3C7', fontsize=11, fontfamily='monospace')
         plt.tight_layout()
         plt.savefig("compass_comparison.png",
                     dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig2)
-        _print("Comparação salva.")
+        _print("Comparison saved.")
 
         plot_order_parameter([th for th, _ in thetas_hist],
                              "compass_order_param.png",
@@ -2429,11 +2429,11 @@ def main():
         ok = render_video(frame_dir, final_video, fps=args.fps, use_gpu=bool(args.gpu))
         if ok and not args.keep_frames:
             shutil.rmtree(frame_dir)
-            _print(f"  Pasta de frames removida: {frame_dir}/")
+            _print(f"  Frames folder removed: {frame_dir}/")
         elif not ok:
-            _print(f"  Os frames PNG foram mantidos em: {frame_dir}/")
+            _print(f"  PNG frames kept at: {frame_dir}/")
 
-    _print("\nConcluído.")
+    _print("\nCompleted.")
 
 
 if __name__ == '__main__':
