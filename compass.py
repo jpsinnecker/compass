@@ -1229,6 +1229,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     fontfamily='monospace', va='top', ha='left',
                     zorder=25, transform=ax.transData)
 
+    # ── histórico de campo/magnetização (inicializado ANTES das funções de
+    # frame, pois o frame inicial já consulta hysteresis_log para o painel
+    # M×H da histerese) ──────────────────────────────────────────────────
+    # field_log: (t, B, M_proj, S) para todos os modos.
+    field_log      = []
+    hysteresis_log = [] if field_mode == 'hysteresis' else None
+    sine_log       = [] if field_mode == 'sine'       else None
+
     def _save_frame(step, th, om, stop_label=None,
                     B_ext_inst=None, phi_ext_inst=None):
         """
@@ -1239,6 +1247,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                      O painel mostra a seta invertida e o valor com sinal.
         phi_ext_inst: direção base do campo [graus].
         B_ext (closure) : amplitude máxima — usada para escalar a barra.
+
+        V45: no modo 'hysteresis', gera um frame de DOIS painéis — agulhas
+        à esquerda e a curva M×H (traçada até o instante atual) à direita,
+        evoluindo à medida que o campo é varrido.
         """
         nonlocal n_frames
         t_phys   = step * dt
@@ -1261,6 +1273,46 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         # quando B < 0: a seta aponta na direção oposta (phi + 180°)
         phi_display = phi_now if (b_now is None or b_now >= 0) else (phi_now + 180.0) % 360.0
 
+        if field_mode == 'hysteresis':
+            # ── frame de dois painéis: agulhas + curva M×H evolutiva ────────
+            fig, (axL, axR) = plt.subplots(
+                1, 2, figsize=(figsize_inches[0] * 2.05, figsize_inches[1]),
+                facecolor='#1A1A2E',
+                gridspec_kw={'width_ratios': [1.0, 1.0]})
+
+            # painel esquerdo: agulhas (halos + bússolas + seta de campo)
+            axL.set_facecolor('#16213E')
+            axL.set_aspect('equal')
+            _margin = needle_len * 1.6
+            axL.set_xlim(xs.min() - _margin, xs.max() + _margin)
+            axL.set_ylim(ys.min() - _margin, ys.max() + _margin * 2.5)
+            axL.tick_params(left=False, bottom=False,
+                            labelleft=False, labelbottom=False)
+            for sp in axL.spines.values():
+                sp.set_edgecolor('#2C3E50')
+            draw_halos_batch(axL, xs, ys, th, needle_len, r_halo=r_halo,
+                             halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
+            draw_compass_batch(axL, xs, ys, th,
+                               length=needle_len, width=needle_width)
+            draw_ext_field_on_lattice(
+                axL, xs, ys,
+                abs(b_now) if b_now is not None else 0.0,
+                phi_display, needle_len)
+            axL.set_title(title, color='#ECF0F1', fontsize=11,
+                          fontfamily='monospace')
+            _draw_clock(axL, t_phys, needle_len, stop_label=stop_label)
+
+            # painel direito: curva M×H até o instante atual
+            _render_hyst_panel(axR)
+
+            plt.tight_layout()
+            fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
+            plt.savefig(fpath, dpi=frame_dpi, bbox_inches='tight',
+                        facecolor='#1A1A2E')
+            plt.close(fig)
+            n_frames += 1
+            return
+
         fig, ax = plot_state(th, xs, ys, title=title,
                              needle_len=needle_len, needle_width=needle_width,
                              r_halo=r_halo,
@@ -1278,6 +1330,44 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         plt.savefig(fpath, dpi=frame_dpi, bbox_inches='tight', facecolor='#1A1A2E')
         plt.close(fig)
         n_frames += 1
+
+    def _render_hyst_panel(axR):
+        """Desenha a curva M×H acumulada até o passo atual (usa o
+        hysteresis_log, preenchido a cada passo do loop). A escala dos
+        eixos é fixa (± B_max no eixo H; ± max|M| observado no eixo M),
+        para que a curva não 'salte' enquanto é traçada. O ponto atual é
+        destacado. Chamado a cada frame no modo histerese (V45)."""
+        axR.set_facecolor('#16213E')
+        for sp in axR.spines.values():
+            sp.set_edgecolor('#2C3E50')
+        axR.tick_params(colors='#7F8C9A', labelsize=8)
+
+        # escala fixa de H: ±B_max (em mT para leitura)
+        H_max_mT = (B_ext * 1e3) if B_ext > 0 else 1.0
+        axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
+        axR.set_xlabel("H  (mT)", color='#BDC3C7', fontsize=10,
+                       fontfamily='monospace')
+        axR.set_ylabel("M  (projeção normalizada)", color='#BDC3C7',
+                       fontsize=10, fontfamily='monospace')
+        axR.set_title("Curva de histerese  M × H", color='#ECF0F1',
+                      fontsize=11, fontfamily='monospace')
+
+        # eixos em cruz
+        axR.axhline(0.0, color='#2C3E50', lw=1.0, zorder=1)
+        axR.axvline(0.0, color='#2C3E50', lw=1.0, zorder=1)
+
+        if hysteresis_log:
+            arr = np.array(hysteresis_log)      # (t, B, M, S)
+            H_mT = arr[:, 1] * 1e3
+            Mv   = arr[:, 2]
+            # M_proj já é a magnetização média POR AGULHA projetada na
+            # direção do campo, normalizada (satura em ±1 quando todas as
+            # agulhas se alinham) — não requer nova normalização.
+            axR.set_ylim(-1.15, 1.15)
+            axR.plot(H_mT, Mv, color='#F1C40F', lw=1.6, zorder=3)
+            # ponto atual destacado
+            axR.plot([H_mT[-1]], [Mv[-1]], 'o', color='#E74C3C',
+                     ms=7, zorder=4)
 
     if frame_dir is not None:
         _save_frame(0, theta_cur, omega_cur)
@@ -1567,12 +1657,6 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         tau_flat_xp = _torques_xp(theta_flat_xp, bx_ext, by_ext)
         tau_flat = _local_to_cpu(tau_flat_xp)
         return tau_flat.reshape(N, M)
-
-    # ── histórico de histerese: (t, B_scalar, M_x, M_y) ──────────────────
-    # Gravado a cada passo; exportado para CSV ao final se field_mode=hysteresis
-    field_log      = []   # log universal: (t, B, M_proj, S) para todos os modos
-    hysteresis_log = [] if field_mode == 'hysteresis' else None
-    sine_log       = [] if field_mode == 'sine'       else None
 
     # ── instrumentação de desempenho (wall-clock) ──────────────────────────
     # Mede o tempo real gasto no loop de integração (CPU ou GPU), permitindo
