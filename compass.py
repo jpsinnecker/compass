@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V51
+compass.py — Simulation of a compass-needle lattice V52
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -624,9 +624,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
-    _print(f"  Dinamical inercial:")
+    _print(f"  Dynamical inertial parameters:")
     _print(f"    r_nn    = {r_nn*100:.2f} cm")
-    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighborurs)")
+    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighbours)")
     if B_ext_mag > 0:
         _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (External Field)")
     _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
@@ -1723,25 +1723,53 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
         facecolor='none', edgecolor='#5A5A8A',
         linewidth=0.7, zorder=22, transform=ax.transData))
 
-    # ── direction arrow: placed next to "B ext" on the first line, right-justified ──
-    arrow_cx = px + box_w - pad
-    arrow_cy = py_top - 0.022 * yspan - 0.005 * yspan
-    alen     = needle_len * 0.5
+    # ── direction dial (circle + arrow): centered next to the text lines ──
+    arrow_cx = px + box_w - pad - 0.01 * xspan
+    arrow_cy = py_top - 0.048 * yspan
+    r_dial   = needle_len * 0.55
+    
+    dial = plt.Circle((arrow_cx, arrow_cy), r_dial, facecolor='#080818',
+                      edgecolor='#5A5A8A', lw=0.7, zorder=20)
+    ax.add_patch(dial)
+    
+    phi_inst = np.deg2rad(phi_ext_deg_inst)
+    cos_phi_inst = np.cos(phi_inst)
+    sin_phi_inst = np.sin(phi_inst)
     
     if field_on:
-        x_tail = arrow_cx - alen * cos_phi / 2.0
-        y_tail = arrow_cy - alen * sin_phi / 2.0
-        x_head = arrow_cx + alen * cos_phi / 2.0
-        y_head = arrow_cy + alen * sin_phi / 2.0
+        x_tail = arrow_cx
+        y_tail = arrow_cy
+        x_head = arrow_cx + r_dial * cos_phi_inst
+        y_head = arrow_cy + r_dial * sin_phi_inst
         arrow_color = color if field_on else '#555555'
         ax.annotate(
             '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
             arrowprops=dict(
                 arrowstyle='->', color=arrow_color, lw=1.8,
-                mutation_scale=12),
-            zorder=20)
+                mutation_scale=10),
+            zorder=21)
     else:
-        ax.plot(arrow_cx, arrow_cy, 'o', ms=3, color='#555555', zorder=20)
+        ax.plot(arrow_cx, arrow_cy, 'o', ms=2, color='#555555', zorder=21)
+
+    # ── sign indicator next to the bar (bottom right) ──
+    sign_cx = px + bar_w + arrow_zone_w / 2.0
+    sign_cy = bar_y + bar_h / 2.0
+    r_sign = bar_h * 0.8
+    
+    sign_circle = plt.Circle((sign_cx, sign_cy), r_sign, facecolor='#252540',
+                            edgecolor='#5A5A8A', lw=0.6, zorder=20)
+    ax.add_patch(sign_circle)
+    
+    if field_on:
+        arrow_dir = 1.0 if b_val >= 0 else -1.0
+        x_tail_s = sign_cx - r_sign * 0.4 * arrow_dir
+        x_head_s = sign_cx + r_sign * 0.4 * arrow_dir
+        ax.annotate(
+            '', xy=(x_head_s, sign_cy), xytext=(x_tail_s, sign_cy),
+            arrowprops=dict(
+                arrowstyle='->', color=color, lw=1.5,
+                mutation_scale=6),
+            zorder=21)
 
     # ── 1. arrows at the sites ─────────────────
     if field_on:
@@ -2233,7 +2261,7 @@ def main():
             cutoff = max_cutoff_pbc
 
     B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
-    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (Between neighbourhgs)")
+    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (Between neighbours)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
         dom = "DOMINANT" if ratio > 1 else "weak"
