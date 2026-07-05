@@ -30,7 +30,7 @@ PARÂMETROS DE LINHA DE COMANDO
 │                                                            │
 │  --needle_frac float Comprimento da agulha como fração     │
 │                    do diâmetro 2R (0.0–1.0).               │
-│                    Padrão: 0.80  → agulha = 80% de 2R     │
+│                    Padrão: 0.80  → agulha = 80% de 2R      │
 └────────────────────────────────────────────────────────────┘
 
 ┌─ FÍSICA E SIMULAÇÃO ───────────────────────────────────────┐
@@ -39,28 +39,28 @@ PARÂMETROS DE LINHA DE COMANDO
 │                    Padrão: 0.1  (bússola de mesa, ~5 cm)   │
 │                    Ref: bolso ≈ 0.01 | náutica ≈ 1.0       │
 │                                                            │
-│  --inertia   float Momento de inercia [kg.m2]. Se omitido,  │
-│                    calculado automaticamente da geometria   │
-│                    (lamina de aco: R, needle_frac,           │
-│                    --needle_thickness, --steel_density)      │
+│  --inertia   float Momento de inercia [kg.m2]. Se omitido, │
+│                    calculado automaticamente da geometria  │
+│                    (lamina de aco: R, needle_frac,         │
+│                    --needle_thickness, --steel_density)    │
 │                                                            │
 │  --damping   float Amortecimento viscoso do ar [N·m·s/rad] │
 │                    Controla o fator de qualidade Q:        │
-│                    Q = omega_0·I/b  (Q alto → mais oscilações) │
+│                    Q = omega_0·I/b (Q alto = mais oscila)  │
 │                    Padrão: 5e-8 (Q≈25, bússola realista)   │
-│                    Para B_ext=0.1T suave: use 8e-6 (Q≈4)  │
+│                    Para B_ext=0.1T suave: use 8e-6 (Q≈4)   │
 │                                                            │
-│  --t_sim     float Tempo físico total de simulação [s].     │
-│                    É a soma de todos os passos dt integrados │
-│                    — equivalente ao que um cronômetro real   │
-│                    marcaria observando as agulhas se mover.  │
-│                    O vídeo exibe esse tempo físico.          │
-│                    A sim. para antes se S=1.00 ou repouso.  │
-│                    Padrão: 2.0 s                            │
+│  --t_sim     float Tempo físico total de simulação [s].    │
+│                    Soma de todos os passos dt integrados   │
+│                    — equivalente ao que um cronômetro real │
+│                    marcaria observando as agulhas se mover.│
+│                    O vídeo exibe esse tempo físico.        │
+│                    A sim. para antes se S=1.00 ou repouso. │
+│                    Padrão: 2.0 s                           │
 │                                                            │
 │  --dt_factor float Fração do período natural T₀ usada      │
 │                    como passo de integração (0.02–0.10).   │
-│                    Menor = mais preciso, mais lento.        │
+│                    Menor = mais preciso, mais lento.       │
 │                    Padrão: 0.05                            │
 │                                                            │
 │  --noise     float Amplitude do ruído inicial [rad].       │
@@ -69,7 +69,7 @@ PARÂMETROS DE LINHA DE COMANDO
 │                    Padrão: 1.5                             │
 │                                                            │
 │  --seed      int   Semente do gerador aleatório.           │
-│                    Garante reprodutibilidade dos resultados.│
+│                    Garante reprodutibilidade.              │
 │                    Padrão: 42                              │
 └────────────────────────────────────────────────────────────┘
 
@@ -95,15 +95,15 @@ PARÂMETROS DE LINHA DE COMANDO
 │  --ext_By    float Componente y do campo [T]               │
 └────────────────────────────────────────────────────────────┘
 
-┌─ SAÍDA ─────────────────────────────────────────────────────┐
+┌─ SAÍDA ────────────────────────────────────────────────────┐
 │  Arquivos PNG sempre gerados no diretório atual:           │
-│    compass_initial.png      estado inicial                  │
-│    compass_equilibrium.png  estado final                    │
-│    compass_comparison.png   comparação lado a lado          │
-│    compass_order_param.png  parâmetro de ordem S(t)         │
+│    compass_initial.png      estado inicial                 │
+│    compass_equilibrium.png  estado final                   │
+│    compass_comparison.png   comparação lado a lado         │
+│    compass_order_param.png  parâmetro de ordem S(t)        │
 │                                                            │
 │  --video     str   Caminho do vídeo MP4 a gerar.           │
-│                    Requer ffmpeg instalado.                 │
+│                    Requer ffmpeg instalado.                │
 │                    Se o arquivo já existir, salva como     │
 │                    nome0001.mp4, nome0002.mp4, etc.        │
 │                    Ex: --video simulacao.mp4               │
