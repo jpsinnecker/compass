@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulação de redes de agulhas magnéticas dipolares:\\
 relatório de desenvolvimento do projeto \code{compass\_sim}}\\[1ex]
-\large Versão V09 do relatório}
+\large Versão V10 do relatório}
 \author{J.~P.~Sinnecker}
 \date{4 de julho de 2026\\[0.5ex]
 \small Período coberto: 15/06/2026 -- 04/07/2026}
@@ -353,7 +353,16 @@ dipolar pré-computado (\textbf{V40}) e a paralelização da campanha com
 \emph{manifest} incremental e retomada (\code{damping\_sweep} V02) ---
 detalhes e medições na Seção~\ref{sec:melhorias}. Ganho medido da V40:
 \textbf{35--45$\times$} por rodada, reduzindo a campanha completa de
-$\sim$7--8~h para $\sim$15~min em um único núcleo.
+$\sim$7--8~h para $\sim$15~min em um único núcleo;
+\item \textbf{Novos protocolos de campo e refinamentos (V41--V45)}:
+histerese com espaçamento log-simétrico; pulso com temporização
+explícita ($\Delta t$ + $t_{\mathrm{pulse}}$ + equilíbrio por torque);
+modos degrau \code{step\_pos}/\code{step\_neg}; flag
+\code{--t\_sim\_full} (execução até o fim, sem parada antecipada); halos
+também na figura de comparação (V43); painel de progresso vivo de duas
+linhas (V44); e o vídeo de histerese com painel duplo --- agulhas e
+curva $M\times H$ evoluindo lado a lado (V45). Todos com os modos
+legados validados bit-idênticos.
 \end{enumerate}
 
 % ======================================================================
@@ -429,7 +438,12 @@ TTY: em saída redirecionada (log/pipe) mantém o comportamento de log
 sem códigos de escape. Validado com emulador de terminal
 (\code{pyte}): tela final com exatamente 1 linha de barra + 1 de
 status; mensagens intercaladas (transições de fase) limpas; física
-bit-idêntica. \emph{(Versão atual.)} \\
+bit-idêntica. \\
+V45 & Vídeo do modo histerese com painel duplo: agulhas à esquerda e
+curva $M\times H$ traçada em tempo real à direita (ponto atual
+destacado), permitindo acompanhar visualmente a varredura do campo.
+Demais modos de vídeo inalterados; física bit-idêntica.
+\emph{(Versão atual.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Scripts satélites (registro de versões
 próprio):}} \\
@@ -838,10 +852,12 @@ fundo branco, paleta segura para daltonismo, exportação vetorial
 HUD (cronômetro, indicador de campo). As figuras atuais (tema escuro,
 PNG) são ótimas para tela e vídeo, mas inadequadas para o manuscrito ---
 esta é a melhoria visual de maior valor imediato para a publicação;
-\item \textbf{\emph{Inset} do laço de histerese ao vivo no vídeo}:
-painel de canto traçando $M(B)$ em tempo real durante o modo histerese
---- comunica o experimento inteiro em um único vídeo (apresentações e
-material suplementar);
+\item \textbf{Curva $M\times H$ ao vivo no vídeo de histerese ---
+IMPLEMENTADA (V45).} O vídeo do modo \code{hysteresis} passou a ter
+painel duplo: agulhas à esquerda e a curva $M\times H$ à direita,
+traçada em tempo real com o ponto atual destacado, comunicando o
+experimento inteiro num único vídeo. Os demais modos de vídeo seguem em
+painel único; a física é bit-idêntica (mudança só de renderização);
 \item \textbf{Destaque visual de avalanches}: realçar agulhas que
 giraram acima de um limiar nos últimos $n$ passos, mostrando a
 propagação espacial das avalanches e conectando o vídeo à estatística
@@ -882,11 +898,11 @@ pulso; efeito de PBC na escala de domínios.
 
 % ======================================================================
 \appendix
-\section{Apêndice: parâmetros de linha de comando (V39)}
+\section{Apêndice: parâmetros de linha de comando (V45)}
 % ======================================================================
 
 Lista completa dos parâmetros aceitos pelo \code{compass\_sim} na versão
-V39, extraída diretamente da interface do programa. Parâmetros marcados
+V45, extraída diretamente da interface do programa. Parâmetros marcados
 ``auto'' são calculados da geometria física real quando omitidos, e
 sobrescritos se fornecidos explicitamente.
 
@@ -1021,8 +1037,8 @@ $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 % ======================================================================
 
 Receitas de linha de comando para os casos de uso mais frequentes,
-verificadas contra a versão V40. Todos os comandos assumem
-\code{python3 compass\_simV40.py} como base; a barra invertida final
+verificadas contra a versão V45. Todos os comandos assumem
+\code{python3 compass\_simV45.py} como base; a barra invertida final
 indica continuação de linha no \emph{shell}.
 
 \subsection*{B.1 --- Execução básica (equilíbrio dipolar)}
@@ -1030,7 +1046,7 @@ indica continuação de linha no \emph{shell}.
 Rede quadrada $8\times8$ com todos os padrões (agulha de aço com
 momento e inércia calculados automaticamente, sem campo externo):
 \begin{verbatim}
-python3 compass_simV40.py --N 8 --M 8 --geometry square
+python3 compass_simV45.py --N 8 --M 8 --geometry square
 \end{verbatim}
 Gera as imagens de resumo (estado inicial, equilíbrio, comparação,
 parâmetro de ordem) e o CSV \code{compass\_field\_log.csv} no diretório
@@ -1043,10 +1059,10 @@ A CPU é o padrão (\code{--gpu 0}). Com a otimização V40, a CPU já
 resolve redes médias em segundos; a GPU vale para redes grandes:
 \begin{verbatim}
 # CPU (padrao) -- rede media
-python3 compass_simV40.py --N 30 --M 30 --t_sim 5.0
+python3 compass_simV45.py --N 30 --M 30 --t_sim 5.0
 
 # GPU (CuPy/RTX 3090) -- rede grande; requer cupy instalado
-python3 compass_simV40.py --N 60 --M 60 --t_sim 5.0 --gpu 1
+python3 compass_simV45.py --N 60 --M 60 --t_sim 5.0 --gpu 1
 \end{verbatim}
 Com \code{--gpu 1}, a codificação do vídeo também usa o
 \emph{encoder} de hardware NVENC quando disponível. Se o CuPy não
@@ -1057,7 +1073,7 @@ estiver funcional, o programa avisa e cai para CPU automaticamente.
 Para redes acima de $15\times15$, usar \code{--dpi} 150--200. Menor
 \code{--frame\_every} = animação mais suave (mais frames):
 \begin{verbatim}
-python3 compass_simV40.py --N 20 --M 20 --t_sim 4.0 \
+python3 compass_simV45.py --N 20 --M 20 --t_sim 4.0 \
     --video demo --dpi 180 --fps 30 --frame_every 3
 \end{verbatim}
 O vídeo recebe numeração automática (\code{demo0000.mp4},
@@ -1071,7 +1087,7 @@ apenas figuras estáticas em alta resolução (sem vídeo), basta omitir
 Em campanhas com muitas execuções, desligar toda a geração de imagens
 (mantém os CSVs de dados) e a barra de progresso:
 \begin{verbatim}
-python3 compass_simV40.py --N 8 --M 8 --t_sim 1.0 \
+python3 compass_simV45.py --N 8 --M 8 --t_sim 1.0 \
     --make_images 0 --progress_bar 0
 \end{verbatim}
 Ganho de $\sim 3\times$ em redes pequenas, onde a renderização domina o
@@ -1088,13 +1104,13 @@ dominante (dipolar ou externo); os valores abaixo, com os demais
 parâmetros no padrão, ilustram os três regimes:
 \begin{verbatim}
 # subamortecido (Q >> 1): oscila visivelmente antes de estabilizar
-python3 compass_simV40.py --N 10 --M 10 --damping 5e-8 --video sub
+python3 compass_simV45.py --N 10 --M 10 --damping 5e-8 --video sub
 
 # intermediario (Q ~ 1): crossover
-python3 compass_simV40.py --N 10 --M 10 --damping 1e-6 --video meio
+python3 compass_simV45.py --N 10 --M 10 --damping 1e-6 --video meio
 
 # sobreamortecido (Q << 1): relaxacao monotona, sem oscilacao
-python3 compass_simV40.py --N 10 --M 10 --damping 5e-5 --video sobre
+python3 compass_simV45.py --N 10 --M 10 --damping 5e-5 --video sobre
 \end{verbatim}
 Conferir o $Q$ impresso no cabeçalho e ajustar \code{--damping} até o
 regime desejado. \code{--damping 0} desliga a dissipação (oscilação
@@ -1108,69 +1124,89 @@ como fração de $2R$; a espessura da lâmina afeta os cálculos
 automáticos de inércia e momento:
 \begin{verbatim}
 # agulhas de 1 cm de raio, ocupando metade do diametro disponivel
-python3 compass_simV40.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
+python3 compass_simV45.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
 
 # lamina mais fina (0.2 mm): agulha mais leve -> oscila mais rapido
-python3 compass_simV40.py --N 12 --M 12 --needle_thickness 2e-4
+python3 compass_simV45.py --N 12 --M 12 --needle_thickness 2e-4
 
 # sobrescrever os calculos automaticos com valores explicitos
-python3 compass_simV40.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
+python3 compass_simV45.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
 \end{verbatim}
 
-\subsection*{B.7 --- Campo externo e modos dinâmicos}
+\subsection*{B.7 --- Campo externo: os seis modos}
 
+Um exemplo por modo, cobrindo todo o leque de \code{--field\_mode}. A
+amplitude é \code{--B\_ext} e a direção \code{--phi\_ext}.
+
+\medskip\noindent\textbf{(1) static} --- campo constante (ou nulo)
+durante toda a simulação:
 \begin{verbatim}
-# campo estatico de 1 mT a 45 graus
-python3 compass_simV40.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
+python3 compass_simV45.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
+\end{verbatim}
 
-# ciclo de histerese completo (5 rampas) com exportacao CSV
-python3 compass_simV40.py --N 20 --M 20 --field_mode hysteresis \
+\noindent\textbf{(2) hysteresis} --- ciclo de 5 rampas
+($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$). O vídeo
+(V45) mostra, lado a lado, as agulhas e a curva $M\times H$ traçada em
+tempo real. Espaçamento \code{linear} (padrão) ou \code{log} (amostragem
+$\sim$15$\times$ mais fina na região da coercividade):
+\begin{verbatim}
+# linear, com video de painel duplo (agulhas + curva M x H)
+python3 compass_simV45.py --N 20 --M 20 --field_mode hysteresis \
     --B_ext 0.002 --t_sim 10.0 --video hist --dpi 160
 
-# pulso: campo ate saturar (S >= 0.99 ou plato), depois relaxa
-python3 compass_simV40.py --N 15 --M 15 --field_mode pulse \
-    --B_ext 0.005 --t_sim 6.0 --video pulso
+# espacamento log-simetrico (fino perto de B=0)
+python3 compass_simV45.py --N 20 --M 20 --field_mode hysteresis \
+    --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0
+\end{verbatim}
 
-# campo senoidal de 0.5 Hz (t_sim deve cobrir varios periodos)
-python3 compass_simV40.py --N 15 --M 15 --field_mode sine \
+\noindent\textbf{(3) sine} --- campo senoidal
+$B(t) = B_{\max}\sin(2\pi f t)$; \code{--t\_sim} deve cobrir vários
+períodos:
+\begin{verbatim}
+python3 compass_simV45.py --N 15 --M 15 --field_mode sine \
     --B_ext 0.002 --field_freq 0.5 --t_sim 8.0
 \end{verbatim}
-No modo histerese, o laço $M(B)$ é exportado em
-\code{hysteresis\_loop.csv} (e \code{hysteresis\_loop.png} se
-\code{--make\_images 1}). A ordem das colunas dos CSVs é controlada por
-\code{--csv\_order \{t,B\}}.
 
-\medskip\noindent
-Protocolos introduzidos na V41 --- histerese com amostragem fina na
-região da coercividade, pulso temporizado e degraus:
+\noindent\textbf{(4) pulse} --- espera \code{field\_delay}, aplica por
+\code{t\_pulse}, zera e estabiliza (equilíbrio por $\omega$ e torque). Se
+\code{--t\_pulse} for omitido, mantém o critério legado (campo até
+$S \geq 0{,}99$ ou platô):
 \begin{verbatim}
-# histerese com espacamento log-simetrico: dB ~15x mais fino
-# perto de B=0 (transicao/coercividade) do que na saturacao
-python3 compass_simV41.py --N 20 --M 20 --field_mode hysteresis \
-    --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0
-
-# pulso temporizado: espera 0.2 s -> campo por 0.3 s -> zera e
-# encerra quando equilibrar (omega e torque medio pequenos)
-python3 compass_simV41.py --N 15 --M 15 --field_mode pulse \
+# temporizado: espera 0.2 s -> campo 0.3 s -> zera e estabiliza
+python3 compass_simV45.py --N 15 --M 15 --field_mode pulse \
     --field_delay 0.2 --t_pulse 0.3 --B_ext 0.005 --t_sim 6.0
 
-# degrau positivo: B=0 por 0.3 s, depois campo LIGADO ate o fim
-python3 compass_simV41.py --N 15 --M 15 --field_mode step_pos \
-    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+# legado (sem t_pulse): campo ate saturar, depois relaxa
+python3 compass_simV45.py --N 15 --M 15 --field_mode pulse \
+    --B_ext 0.005 --t_sim 6.0
+\end{verbatim}
 
-# degrau negativo: campo desde t=0, REMOVIDO em 0.3 s
-python3 compass_simV41.py --N 15 --M 15 --field_mode step_neg \
+\noindent\textbf{(5) step\_pos} --- $B{=}0$ por \code{field\_delay},
+depois campo ligado e mantido até o fim:
+\begin{verbatim}
+python3 compass_simV45.py --N 15 --M 15 --field_mode step_pos \
     --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
 \end{verbatim}
-Sem \code{--t\_pulse}, o modo \code{pulse} mantém o comportamento
-legado (campo até $S \geq 0{,}99$ ou platô).
+
+\noindent\textbf{(6) step\_neg} --- campo desde $t{=}0$, removido em
+\code{field\_delay} e mantido em zero até o fim:
+\begin{verbatim}
+python3 compass_simV45.py --N 15 --M 15 --field_mode step_neg \
+    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+\end{verbatim}
+
+\noindent Em \code{hysteresis} o laço $M(B)$ é exportado em
+\code{hysteresis\_loop.csv}; em \code{sine}, em \code{sine\_field.csv}.
+Nos modos pulso/degrau, \code{--torque\_tol} controla o critério de
+equilíbrio e \code{--t\_sim\_full 1} desativa a parada antecipada
+(Apêndice~A).
 
 \subsection*{B.8 --- Visualização de domínios magnéticos}
 
 Cenário de demonstração que produz domínios claros e bem separados
 (rede quadrada com pouco ruído inicial e relaxação longa):
 \begin{verbatim}
-python3 compass_simV40.py --N 24 --M 24 --R 0.01 --noise 0.6 \
+python3 compass_simV45.py --N 24 --M 24 --R 0.01 --noise 0.6 \
     --t_sim 8.0 --damping 3e-6 \
     --halo_mode domains --domain_tol 35 --video dominios --dpi 160
 \end{verbatim}
@@ -1188,10 +1224,10 @@ reprodutibilidade}
 
 \begin{verbatim}
 # rede tratada como estrutura periodica infinita (1 replica por lado)
-python3 compass_simV40.py --N 16 --M 16 --pbc 1 --pbc_images 1
+python3 compass_simV45.py --N 16 --M 16 --pbc 1 --pbc_images 1
 
 # reprodutibilidade exata: fixar a semente do ruido inicial
-python3 compass_simV40.py --N 10 --M 10 --seed 123
+python3 compass_simV45.py --N 10 --M 10 --seed 123
 \end{verbatim}
 
 \subsection*{B.10 --- Campanha científica completa (scripts satélites)}
@@ -1253,6 +1289,11 @@ domínios por painel; correção da formatação de \code{B\_ext} no
 supertítulo da comparação. \\
 V09 & 04/07/2026 & Documentada a V44 do código: painel de progresso de
 2 linhas (barra + status) atualizado no lugar, com detecção de TTY. \\
+V10 & 05/07/2026 & Documentada a V45 (vídeo de histerese com painel
+duplo agulhas + $M\times H$). Revisão editorial: Apêndice~B.7
+reescrito como referência dos seis modos de campo (sem redundância);
+versões dos comandos de exemplo padronizadas para V45; título do
+Apêndice~A atualizado; cronologia da Fase~6 estendida até a V45. \\
 \bottomrule
 \end{tabular}
 
