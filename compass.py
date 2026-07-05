@@ -1,6 +1,6 @@
 """
 ============================================================
-compass_simV49.py — Simulation of a compass-needle lattice V49
+compass.py — Simulation of a compass-needle lattice V50
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -225,24 +225,28 @@ def _progress_ansi_ok():
 _PROGRESS_REGION = {'open': False, 'ansi': None}
 
 
-def _print_progress_bar(frac, prefix="", suffix="", status_line=None,
-                        bar_width=40):
+def _print_progress_bar(frac, bar_width=40, step=0, n_steps=0, steps_per_s=0,
+                        t_now=0.0, B_status=0.0, S_now=0.0, omega_max=0.0,
+                        backend="CPU"):
     import sys
     frac = max(0.0, min(1.0, frac))
     n_filled = int(round(frac * bar_width))
     bar = '#' * n_filled + ' ' * (bar_width - n_filled)
     pct = frac * 100.0
-    bar_line = f"{prefix}[{bar}] {pct:5.1f}%  {suffix}"
+    
+    line1 = f"Integrating [{backend}] [{bar}]"
+    line2 = f"{pct:5.1f}%  step {step}/{n_steps}  ({steps_per_s:.0f} steps/s)  t={t_now:.4f}s"
+    line3 = f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  w_max={omega_max:.3f}rad/s"
 
     if _progress_ansi_ok():
-        status = status_line if status_line is not None else ""
-        seq = ("\x1b[K" + bar_line + "\n\r" +
-               "\x1b[K" + status + "\x1b[1A\r")
+        seq = ("\x1b[K" + line1 + "\n\r" +
+               "\x1b[K" + line2 + "\n\r" +
+               "\x1b[K" + line3 + "\x1b[2A\r")
         sys.stdout.write(seq)
         sys.stdout.flush()
         _PROGRESS_REGION['open'] = True
     else:
-        sys.stdout.write("\r" + bar_line)
+        sys.stdout.write("\r" + line1 + " | " + line2 + " | " + line3)
         sys.stdout.flush()
 
 
@@ -250,7 +254,7 @@ def _print_progress_bar_finish():
     import sys
     if _progress_ansi_ok():
         if _PROGRESS_REGION['open']:
-            sys.stdout.write('\n\r\n\r')
+            sys.stdout.write('\n\r\n\r\n\r')
             sys.stdout.flush()
             _PROGRESS_REGION['open'] = False
     else:
@@ -452,8 +456,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                               bx_ext, by_ext,
-                               pbc=False, Lx=None, Ly=None, n_images=1):
+                                bx_ext, by_ext,
+                                pbc=False, Lx=None, Ly=None, n_images=1):
     if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
         xp = cp
     else:
@@ -663,18 +667,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         yspan = ylim[1] - ylim[0]
 
         px    = xlim[0] + 0.02 * xspan
-        py    = ylim[1] - 0.03 * yspan
-
-        bar_w = 0.30 * xspan
-        bar_h = 0.018 * yspan
-        bar_y = py - 0.095 * yspan
-
-        extra_h = 0.030 * yspan if stop_label else 0.0
+        py_top = ylim[1] - 0.035 * yspan
 
         pad = needle_len * 0.25
+        box_h = 0.140 * yspan + pad
+        bar_w = 0.30 * xspan
+        bar_h = 0.018 * yspan
+        bar_y = py_top - 0.115 * yspan
+
         ax.add_patch(plt.Rectangle(
-            (px - pad * 0.3, bar_y - pad * 0.6 - extra_h),
-            bar_w + pad, 0.140 * yspan + pad + extra_h,
+            (px - pad * 0.3, py_top - box_h),
+            bar_w + pad, box_h,
             facecolor='#080818', edgecolor='#3A3A6A',
             linewidth=0.8, alpha=0.82, zorder=19,
             transform=ax.transData))
@@ -712,21 +715,20 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         else:
             time_str = f"t = {t_phys:.4f} s"
 
-        ax.text(px + pad * 0.2, py,
+        ax.text(px + pad * 0.2, py_top - 0.015 * yspan,
                 time_str,
                 color='#E8E8FF', fontsize=11, fontweight='bold',
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        ax.text(px + pad * 0.2, py - 0.038 * yspan,
+        ax.text(px + pad * 0.2, py_top - 0.065 * yspan,
                 f"/ {t_sim:.4f} s  (tempo físico)",
                 color='#5555AA', fontsize=6,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
         if stop_label:
-            ax.text(px + pad * 0.2,
-                    bar_y - pad * 0.5 - extra_h * 0.3,
+            ax.text(px + pad * 0.2, py_top - 0.090 * yspan,
                     stop_label,
                     color='#FFD700', fontsize=7, fontweight='bold',
                     fontfamily='monospace', va='top', ha='left',
@@ -1006,8 +1008,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_last_print_step = 0
     _perf_last_print_time = _perf_t_start
     _last_status_print_time = _perf_t_start
-    _status_text = f"  [passo 0/{n_steps}]  aguardando primeiro status..."
-    _last_bar_suffix = f"passo 0/{n_steps}"
+    _status_text = f"  [step 0/{n_steps}]  waiting for first status..."
+    _last_bar_suffix = f"step 0/{n_steps}"
 
     def _finish_progress_bar_if_shown():
         if show_progress:
@@ -1103,31 +1105,33 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
                 _backend_tag = "GPU" if _active_gpu else "CPU"
                 _frac_done   = step / n_steps if n_steps > 0 else 1.0
-                _last_bar_suffix = (f"passo {step}/{n_steps}  "
-                                    f"({_steps_per_s:.0f} passos/s)")
+                B_status = bx_cur * cos_phi + by_cur * sin_phi
                 _print_progress_bar(
                     _frac_done,
-                    prefix=f"  Integrando [{_backend_tag}] ",
-                    suffix=_last_bar_suffix,
-                    status_line=_status_text)
+                    step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
+                    t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
+                    backend=_backend_tag)
                 _perf_last_print_step = step
                 _perf_last_print_time = _perf_now
 
         _status_now = _time_module.perf_counter()
         if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
             B_status = bx_cur * cos_phi + by_cur * sin_phi
-            _status_text = (f"  [passo {step}/{n_steps}]  t={t_now:.4f}s  "
-                            f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
-                            f"w_max={omega_max:.3f}rad/s")
             if show_progress and _progress_ansi_ok():
                 _backend_tag = "GPU" if _active_gpu else "CPU"
                 _frac_done   = step / n_steps if n_steps > 0 else 1.0
+                _steps_since = step - _perf_last_print_step
+                _dt_wall     = _status_now - _perf_last_print_time
+                _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
                 _print_progress_bar(
                     _frac_done,
-                    prefix=f"  Integrando [{_backend_tag}] ",
-                    suffix=_last_bar_suffix,
-                    status_line=_status_text)
+                    step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
+                    t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
+                    backend=_backend_tag)
             else:
+                _status_text = (f"  [step {step}/{n_steps}]  t={t_now:.4f}s  "
+                                f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
+                                f"w_max={omega_max:.3f}rad/s")
                 if show_progress:
                     _print_progress_bar_finish()
                 _print(_status_text)
@@ -1664,14 +1668,14 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 
     box_w = bar_w + arrow_zone_w
     px = xlim[1] - 0.02 * xspan - box_w
-    py = ylim[1] - 0.03 * yspan
+    py_top = ylim[1] - 0.035 * yspan
 
     pad = needle_len * 0.25
+    box_h = 0.140 * yspan + pad
 
     # semi-transparent background box
-    box_h = 0.140 * yspan + pad
     ax.add_patch(plt.Rectangle(
-        (px - pad * 0.3, py - box_h),
+        (px - pad * 0.3, py_top - box_h),
         box_w + pad, box_h,
         facecolor='#080818', edgecolor=color,
         linewidth=0.8, alpha=0.82, zorder=19,
@@ -1686,16 +1690,24 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     phi_str = f"dir: {phi_ext_deg:.1f} graus"
 
     text_color = color if field_on else '#777777'
-    ax.text(px, py - 0.022 * yspan, "B ext", color=color, fontsize=7,
-            alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23)
-    ax.text(px, py - 0.048 * yspan, b_str, color=text_color,
+    
+    # Label "B ext" (left)
+    ax.text(px, py_top - 0.022 * yspan, "B ext", color=color, fontsize=7,
+            alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23,
+            transform=ax.transData)
+            
+    # Field value (second line)
+    ax.text(px, py_top - 0.048 * yspan, b_str, color=text_color,
             fontsize=9, fontweight='bold', fontfamily='monospace',
-            ha='left', va='top', zorder=23)
-    ax.text(px, py - 0.072 * yspan, phi_str, color=text_color,
-            fontsize=7, fontfamily='monospace', ha='left', va='top', zorder=23)
+            ha='left', va='top', zorder=23, transform=ax.transData)
+            
+    # Direction (third line)
+    ax.text(px, py_top - 0.072 * yspan, phi_str, color=text_color,
+            fontsize=7, fontfamily='monospace', ha='left', va='top', zorder=23,
+            transform=ax.transData)
 
     # ── horizontal intensity bar ───
-    bar_y = py - 0.115 * yspan
+    bar_y = py_top - 0.115 * yspan
     ax.add_patch(plt.Rectangle(
         (px, bar_y), bar_w, bar_h,
         facecolor='#252540', edgecolor='none',
@@ -1711,18 +1723,16 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
         facecolor='none', edgecolor='#5A5A8A',
         linewidth=0.7, zorder=22, transform=ax.transData))
 
-    # ── small direction arrow ──────
-    arrow_cx = px + bar_w + arrow_zone_w / 2.0
-    arrow_cy = bar_y + bar_h / 2.0
-    alen     = min(needle_len * 0.7, arrow_zone_w * 0.8)
+    # ── direction arrow: placed next to "B ext" on the first line, right-justified ──
+    arrow_cx = px + box_w - pad
+    arrow_cy = py_top - 0.022 * yspan - 0.005 * yspan
+    alen     = needle_len * 0.5
     
-    mag_frac = min(abs(b_val) / B_max_ref, 1.0)
-    arrow_len = alen * max(mag_frac, 0.0)
-    if arrow_len > alen * 0.05:
-        x_tail = arrow_cx - arrow_len * cos_phi / 2.0
-        y_tail = arrow_cy - arrow_len * sin_phi / 2.0
-        x_head = arrow_cx + arrow_len * cos_phi / 2.0
-        y_head = arrow_cy + arrow_len * sin_phi / 2.0
+    if field_on:
+        x_tail = arrow_cx - alen * cos_phi / 2.0
+        y_tail = arrow_cy - alen * sin_phi / 2.0
+        x_head = arrow_cx + alen * cos_phi / 2.0
+        y_head = arrow_cy + alen * sin_phi / 2.0
         arrow_color = color if field_on else '#555555'
         ax.annotate(
             '', xy=(x_head, y_head), xytext=(x_tail, y_tail),
@@ -1735,9 +1745,9 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 
     # ── 1. arrows at the sites ─────────────────
     if field_on:
-        alen = needle_len * 0.35
-        dx_a = alen * cos_phi
-        dy_a = alen * sin_phi
+        alen_sites = needle_len * 0.35
+        dx_a = alen_sites * cos_phi
+        dy_a = alen_sites * sin_phi
         N, M = xs.shape
         x0 = xs.ravel() - dx_a / 2.0
         y0 = ys.ravel() - dy_a / 2.0
@@ -1996,7 +2006,7 @@ def main():
                            'Se omitido (padrao), calculado automaticamente '
                            'a partir da geometria real da agulha (R, '
                            'needle_frac, espessura) como uma lamina de aco '
-                           'magnetico: I = (1/12)*massa*(L²+largura²), '
+                           'sensivel: I = (1/12)*massa*(L²+largura²), '
                            'massa = densidade*L*largura*espessura. '
                            'Se fornecido explicitamente, este valor '
                            'sobrescreve o calculo automatico.')
@@ -2011,7 +2021,7 @@ def main():
                       default=STEEL_DENSITY_DEFAULT,
                       help='Densidade do aco magnetico [kg/m³], usada '
                            'apenas no calculo automatico do momento de '
-                           f'inercia. Padrao: {STEEL_DENSITY_DEFAULT:.0f} '
+                           'inercia. Padrao: {STEEL_DENSITY_DEFAULT:.0f} '
                            'kg/m³ (aco-carbono comum)')
     grp2.add_argument('--steel_Bsat', type=float,
                       default=None,
