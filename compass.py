@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V59
+compass.py — Simulation of a compass-needle lattice V60
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -1176,30 +1176,30 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if _pulse_phase == 'delay' and t_now >= field_delay:
                 _pulse_phase = 'field_on'
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Pulso: espera inicial concluída em t={t_now:.4f}s  campo LIGADO")
+                _print(f"\n  Pulse: initial wait completed: t={t_now:.4f}s  field ON")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
             if (_pulse_phase == 'field_on' and t_pulse is not None
                     and t_now >= field_delay + t_pulse):
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Pulso: duração t_pulse={t_pulse:.4f}s concluída em "
-                       f"t={t_now:.4f}s  campo zerado, estabilizando")
+                _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
+                       f"t={t_now:.4f}s  zero field: stabilizing")
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="campo zerado - estabilizando",
+                                stop_label="zero field - stabilizing",
                                 B_ext_inst=0.0)
         elif field_mode in ('step_pos', 'step_neg') and not _step_after_announced:
             if t_now >= field_delay:
                 _step_after_announced = True
                 _finish_progress_bar_if_shown()
                 if field_mode == 'step_pos':
-                    _print(f"\n  Step+: campo LIGADO em t={t_now:.4f}s (permanece até o fim)")
+                    _print(f"\n  Step+: field ON in t={t_now:.4f}s (stay ON)")
                 else:
-                    _print(f"\n  Step-: campo REMOVIDO em t={t_now:.4f}s (permanece zerado)")
+                    _print(f"\n  Step-: field OFF in t={t_now:.4f}s (stay zero)")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
 
         if (field_mode == 'pulse' and _pulse_phase == 'field_on'
@@ -1230,15 +1230,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _pulse_phase = 'relaxing'
                 _finish_progress_bar_if_shown()
                 if _trigger_A:
-                    _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
+                    _print(f"\n  Pulse: S>=0.99 at t={t_now:.4f}s  field ZERO, relaxing")
                 else:
-                    _print(f"\n  Pulso: S estabilizou (S={S_now:.4f}) em t={t_now:.4f}s  campo zerado, relaxando")
+                    _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t={t_now:.4f}s  field ZERO, relaxing")
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="campo zerado - relaxando",
+                                stop_label="Field Zero - relaxing",
                                 B_ext_inst=0.0)
 
         # ── condition 2: lattice in equilibrium ─────────────────────────────────
@@ -1995,172 +1995,172 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 10. INTERFACE OF LINE OF COMANDO (main)
+# 10. COMMAND-LINE INTERFACE (main)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
     """Command-line entry point of the simulation."""
     parser = argparse.ArgumentParser(
-        description="Simulacao de rede de bussolas — campo dipolar 2D",
+        description="Simulation of a compass-needle array — 2D dipolar field",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    grp = parser.add_argument_group("Geometria da rede")
+    grp = parser.add_argument_group("Lattice geometry")
     grp.add_argument('--N', type=int, default=8,
-                     help='Numero de LINHAS de agulhas')
+                     help='Number of needle ROWS')
     grp.add_argument('--M', type=int, default=8,
-                     help='Numero de COLUNAS de agulhas')
+                     help='Number of needle COLUMNS')
     grp.add_argument('--R', type=float, default=0.025,
-                     help='Raio do circulo que envolve cada agulha [m]. '
-                           'A distancia entre centers de vizinhos = 2R. '
-                           'Padrao: 0.025 m = 2.5 cm')
+                     help='Radius of the circumscribed circle enclosing each needle [m]. '
+                           'The distance between neighbor centers = 2R. '
+                           'Default: 0.025 m = 2.5 cm')
     grp.add_argument('--needle_frac', type=float, default=0.80,
-                     help='Comprimento da agulha como fracao do diametro 2R '
-                           '(0.0 a 0.8). Padrao: 0.80  ->  agulha = 0.80 * 2R. '
-                           'Valores fora do intervalo serao limitados (clamp).')
+                     help='Needle length as a fraction of the diameter 2R '
+                           '(0.0 to 0.8). Default: 0.80  ->  needle = 0.80 * 2R. '
+                           'Values outside the range will be clamped.')
     grp.add_argument('--geometry',
                      choices=['square', 'triangular', 'honeycomb'],
                      default='square',
-                     help='Tipo de rede')
+                     help='Lattice geometry type')
 
-    grp2 = parser.add_argument_group("Fisica e simulacao")
+    grp2 = parser.add_argument_group("Physics and simulation")
     grp2.add_argument('--moment', type=float, default=None,
-                      help='Momento magnetico de cada agulha [A·m²]. '
-                           'Se omitido (padrao), calculado automaticamente '
-                           'a partir do volume real da agulha (R, '
-                           'needle_frac, espessura), assumindo que o aco '
-                           'esta saturado na direcao do eixo longo (Norte) '
-                           'da agulha: m = Ms * volume, onde Ms e a '
-                           'magnetizacao de saturacao do aco (--steel_Bsat). '
-                           'Se fornecido explicitamente, este valor '
-                           'sobrescreve o calculo automatico. '
-                           'Tipico: 0.01 (pequena) a 1.0 (grande).')
+                      help='Magnetic moment of each needle [A·m²]. '
+                           'If omitted (default), calculated automatically '
+                           'from the physical volume of the needle (R, '
+                           'needle_frac, thickness), assuming that the steel '
+                           'is saturated along the long axis (North) '
+                           'of the needle: m = Ms * volume, where Ms is the '
+                           'saturation magnetization of the steel (--steel_Bsat). '
+                           'If supplied explicitly, this value '
+                           'overrides the automatic calculation. '
+                           'Typical: 0.01 (small) to 1.0 (large).')
     grp2.add_argument('--inertia', type=float, default=None,
-                      help='Momento de inercia de cada agulha [kg·m²]. '
-                           'Se omitido (padrao), calculado automaticamente '
-                           'a partir da geometria real da agulha (R, '
-                           'needle_frac, espessura) como uma lamina de aco '
-                           'magnetico: I = (1/12)*massa*(L²+largura²), '
-                           'massa = densidade*L*largura*espessura. '
-                           'Se fornecido explicitamente, este valor '
-                           'sobrescreve o calculo automatico.')
+                      help='Moment of inertia of each needle [kg·m²]. '
+                           'If omitted (default), calculated automatically '
+                           'from the physical geometry of the needle (R, '
+                           'needle_frac, thickness) as a steel plate: '
+                           'I = (1/12)*mass*(L^2 + width^2), '
+                           'mass = density * L * width * thickness. '
+                           'If supplied explicitly, this value '
+                           'overrides the automatic calculation.')
     grp2.add_argument('--needle_thickness', type=float,
                       default=NEEDLE_THICKNESS_DEFAULT,
-                      help='Espessura da lamina de aco da agulha [m], '
-                           'usada no calculo automatico do momento de '
-                           'inercia E do momento magnetico (quando '
-                           '--inertia / --moment nao sao fornecidos). '
-                           f'Padrao: {NEEDLE_THICKNESS_DEFAULT*1e3:.2f} mm')
+                      help='Thickness of the steel sheet of the needle [m], '
+                           'used in the automatic calculations of the moment of '
+                           'inertia and the magnetic moment (when '
+                           '--inertia / --moment are not provided). '
+                           f'Default: {NEEDLE_THICKNESS_DEFAULT*1e3:.2f} mm')
     grp2.add_argument('--steel_density', type=float,
                       default=STEEL_DENSITY_DEFAULT,
-                      help='Densidade do aco magnetico [kg/m³], usada '
-                           'apenas no calculo automatico do momento de '
-                           'inercia. Padrao: {STEEL_DENSITY_DEFAULT:.0f} '
-                           'kg/m³ (aco-carbono comum)')
+                      help='Density of the magnetic steel [kg/m³], used '
+                           'only in the automatic calculation of the moment of '
+                           'inertia. Default: {STEEL_DENSITY_DEFAULT:.0f} '
+                           'kg/m³ (standard carbon steel)')
     grp2.add_argument('--steel_Bsat', type=float,
                       default=None,
-                      help='Densidade de fluxo de saturacao do aco '
-                           'magnetico [T], usada apenas no calculo '
-                           'automatico do momento magnetico (quando '
-                           '--moment nao e fornecido). Relacao: '
-                           'Ms = Bsat / mu0. Faixa tipica de acos '
-                           'magneticos comuns: 1.6-2.2 T. '
-                           f'Padrao: {STEEL_MS_SATURATION_DEFAULT*4*np.pi*1e-7:.2f} T')
+                      help='Saturation flux density of the magnetic '
+                           'steel [T], used only in the automatic '
+                           'calculation of the magnetic moment (when '
+                           '--moment is not provided). Relation: '
+                           'Ms = Bsat / mu0. Typical range for standard '
+                           'magnetic steels: 1.6-2.2 T. '
+                           f'Default: {STEEL_MS_SATURATION_DEFAULT*4*np.pi*1e-7:.2f} T')
     grp2.add_argument('--damping', type=float, default=DAMPING_DEFAULT,
-                      help='Amortecimento viscoso do ar b [N·m·s/rad]. '
-                           'Zero = sem amortecimento (oscila infinitamente). '
-                           'Grande = sem oscilacoes visíveis. '
-                           f'Padrao: {DAMPING_DEFAULT:.2e} N·m·s/rad '
-                           '(sub-amortecido, Q >> 1)')
+                      help='Viscous air damping coefficient b [N·m·s/rad]. '
+                           'Zero = no damping (oscillates indefinitely). '
+                           'Large = no visible oscillations. '
+                           f'Default: {DAMPING_DEFAULT:.2e} N·m·s/rad '
+                           '(underdamped, Q >> 1)')
     grp2.add_argument('--damping_noise', type=float, default=0.0,
                       help='Relative noise amplitude for per-needle damping. '
                            'Damping for each needle is randomized as b_i = max(0, b * (1 + noise * U[-1, 1])). '
                            'Default: 0.0 (no noise).')
     grp2.add_argument('--t_sim', type=float, default=2.0,
-                      help='Tempo fisico total da simulacao [s] '
-                           '(= soma dos passos dt integrados). '
-                           'Em hysteresis: cobre 1 ciclo completo (0->Hmax->-Hmax->Hmax). '
-                           'Em sine: deve cobrir varios periodos (>= 3/field_freq). '
-                           'Padrao: 2.0 s')
+                      help='Total physical simulation time [s] '
+                           '(= sum of integrated dt steps). '
+                           'In hysteresis: covers 1 full cycle (0->Hmax->-Hmax->Hmax). '
+                           'In sine: must cover several periods (>= 3/field_freq). '
+                           'Default: 2.0 s')
     grp2.add_argument('--t_sim_full', type=int, default=0, choices=[0, 1],
-                      help='1 = roda ate o FIM de t_sim, desativando todas as '
-                           'paradas antecipadas por criterio fisico (S=1.00, '
-                           'rede em repouso, equilibrio por torque nos modos '
-                           'pulse/step). Util para series temporais de '
-                           'comprimento uniforme em varreduras. Interrupcoes '
-                           'do usuario (Ctrl+I/Ctrl+C) continuam ativas. '
-                           '0 (padrao) = paradas antecipadas normais.')
+                      help='1 = runs until the END of t_sim, disabling all '
+                           'early physical stop criteria (S=1.00, '
+                           'lattice at rest, torque equilibrium in '
+                           'pulse/step modes). Useful for uniform time-series '
+                           'lengths in sweeps. User interruptions '
+                           '(Ctrl+I/Ctrl+C) remain active. '
+                           '0 (default) = normal early stops.')
     grp2.add_argument('--field_mode',
                       choices=['static', 'hysteresis', 'sine', 'pulse',
                                'step_pos', 'step_neg'],
                       default='static',
-                      help='Modo do campo externo')
+                      help='External field mode')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
-                      help='Espacamento da rampa de histerese')
+                      help='Hysteresis ramp spacing')
     grp2.add_argument('--hyst_log_k', type=float, default=5.0,
-                      help='Concentracao do espacamento log da histerese')
+                      help='Concentration parameter of log spacing for hysteresis')
     grp2.add_argument('--field_delay', type=float, default=0.0,
-                      help='Delta_t de espera [s]')
+                      help='Delay t_delay [s]')
     grp2.add_argument('--t_pulse', type=float, default=None,
-                      help='Duracao do pulso [s]')
+                      help='Pulse duration [s]')
     grp2.add_argument('--torque_tol', type=float, default=1e-3,
-                      help='Tolerancia relativa do criterio de equilibrio por torque')
+                      help='Relative torque tolerance for equilibrium stopping criterion')
     grp2.add_argument('--field_freq', type=float, default=1.0,
-                      help='Frequencia do campo senoidal [Hz].')
+                      help='Frequency of the sinusoidal field [Hz].')
     grp2.add_argument('--dt_factor', type=float, default=0.05,
-                      help='Fracao do periodo natural T0 usada como passo dt')
+                      help='Fraction of natural period T0 used as time step dt')
     grp2.add_argument('--noise', type=float, default=1.5,
-                      help='Amplitude do ruido inicial nos angulos [rad]')
+                      help='Initial random noise amplitude in orientations [rad]')
     grp2.add_argument('--seed', type=int, default=42,
-                      help='Semente do gerador aleatorio')
+                      help='Random generator seed')
     grp2.add_argument('--pbc', type=int, choices=[0, 1], default=0,
-                      help='Condicoes periodicas de contorno (PBC)')
+                      help='Periodic boundary conditions (PBC)')
     grp2.add_argument('--pbc_images', type=int, default=1,
-                      help='Numero de replicas periodicas somadas')
+                      help='Number of periodic shell replicas summed')
     grp2.add_argument('--gpu', type=int, choices=[0, 1], default=0,
-                      help='Uso de GPU (CuPy)')
+                      help='Enable GPU acceleration (CuPy)')
     grp2.add_argument('--progress_bar', type=int, choices=[0, 1], default=1,
-                      help='Exibe a barra de progresso em tempo real')
+                      help='Show interactive progress bar in real time')
     grp2.add_argument('--halo_mode', type=str, choices=['order', 'domains'],
                       default='order',
-                      help='Modo de coloracao dos halos')
+                      help='Halo coloring mode')
     grp2.add_argument('--domain_tol', type=float, default=15.0,
-                      help='Tolerancia angular [graus] para dominios')
+                      help='Angular tolerance [degrees] for domain grouping')
 
-    grp3 = parser.add_argument_group("Campo externo uniforme (SI)")
+    grp3 = parser.add_argument_group("Uniform external field (SI)")
     grp3.add_argument('--B_ext', type=float, default=0.0,
-                      help='Intensidade do campo externo [T].')
+                      help='External field intensity [T].')
     grp3.add_argument('--phi_ext', type=float, default=0.0,
-                      help='Direcao do campo externo [graus]')
+                      help='External field direction [degrees]')
     grp3.add_argument('--ext_Bx', type=float, default=None,
-                      help='Componente Bx do campo externo [T]')
+                      help='Bx component of the external field [T]')
     grp3.add_argument('--ext_By', type=float, default=None,
-                      help='Componente By do campo externo [T]')
+                      help='By component of the external field [T]')
 
-    grp4 = parser.add_argument_group("Saida")
+    grp4 = parser.add_argument_group("Output")
     grp4.add_argument('--video', type=str, default=None,
-                      metavar='NOME',
-                      help='Gera video MP4 com este nome base.')
+                      metavar='NAME',
+                      help='Generate MP4 video with this base name.')
     grp4.add_argument('--frame_every', type=int, default=5,
-                      help='Salva um frame a cada N passos.')
+                      help='Save one frame every N steps.')
     grp4.add_argument('--make_images', type=int, default=1, choices=[0, 1],
-                      help='1 (padrao) = gera as imagens PNG, 0 = desliga.')
+                      help='1 (default) = generate summary PNG images, 0 = disable.')
     grp4.add_argument('--fps', type=int, default=24,
-                      help='Quadros por segundo do video MP4.')
+                      help='Frames per second of the MP4 video.')
     grp4.add_argument('--dpi', type=int, default=120,
-                      help='Resolucao dos frames em DPI.')
+                      help='Frame resolution in DPI.')
     grp4.add_argument('--keep_frames', action='store_true',
-                      help='Mantém a pasta de PNGs intermediários')
+                      help='Keep the temporary folder of PNG frames')
     grp4.add_argument('--hyst_autoscale', type=int, choices=[0, 1], default=0,
                       help='Enables automatic scaling (autoscale) of the axes for the MxH hysteresis curve.')
     grp4.add_argument('--csv_order', choices=['t', 'B'], default='t',
-                      help='Ordem das colunas no CSV exportado.')
+                      help='Column order in the exported CSV file.')
     args = parser.parse_args()
 
     if args.needle_frac < 0.0 or args.needle_frac > 0.8:
         clamped = max(0.0, min(args.needle_frac, 0.8))
-        _print(f"  Aviso: --needle_frac {args.needle_frac} fora do intervalo "
-                f"[0, 0.8]; ajustado para {clamped}")
+        _print(f"  Warning: --needle_frac {args.needle_frac} outside range "
+                f"[0, 0.8]; adjusted to {clamped}")
         args.needle_frac = clamped
 
     np.random.seed(args.seed)
@@ -2209,7 +2209,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V59")
+    _print(f"  Version      : V60")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2270,8 +2270,8 @@ def main():
     if args.pbc:
         max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
         if cutoff > max_cutoff_pbc:
-            _print(f"  PBC: cutoff reduzido de {cutoff*100:.2f}cm para "
-                    f"{max_cutoff_pbc*100:.2f}cm (limite min(Lx,Ly)/2)")
+            _print(f"  PBC: cutoff reduced from {cutoff*100:.2f}cm to "
+                    f"{max_cutoff_pbc*100:.2f}cm (min(Lx,Ly)/2 limit)")
             cutoff = max_cutoff_pbc
 
     B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
@@ -2302,7 +2302,7 @@ def main():
 
     if args.make_images:
         fig0, _ = plot_state(thetas_init, xs, ys,
-                             title="Estado inicial (aleatório)",
+                             title="Initial state (random)",
                              needle_len=needle_len, needle_width=needle_width,
                              **ext_kwargs)
         plt.tight_layout()
