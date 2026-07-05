@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V58
+compass.py — Simulation of a compass-needle lattice V59
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -575,6 +575,7 @@ def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext):
 
 def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           inertia=INERTIA_DEFAULT, damping=DAMPING_DEFAULT,
+          damping_noise=0.0,
           cutoff=3.5, ext_field=(0.0, 0.0), moment=MOMENT_DEFAULT,
           field_mode='static', field_freq=1.0,
           callback=None,
@@ -601,6 +602,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if _active_gpu:
             return cp.asarray(arr)
         return np.asarray(arr)
+
+    if damping_noise > 0.0:
+        damping_arr = damping * (1.0 + damping_noise * np.random.uniform(-1.0, 1.0, size=N*M))
+        damping_arr = np.maximum(0.0, damping_arr)
+        damping_xp = _local_to_backend(damping_arr)
+    else:
+        damping_xp = damping
 
     def _local_to_cpu(arr):
         if _active_gpu and hasattr(arr, 'get'):
@@ -639,6 +647,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         q_desc = "critically damped"
     else:
         q_desc = "overdamped"
+    if damping_noise > 0.0:
+        _print(f"    damping = {damping:.3e} N·m·s/rad (central, with random noise +/- {damping_noise*100:.1f}%)")
+    else:
+        _print(f"    damping = {damping:.3e} N·m·s/rad (uniform)")
     _print(f"    Q       = {Q:.1f}  ({q_desc})")
     _print()
 
@@ -1049,13 +1061,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         bx_new, by_new = field_at(t_now)
 
-        accel_xp  = (tau_xp - damping * omega_xp) / inertia
+        accel_xp  = (tau_xp - damping_xp * omega_xp) / inertia
         theta_new_xp = theta_xp + omega_xp * dt + 0.5 * accel_xp * dt**2
         theta_new_xp = (theta_new_xp + _active_xp.pi) % (2.0 * _active_xp.pi) - _active_xp.pi
 
         tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
 
-        b_half    = damping * dt / (2.0 * inertia)
+        b_half    = damping_xp * dt / (2.0 * inertia)
         omega_new_xp = (omega_xp * (1.0 - b_half)
                         + dt * (tau_xp + tau_new_xp) / (2.0 * inertia)) \
                        / (1.0 + b_half)
@@ -2059,6 +2071,10 @@ def main():
                            'Grande = sem oscilacoes visíveis. '
                            f'Padrao: {DAMPING_DEFAULT:.2e} N·m·s/rad '
                            '(sub-amortecido, Q >> 1)')
+    grp2.add_argument('--damping_noise', type=float, default=0.0,
+                      help='Relative noise amplitude for per-needle damping. '
+                           'Damping for each needle is randomized as b_i = max(0, b * (1 + noise * U[-1, 1])). '
+                           'Default: 0.0 (no noise).')
     grp2.add_argument('--t_sim', type=float, default=2.0,
                       help='Tempo fisico total da simulacao [s] '
                            '(= soma dos passos dt integrados). '
@@ -2193,7 +2209,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V58")
+    _print(f"  Version      : V59")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2230,7 +2246,10 @@ def main():
         _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle")
     else:
         _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle [manual value]")
-    _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air)")
+    if args.damping_noise > 0.0:
+        _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air) [+/- {args.damping_noise*100:.1f}% noise]")
+    else:
+        _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air)")
     _print(f"  External Field: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} degrees")
     _print(f"  Components   : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
     field_mode_str = args.field_mode
@@ -2317,6 +2336,7 @@ def main():
         dt_factor=args.dt_factor,
         inertia=inertia,
         damping=args.damping,
+        damping_noise=args.damping_noise,
         cutoff=cutoff,
         ext_field=(Bext_x, Bext_y),
         moment=moment,
