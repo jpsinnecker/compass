@@ -1,162 +1,166 @@
 """
 ============================================================
-compass_sim.py — Simulação de rede de agulhas de bússola
+compass.py — Simulation of a compass-needle lattice V47
 ============================================================
 
-Modela uma grade 2D de dipolos magnéticos clássicos (agulhas de
-bússola) que interagem pelo campo que cada uma gera sobre as vizinhas.
-A dinâmica é inercial (2ª Lei de Newton rotacional) sem atrito no pino,
-com amortecimento viscoso do ar. Integrador Velocity-Verlet.
-Todas as grandezas físicas em unidades SI.
+Models a 2D grid of classical magnetic dipoles, represented as compass
+needles, that interact through the magnetic field each needle produces at
+its neighbors. The dynamics are inertial, using Newton's second law for
+rotation with no pivot friction and viscous air damping. The integrator is
+Velocity-Verlet. All physical quantities use SI units.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARÂMETROS DE LINHA DE COMANDO
+COMMAND-LINE PARAMETERS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-┌─ GEOMETRIA DA REDE ────────────────────────────────────────┐
+┌─ LATTICE GEOMETRY ─────────────────────────────────────────┐
 │                                                            │
 │  --geometry  square | triangular | honeycomb               │
-│              Tipo de rede. Padrão: square                  │
-│              · square     : grade retangular               │
-│              · triangular : grade triangular equilateral   │
-│              · honeycomb  : colmeia (buracos hexagonais)   │
+│              Lattice type. Default: square                 │
+│              · square     : rectangular grid               │
+│              · triangular : equilateral triangular grid    │
+│              · honeycomb  : honeycomb, with hexagonal holes│
 │                                                            │
-│  --N         int   Número de LINHAS de agulhas. Padrão: 8  │
-│  --M         int   Número de COLUNAS de agulhas. Padrão: 8 │
+│  --N         int   Number of needle ROWS. Default: 8       │
+│  --M         int   Number of needle COLUMNS. Default: 8    │
 │                                                            │
-│  --R         float Raio do círculo de cada agulha [m].     │
-│                    Distância entre vizinhos = 2R.          │
-│                    Padrão: 0.025 m (2.5 cm)                │
+│  --R         float Radius of each needle circle [m].       │
+│                    Neighbor distance = 2R.                 │
+│                    Default: 0.025 m (2.5 cm)               │
 │                                                            │
-│  --needle_frac float Comprimento da agulha como fração     │
-│                    do diâmetro 2R (0.0–1.0).               │
-│                    Padrão: 0.80  → agulha = 80% de 2R      │
+│  --needle_frac float Needle length as a fraction of        │
+│                    the diameter 2R (0.0-1.0).              │
+│                    Default: 0.80 -> needle = 80% of 2R     │
 └────────────────────────────────────────────────────────────┘
 
-┌─ FÍSICA E SIMULAÇÃO ───────────────────────────────────────┐
+┌─ PHYSICS AND SIMULATION ───────────────────────────────────┐
 │                                                            │
-│  --moment    float Momento magnético de cada agulha [A·m²] │
-│                    Padrão: 0.1  (bússola de mesa, ~5 cm)   │
-│                    Ref: bolso ≈ 0.01 | náutica ≈ 1.0       │
+│  --moment    float Magnetic moment of each needle [A·m²]   │
+│                    Default: 0.1 (table compass, about 5 cm)│
+│                    Ref: pocket ≈ 0.01 | nautical ≈ 1.0     │
 │                                                            │
-│  --inertia   float Momento de inercia [kg.m2]. Se omitido, │
-│                    calculado automaticamente da geometria  │
-│                    (lamina de aco: R, needle_frac,         │
-│                    --needle_thickness, --steel_density)    │
+│  --inertia   float Moment of inertia [kg·m²]. If omitted,  │
+│                    it is computed automatically from the   │
+│                    geometry: steel sheet using R,          │
+│                    needle_frac, --needle_thickness,        │
+│                    and --steel_density.                    │
 │                                                            │
-│  --damping   float Amortecimento viscoso do ar [N·m·s/rad] │
-│                    Controla o fator de qualidade Q:        │
-│                    Q = omega_0·I/b (Q alto = mais oscila)  │
-│                    Padrão: 5e-8 (Q≈25, bússola realista)   │
-│                    Para B_ext=0.1T suave: use 8e-6 (Q≈4)   │
+│  --damping   float Viscous air damping [N·m·s/rad]         │
+│                    Controls the quality factor Q:          │
+│                    Q = omega_0·I/b (high Q = more          │
+│                    oscillatory motion). Default: 5e-8      │
+│                    (Q≈25, realistic compass). For a smooth │
+│                    B_ext=0.1 T run, use 8e-6 (Q≈4).        │
 │                                                            │
-│  --t_sim     float Tempo físico total de simulação [s].    │
-│                    Soma de todos os passos dt integrados   │
-│                    — equivalente ao que um cronômetro real │
-│                    marcaria observando as agulhas se mover.│
-│                    O vídeo exibe esse tempo físico.        │
-│                    A sim. para antes se S=1.00 ou repouso. │
-│                    Padrão: 2.0 s                           │
+│  --t_sim     float Total physical simulation time [s].     │
+│                    Sum of all integrated dt steps,         │
+│                    equivalent to what a real stopwatch     │
+│                    would measure while observing the       │
+│                    moving needles. The video displays this │
+│                    physical time. The simulation stops     │
+│                    earlier if S=1.00 or at rest.           │
+│                    Default: 2.0 s                          │
 │                                                            │
-│  --dt_factor float Fração do período natural T₀ usada      │
-│                    como passo de integração (0.02–0.10).   │
-│                    Menor = mais preciso, mais lento.       │
-│                    Padrão: 0.05                            │
+│  --dt_factor float Fraction of the natural period T0 used  │
+│                    as the integration step (0.02-0.10).    │
+│                    Smaller = more accurate, slower.        │
+│                    Default: 0.05                           │
 │                                                            │
-│  --noise     float Amplitude do ruído inicial [rad].       │
-│                    0 = todas apontam para +x               │
-│                    π ≈ 3.14 = orientação totalmente aleat. │
-│                    Padrão: 1.5                             │
+│  --noise     float Initial-noise amplitude [rad].          │
+│                    0 = all needles point toward +x         │
+│                    pi ≈ 3.14 = fully random orientation    │
+│                    Default: 1.5                            │
 │                                                            │
-│  --seed      int   Semente do gerador aleatório.           │
-│                    Garante reprodutibilidade.              │
-│                    Padrão: 42                              │
+│  --seed      int   Random-number-generator seed.           │
+│                    Ensures reproducibility.                │
+│                    Default: 42                             │
 └────────────────────────────────────────────────────────────┘
 
-┌─ CAMPO EXTERNO UNIFORME (unidades SI) ─────────────────────┐
-│  Duas formas de especificar — não usar as duas juntas.     │
+┌─ UNIFORM EXTERNAL FIELD (SI units) ────────────────────────┐
+│  Two ways to specify the field. Do not use both together.  │
 │                                                            │
-│  Forma A — intensidade + ângulo (recomendada):             │
-│  --B_ext     float Intensidade do campo [T].               │
-│                    0.0      = sem campo (padrão)           │
-│                    50e-6    = campo terrestre (≈50 µT)     │
-│                    1e-3     = ímã de geladeira a 5 cm      │
-│                    0.1      = campo forte (alinha tudo)    │
+│  Form A — magnitude + angle, recommended:                  │
+│  --B_ext     float Field magnitude [T].                    │
+│                    0.0      = no field (default)           │
+│                    50e-6    = Earth's field (≈50 µT)       │
+│                    1e-3     = fridge magnet at 5 cm        │
+│                    0.1      = strong field (aligns all)    │
 │                                                            │
-│  --phi_ext   float Direção do campo [graus].               │
-│                    0   = direita (+x)  ← padrão            │
-│                    90  = cima (+y)                         │
-│                    180 = esquerda (−x)                     │
-│                    270 = baixo (−y)                        │
-│                    Sentido anti-horário. Padrão: 0.0       │
+│  --phi_ext   float Field direction [degrees].              │
+│                    0   = right (+x), default               │
+│                    90  = up (+y)                           │
+│                    180 = left (-x)                         │
+│                    270 = down (-y)                         │
+│                    Counterclockwise sense. Default: 0.0    │
 │                                                            │
-│  Forma B — componentes cartesianas (sobrescreve A):        │
-│  --ext_Bx    float Componente x do campo [T]               │
-│  --ext_By    float Componente y do campo [T]               │
+│  --ext_Bx    float x component of the field [T]            │
+│  --ext_By    float y component of the field [T]            │
 └────────────────────────────────────────────────────────────┘
 
-┌─ SAÍDA ────────────────────────────────────────────────────┐
-│  Arquivos PNG sempre gerados no diretório atual:           │
-│    compass_initial.png      estado inicial                 │
-│    compass_equilibrium.png  estado final                   │
-│    compass_comparison.png   comparação lado a lado         │
-│    compass_order_param.png  parâmetro de ordem S(t)        │
+┌─ OUTPUT ───────────────────────────────────────────────────┐
+│  PNG files are always generated in the current directory:  │
+│    compass_initial.png      initial state                  │
+│    compass_equilibrium.png  final state                    │
+│    compass_comparison.png   side-by-side comparison        │
+│    compass_order_param.png  order parameter S(t)           │
 │                                                            │
-│  --video     str   Caminho do vídeo MP4 a gerar.           │
-│                    Requer ffmpeg instalado.                │
-│                    Se o arquivo já existir, salva como     │
-│                    nome0001.mp4, nome0002.mp4, etc.        │
-│                    Ex: --video simulacao.mp4               │
+│  --video     str   Path of the MP4 video to generate.      │
+│                    Requires ffmpeg. If the file already    │
+│                    exists, saves as name0001.mp4,          │
+│                    name0002.mp4, etc.                      │
+│                    Example: --video simulation.mp4         │
 │                                                            │
-│  --frame_every int Salva um frame a cada N passos.         │
-│                    Menor = vídeo mais suave, mais lento.   │
-│                    Padrão: 5                               │
+│  --frame_every int Save one frame every N steps.           │
+│                    Smaller = smoother video, slower run.   │
+│                    Default: 5                              │
 │                                                            │
-│  --fps       int   Quadros por segundo do vídeo MP4.       │
-│                    Padrão: 24                              │
+│  --fps       int   Frames per second of the MP4 video.     │
+│                    Default: 24                             │
 │                                                            │
-│  --keep_frames     Se presente, mantém a pasta de PNGs     │
-│                    intermediários após gerar o MP4.        │
+│  --keep_frames     If present, keeps the folder of         │
+│                    intermediate PNG frames after MP4       │
+│                    generation.                             │
 └────────────────────────────────────────────────────────────┘
 
-┌─ CONTROLES DURANTE A SIMULAÇÃO ────────────────────────────┐
-│  A simulação para automaticamente quando:                  │
-│    · S = 1.00  (todas as agulhas alinhadas)                │
-│    · Rede em repouso (ω_max → 0)                           │
-│    · Tempo t_sim atingido                                  │
-│    · Ctrl+I (Tab) pressionado no terminal                  │
-│      → interrompe e salva o vídeo imediatamente            │
+┌─ CONTROLS DURING THE SIMULATION ───────────────────────────┐
+│  The simulation stops automatically when:                  │
+│    · S = 1.00, all needles aligned                         │
+│    · The lattice is at rest, omega_max -> 0                │
+│    · The requested t_sim time is reached                   │
+│    · Ctrl+I (Tab) is pressed in the terminal               │
+│      -> interrupts and saves the video immediately         │
 └────────────────────────────────────────────────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXEMPLOS
+EXAMPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  # Padrões — rede quadrada 8×8 sem campo
-  python compass_sim.py
+  # Defaults — 8x8 square lattice with no field
+  python compass.py
 
-  # Honeycomb com campo terrestre
-  python compass_sim.py --geometry honeycomb --N 10 --M 10 --B_ext 50e-6
+  # Honeycomb with Earth's field
+  python compass.py --geometry honeycomb --N 10 --M 10 --B_ext 50e-6
 
-  # Triangular com campo de 0.1 T a 45°, movimento suave
-  python compass_sim.py --geometry triangular --N 10 --M 10 \\
+  # Triangular lattice with a 0.1 T field at 45°, smooth motion
+  python compass.py --geometry triangular --N 10 --M 10 \
       --B_ext 0.1 --phi_ext 45 --damping 8e-6 --t_sim 2.0
 
-  # Vídeo com agulhas maiores e muitas oscilações
-  python compass_sim.py --R 0.03 --needle_frac 0.85 --damping 1e-9 \\
+  # Video with larger needles and many oscillations
+  python compass.py --R 0.03 --needle_frac 0.85 --damping 1e-9 \
       --t_sim 5.0 --frame_every 2 --fps 30 --video sim.mp4
 
-  # Campo via componentes cartesianas
-  python compass_sim.py --ext_Bx 0.05 --ext_By -0.05
+  # Field through Cartesian components
+  python compass.py --ext_Bx 0.05 --ext_By -0.05
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Dependências: numpy, matplotlib, ffmpeg (para vídeo)
-Opcional (aceleração GPU): cupy-cuda12x (ou versão compatível com sua CUDA)
+Dependencies: numpy, matplotlib, ffmpeg for video
+Optional GPU acceleration: cupy-cuda12x, or a version compatible with your CUDA
   pip install cupy-cuda12x[ctk]
-  O sufixo [ctk] instala também os headers do CUDA Toolkit, necessários
-  para compilar kernels em tempo de execução (sem eles, cai para CPU
-  com erro "Failed to find CUDA headers").
-  Detectado automaticamente; se ausente ou incompleto, usa CPU/NumPy.
+  The [ctk] suffix also installs CUDA Toolkit headers, which are required
+  to compile kernels at runtime. Without them, the program falls back to CPU
+  with the error "Failed to find CUDA headers".
+  The backend is detected automatically. If CuPy is absent or incomplete,
+  the program uses CPU/NumPy.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -170,29 +174,29 @@ import argparse
 import time
 import sys
 
-# ── backend de aceleração GPU (opcional) ──────────────────────────────────
-# Se o pacote 'cupy' estiver instalado E uma GPU NVIDIA (CUDA) estiver
-# disponível, usa CuPy como substituto do NumPy para os cálculos pesados
-# (campo dipolar). CuPy tem API quase idêntica ao NumPy, então o mesmo
-# código vetorizado roda em GPU sem alterações de lógica.
-# Se cupy não estiver instalado, não houver GPU, ou os headers do CUDA
-# Toolkit não estiverem presentes (necessários para compilar kernels em
-# tempo de execução), cai automaticamente para NumPy (CPU) — o programa
-# funciona em qualquer máquina, mesmo com cupy "parcialmente" instalado.
+# ── GPU acceleration backend (optional) ──────────────────────────────────
+# If the package 'cupy' is installed AND an NVIDIA GPU (CUDA) estiver
+# available, uses CuPy as a NumPy replacement for heavy computations
+# (dipolar field). CuPy has an API that is almost identical to NumPy, so the same
+# vectorized code runs on the GPU without logic changes.
+# If cupy is not installed, there is no GPU, or the CUDA headers
+# Toolkit are not present (needed to compile kernels in
+# runtime), automatically falls back to NumPy (CPU) — the programa
+# works on any machine, even with cupy "partially" installed.
 _GPU_AVAILABLE = False
 _GPU_ERROR_MSG = None
-_xp = np   # _xp = "array module" ativo: np (CPU) ou cp (GPU)
+_xp = np   # _xp = "array module" active: np (CPU) or cp (GPU)
 try:
     import cupy as cp
-    # Teste 1: há um dispositivo CUDA visível?
+    # Test 1: is there the visible CUDA device?
     cp.cuda.Device(0).compute_capability
-    # Teste 2 (crítico): tenta de fato COMPILAR e executar um kernel simples.
-    # cp.cuda.Device(0).compute_capability só consulta o driver — não detecta
-    # a falta dos headers do CUDA Toolkit, que são necessários para o NVRTC
-    # compilar kernels elementwise (cos, sin, etc.) em tempo de execução.
-    # Sem esse teste real, o erro só aparece no meio da simulação.
+    # Test 2 (critical): actually tries to COMPILE and execute the simple kernel.
+    # cp.cuda.Device(0).compute_capability only queries the driver — does not detect
+    # missing headers of the CUDA Toolkit, which are required for the NVRTC
+    # compilar kernels elementwise (cos, sin, etc.) in runtime.
+    # Without this real test, the error only appears in the middle of the simulation.
     _test_arr = cp.array([0.0, 1.0])
-    _ = cp.cos(_test_arr)   # força a compilação JIT de um kernel real
+    _ = cp.cos(_test_arr)   # forces JIT compilation of the real kernel
     cp.cuda.Stream.null.synchronize()
     _xp = cp
     _GPU_AVAILABLE = True
@@ -203,30 +207,27 @@ except Exception as _e:
 
 
 def _to_cpu(arr):
-    """Converte um array do backend ativo (GPU ou CPU) para NumPy puro."""
+    """Converts an array from the active backend, GPU or CPU, to a plain NumPy array."""
     if _GPU_AVAILABLE and hasattr(arr, 'get'):
         return arr.get()
     return arr
 
 
 def _to_backend(arr):
-    """Converte um array NumPy para o backend ativo (GPU ou CPU)."""
+    """Converts a NumPy array to the active backend, GPU or CPU."""
     if _GPU_AVAILABLE:
         return cp.asarray(arr)
     return np.asarray(arr)
 
 
-# ── configura saída para flush imediato e line endings corretos ──────────────
-# No macOS com zsh, o modo raw do teclado (usado pelo Ctrl+I) pode desabilitar
-# o processamento de \n → \r\n no terminal. Forçar line_buffering e flush
-# garante que cada print() apareça em sua própria linha corretamente.
+# ── configure output for immediate flushing and correct line endings ──────────────
+# On macOS with zsh, keyboard raw mode (used by Ctrl+I) may disable
+# the processing of \n → \r\n in the terminal. Forcing line_buffering and flush
+# ensures that each print() appears correctly on its own line.
 sys.stdout.reconfigure(line_buffering=True)
 
 def _print(*args, **kwargs):
-    """
-    Substituto de print() que garante flush imediato e \r\n correto
-    mesmo quando o terminal está em modo raw (macOS/zsh com Ctrl+I ativo).
-    """
+    """Replacement for print() that guarantees immediate flushing and correct CRLF line endings, even when the terminal is in raw mode, as on macOS/zsh with Ctrl+I enabled."""
     import sys
     msg = ' '.join(str(a) for a in args)
     sys.stdout.write(msg + '\r\n')
@@ -234,10 +235,7 @@ def _print(*args, **kwargs):
 
 
 def _progress_ansi_ok():
-    """True se stdout é um terminal interativo (TTY) — habilita o painel
-    vivo de 2 linhas com códigos ANSI. Em saída redirecionada (log/pipe),
-    retorna False e o código usa o comportamento legado (sem códigos de
-    escape, que poluiriam o arquivo)."""
+    """Returns True if stdout is an interactive terminal (TTY). This enables the live two-line panel using ANSI codes. For redirected output, such as logs or pipes, it returns False and the code uses the legacy behavior without escape codes that would pollute the file."""
     import sys
     if _PROGRESS_REGION['ansi'] is None:
         try:
@@ -247,39 +245,31 @@ def _progress_ansi_ok():
     return _PROGRESS_REGION['ansi']
 
 
-# estado do painel vivo da barra de progresso (V44):
-#   'open' : True enquanto as 2 linhas (barra + status) estão na tela
-#   'ansi' : cache da detecção de TTY (None = ainda não verificado)
+# state of the live progress-bar panel (V44):
+#   'open' : True while the two lines (bar + status) are on the screen
+#   'ansi' : TTY detection cache (None = not yet checked)
 _PROGRESS_REGION = {'open': False, 'ansi': None}
 
 
 def _print_progress_bar(frac, prefix="", suffix="", status_line=None,
                         bar_width=40):
-    """
-    Imprime/atualiza o painel de progresso (V44): DUAS linhas vivas,
-    reescritas em cima de si mesmas a cada atualização —
+    """Prints or updates the progress panel (V44): two live lines rewritten in place at each update.
 
-        Integrando [CPU] [########            ]  42.3%  passo 970/2294
-        [passo 970/2294]  t=2.4310s  B=+0.0000mT  S=0.4415  w_max=3.1rad/s
+Example:
+    Integrating [CPU] [########            ]  42.3%  step 970/2294
+    [step 970/2294]  t=2.4310s  B=+0.0000mT  S=0.4415  w_max=3.1rad/s
 
-    Em terminal interativo (TTY): usa códigos ANSI (subir cursor +
-    limpar linha) para reescrever as duas linhas no lugar, sem empilhar
-    linhas novas. Em saída redirecionada (não-TTY): comportamento legado
-    (barra em \\r numa única linha; o status é impresso pelo chamador
-    como linhas normais de log).
+In an interactive terminal (TTY), ANSI codes move the cursor and clear lines so the two lines are redrawn in place instead of accumulating new lines. For redirected output (non-TTY), the function uses the legacy behavior: the bar is updated with '\r' on a single line, and the caller prints status as normal log lines.
 
-    Parâmetros
-    ----------
-    frac        : fração concluída, entre 0.0 e 1.0
-    prefix      : texto antes da barra (ex: "Integrando [CPU] ")
-    suffix      : texto depois da porcentagem (ex: "passo 524/1007")
-    status_line : segunda linha do painel (status periódico), ou None
-    bar_width   : número de caracteres da barra em si
+Parameters
+----------
+frac        : completed fraction, between 0.0 and 1.0
+prefix      : text before the bar, e.g. "Integrating [CPU] "
+suffix      : text after the percentage, e.g. "step 524/1007"
+status_line : second panel line, or None
+bar_width   : number of characters in the bar itself
 
-    Nota: qualquer _print() de mensagem normal enquanto o painel está
-    aberto deve vir depois de _print_progress_bar_finish(), que move o
-    cursor para baixo do painel e o marca como fechado.
-    """
+Note: any normal _print() message emitted while the panel is open should come after _print_progress_bar_finish(), which moves the cursor below the panel and marks it as closed."""
     import sys
     frac = max(0.0, min(1.0, frac))
     n_filled = int(round(frac * bar_width))
@@ -289,39 +279,33 @@ def _print_progress_bar(frac, prefix="", suffix="", status_line=None,
 
     if _progress_ansi_ok():
         status = status_line if status_line is not None else ""
-        # Protocolo com invariante de cursor (V44): ao FIM de cada desenho,
-        # o cursor fica estacionado na COLUNA 0 DA LINHA DA BARRA (topo do
-        # painel). Cada atualização então redesenha para baixo:
-        #   limpa linha (\x1b[K) + barra + desce ("\n\r", robusto com ou
-        #   sem tradução ONLCR do driver do terminal) + limpa + status +
-        #   sobe (\x1b[1A) + volta à coluna 0 (\r).
-        # Isso independe da posição em que o texto termina (sem depender
-        # de \n retornar à coluna 0, o que varia entre terminais/ptys) e
-        # funciona no rodapé da tela (o "\n" provoca o scroll necessário).
+        # Protocol with cursor invariant (V44): at the END of each drawing,
+        # the cursor remains parked at COLUMN 0 OF THE BAR LINE (top of the
+        # panel). Each update then redraws downward:
+        #   clear line (\x1b[K) + bar + moves down ("\n\r", robust with or
+        #   without translation ONLCR by the terminal driver) + clears + status +
+        #   moves up (\x1b[1THE) + returns to column 0 (\r).
+        # This is independent of the position where the text ends (without depending
+        # on \n returning to column 0, which varies between terminals/ptys) and
+        # works at the bottom of the screen (the "\n" causes the required scroll).
         seq = ("\x1b[K" + bar_line + "\n\r" +
                "\x1b[K" + status + "\x1b[1A\r")
         sys.stdout.write(seq)
         sys.stdout.flush()
         _PROGRESS_REGION['open'] = True
     else:
-        # legado (não-TTY): barra sobrescrevendo a própria linha via \r
+        # legacy (not-TTY): bar overwriting its own line via \r
         sys.stdout.write("\r" + bar_line)
         sys.stdout.flush()
 
 
 def _print_progress_bar_finish():
-    """
-    Fecha o painel de progresso: move o cursor para uma linha nova e
-    limpa abaixo do painel (as 2 linhas finais permanecem visíveis) e
-    marca o painel como fechado. Em modo ANSI é seguro chamar com o
-    painel já fechado (não emite nada — evita linhas em branco
-    espúrias).
-    """
+    """Closes the progress panel: moves the cursor to a new clean line below the panel, keeps the final two lines visible, and marks the panel as closed. In ANSI mode it is safe to call this when the panel is already closed, because it emits nothing and avoids spurious blank lines."""
     import sys
     if _progress_ansi_ok():
         if _PROGRESS_REGION['open']:
-            # cursor está na coluna 0 da linha da barra: desce 2 linhas
-            # (barra -> status -> linha nova abaixo do painel)
+            # cursor is at column 0 of the bar line: move down two lines
+            # (bar -> status -> new line below the panel)
             sys.stdout.write('\n\r\n\r')
             sys.stdout.flush()
             _PROGRESS_REGION['open'] = False
@@ -330,79 +314,66 @@ def _print_progress_bar_finish():
         sys.stdout.flush()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1. CONSTANTES FÍSICAS (Sistema Internacional — SI)
+# 1. PHYSICAL CONSTANTS (International System — SI)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# μ₀/(4π) = 1×10⁻⁷  T·m/A  (permeabilidade do vácuo / 4π)
+# μ₀/(4π) = 1×10⁻⁷  T·m/A  (vacuum permeability / 4π)
 MU0_OVER_4PI = 1.0e-7   # T·m/A
 
-# ── Parâmetros físicos padrão de uma agulha de bússola de mesa (~5 cm) ──────
+# ── Default physical parameters of a table compass needle (~5 cm) ──────
 #
-# Momento magnético
-MOMENT_DEFAULT = 0.1      # A·m²   (agulha de bússola de mesa típica)
+# Magnetic moment
+MOMENT_DEFAULT = 0.1      # A·m²   (typical table compass needle)
 #
-# Massa e geometria da agulha (barra fina de aço, comprimento L, seção circular)
-#   massa   m ≈ 0.5 g  = 5×10⁻⁴ kg
-#   comprimento L ≈ 5 cm = 0.05 m
-#   Momento de inércia de barra fina em torno do centro:
+# Needle mass and geometry (thin steel bar, length L, circular cross section)
+#   mass   m ≈ 0.5 g  = 5×10⁻⁴ kg
+#   length L ≈ 5 cm = 0.05 m
+#   Moment of inertia of thin bar about its center:
 #       I = (1/12) · m · L²  =  (1/12) · 5×10⁻⁴ · (0.05)²  ≈ 1.04×10⁻⁷  kg·m²
 INERTIA_DEFAULT = 1.0e-7  # kg·m²
 
-# Densidade do aço magnético comum (aço-carbono / aço silício para uso
-# eletromagnético, como usado em lâminas de transformador ou bússolas
-# de mesa). Varia tipicamente entre 7700-7900 kg/m³; usamos um valor
-# representativo do aço-carbono comum.
+# Density of common magnetic steel (carbon steel / silicon steel for use
+# electromagnetic, the used in transformer laminations or compasss
+# of mesa). Typically ranges between 7700-7900 kg/m³; we use the value
+# representative of the ordinary carbon steel.
 STEEL_DENSITY_DEFAULT = 7850.0   # kg/m³
-# Espessura padrão de uma lâmina fina cortada de chapa de aço comum
+# Default thickness of a thin sheet cut from ordinary steel sheet
 NEEDLE_THICKNESS_DEFAULT = 0.4e-3   # m  (0.4 mm)
 
-# Magnetização de saturação de um aço magnético comum (aço-carbono / ferro
-# doce). Corresponde a uma densidade de fluxo de saturação Bsat ≈ 2.0 T,
-# valor bem estabelecido na literatura para ligas de ferro de alta
-# permeabilidade (faixa típica: 1.6-2.2 T; usamos um valor central
-# representativo). Relação: Bsat = μ0 · Ms  →  Ms = Bsat / μ0.
-STEEL_MS_SATURATION_DEFAULT = 1.59e6   # A/m  (≈ Bsat de 2.0 T)
+# Saturation magnetization of a common magnetic steel (carbon steel / ferro
+# doce). Corresponds to a saturatestion flux density Bsat ≈ 2.0 T,
+# well-established value in the literature for iron alloys of alta
+# permeability (typical range: 1.6-2.2 T; we use the value central
+# representative). Relation: Bsat = μ0 · Ms  →  Ms = Bsat / μ0.
+STEEL_MS_SATURATION_DEFAULT = 1.59e6   # A/m  (≈ Bsat of 2.0 T)
 
 
 def compute_inertia_from_geometry(needle_len, needle_width, thickness,
                                   density=STEEL_DENSITY_DEFAULT):
-    """
-    Calcula o momento de inércia de uma agulha modelada como uma lâmina
-    retangular fina e homogênea, girando em torno do eixo perpendicular
-    ao plano da lâmina, passando pelo centro de massa (eixo z — o eixo
-    real de rotação de uma agulha de bússola apoiada em um pino).
+    """Computes the moment of inertia of a needle modeled as a thin, homogeneous rectangular sheet rotating about the axis perpendicular to the sheet plane and passing through the center of mass. This is the z axis and represents the real rotation axis of a compass needle supported by a pivot.
 
-    Modelo físico
-    -------------
-    Lâmina retangular de comprimento L, largura w, espessura t, massa m,
-    densidade ρ:
+Physical model
+--------------
+Rectangular sheet with length L, width w, thickness t, mass m, and density rho:
 
-        m = ρ · L · w · t                         [kg]
+    m = rho · L · w · t                         [kg]
 
-    Momento de inércia de uma placa retangular fina em torno do eixo
-    perpendicular ao seu plano, passando pelo centro (eixo z):
+Moment of inertia of a thin rectangular plate about the axis perpendicular to its plane through the center:
 
-        I = (1/12) · m · (L² + w²)                [kg·m²]
+    I = (1/12) · m · (L² + w²)                  [kg·m²]
 
-    Esta fórmula generaliza o caso de "barra fina" (I = mL²/12, válido
-    quando w → 0): aqui mantemos o termo w² explicitamente porque agulhas
-    reais cortadas de chapa metálica têm largura não-desprezível, e a
-    espessura t entra apenas através da massa (uma lâmina fina não
-    contribui com um termo de inércia próprio na direção perpendicular
-    ao seu plano — esse termo, m·t²/12, é desprezível para t << L, w).
+This formula generalizes the thin-bar case, I = mL²/12, valid when w -> 0. Here the w² term is kept explicitly because real needles cut from sheet metal have non-negligible width. The thickness t enters only through the mass. A thin sheet has a negligible intrinsic inertia term in the direction perpendicular to its plane, m·t²/12, when t << L,w.
 
-    Parâmetros
-    ----------
-    needle_len   : comprimento da agulha L  [m]
-    needle_width : largura da agulha w  [m]
-    thickness    : espessura da lâmina t  [m]
-    density      : densidade do material  [kg/m³]
-                   (padrão: aço magnético comum, 7850 kg/m³)
+Parameters
+----------
+needle_len   : needle length L [m]
+needle_width : needle width w [m]
+thickness    : sheet thickness t [m]
+density      : material density [kg/m³], default: common magnetic steel, 7850 kg/m³
 
-    Retorna
-    -------
-    I : momento de inércia  [kg·m²]
-    """
+Returns
+-------
+I : moment of inertia [kg·m²]"""
     mass = density * needle_len * needle_width * thickness   # [kg]
     I = (1.0 / 12.0) * mass * (needle_len**2 + needle_width**2)   # [kg·m²]
     return I
@@ -410,103 +381,86 @@ def compute_inertia_from_geometry(needle_len, needle_width, thickness,
 
 def compute_moment_from_geometry(needle_len, needle_width, thickness,
                                  Ms=STEEL_MS_SATURATION_DEFAULT):
-    """
-    Calcula o momento magnético de uma agulha modelada como uma lâmina
-    retangular fina de aço magnético, SATURADA na direção do seu eixo
-    longo (Norte da agulha) — ou seja, assume-se que toda a agulha foi
-    magnetizada até o limite físico do material, com todos os domínios
-    magnéticos alinhados ao longo do comprimento.
+    """Computes the magnetic moment of a needle modeled as a thin rectangular sheet of magnetic steel, saturated along its long axis, the north direction of the needle. In other words, the whole needle is assumed to be magnetized up to the material's physical limit, with all magnetic domains aligned along its length.
 
-    Modelo físico
-    -------------
-    Para um material ferromagnético saturado, o momento magnético total
-    é o produto da magnetização de saturação Ms pelo volume V:
+Physical model
+--------------
+For a saturated ferromagnetic material, the total magnetic moment is the product of saturation magnetization Ms and volume V:
 
-        m = Ms · V                                [A·m²]
-        V = L · w · t                              [m³]
+    m = Ms · V                                  [A·m²]
+    V = L · w · t                               [m³]
 
-    Esta é a mesma geometria (lâmina retangular L×w×t) já usada no
-    cálculo do momento de inércia — aqui assume-se que TODO o volume da
-    agulha contribui com magnetização (caso ideal de saturação uniforme;
-    na prática, agulhas reais podem ter magnetização levemente inferior
-    à saturação teórica do material devido a desmagnetização de forma,
-    mas a saturação total é o limite superior físico e uma referência
-    razoável para uma agulha "bem magnetizada").
+This is the same rectangular-sheet geometry L×w×t used in the inertia calculation. Here the full needle volume is assumed to contribute to magnetization, an ideal case of uniform saturation. Real needles may have magnetization slightly below the theoretical saturation because of shape demagnetization, but full saturation is the physical upper limit and a reasonable reference for a well-magnetized needle.
 
-    Parâmetros
-    ----------
-    needle_len   : comprimento da agulha L  [m]
-    needle_width : largura da agulha w  [m]
-    thickness    : espessura da lâmina t  [m]
-    Ms           : magnetização de saturação do material  [A/m]
-                   (padrão: aço magnético comum, ≈1.59e6 A/m,
-                   correspondente a Bsat ≈ 2.0 T)
+Parameters
+----------
+needle_len   : needle length L [m]
+needle_width : needle width w [m]
+thickness    : sheet thickness t [m]
+Ms           : material saturation magnetization [A/m], default: common magnetic steel, about 1.59e6 A/m, corresponding to Bsat ≈ 2.0 T
 
-    Retorna
-    -------
-    m : momento magnético  [A·m²]
-    """
+Returns
+-------
+m : magnetic moment [A·m²]"""
     volume = needle_len * needle_width * thickness   # [m³]
     m = Ms * volume                                   # [A·m²]
     return m
 
 #
-# Amortecimento viscoso (resistência do ar ao giro da agulha).
-# O Q efetivo depende do campo dominante B_eff = max(B_dipolar, B_externo):
-#   Q = omega_0·I/b   onde  omega_0 = sqrt(m·B_eff/I)
+# Viscous damping (air resistance to needle rotation).
+# The effective Q depends of the dominant field B_eff = max(B_dipolar, B_externo):
+#   Q = omega_0·I/b   where  omega_0 = sqrt(m·B_eff/I)
 #
-# Com B_ext = 0.1 T:   omega_0 ≈ 316 rad/s  →  b = 8e-6 dá Q ≈ 4  (suave)
-# Com B_ext = 0  :     omega_0 ≈  13 rad/s  →  b = 5e-8 dá Q ≈ 25 (bússola)
+# With B_ext = 0.1 T:   omega_0 ≈ 316 rad/s  →  b = 8and-6 gives Q ≈ 4  (smooth)
+# With B_ext = 0  :     omega_0 ≈  13 rad/s  →  b = 5and-8 gives Q ≈ 25 (compass)
 #
-# O padrão 5e-8 é adequado para simular sem campo externo ou campo fraco.
-# Para campos fortes (> 1 mT), use --damping 1e-6 a 1e-5 para movimento suave.
+# The default 5e-8 is suitable for simulating with no external field or weak field.
+# For strong fields (> 1 mT), use --damping 1and-6 the 1and-5 for smooth motion.
 DAMPING_DEFAULT = 5.0e-8  # N·m·s/rad
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. CAMPO DIPOLAR MAGNÉTICO (SI)
+# 2. MAGNETIC DIPOLAR FIELD (SI)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def dipole_field_2d(rx, ry, theta_src, moment):
-    """
-    Calcula o campo magnético gerado por um dipolo no plano XY (unidades SI).
+    """Computes the magnetic field produced by a dipole in the XY plane, using SI units.
 
-    Fórmula exata do campo de dipolo magnético em 3D, avaliada no plano z=0:
+Exact 3D magnetic-dipole field, evaluated in the z=0 plane:
 
-        B = (μ₀/4π) · [ 3(m̂·r̂)r̂ − m̂ ] / r³
+    B = (mu0/4pi) · [ 3(m_hat·r_hat)r_hat - m_hat ] / r³
 
-    Em componentes cartesianas, com m = moment·(cos θ, sin θ, 0):
+In Cartesian components, with m = moment·(cos theta, sin theta, 0):
 
-        Bx = (μ₀/4π) · [ 3(m·r)·rx / r⁵  −  mx / r³ ]
-        By = (μ₀/4π) · [ 3(m·r)·ry / r⁵  −  my / r³ ]
+    Bx = (mu0/4pi) · [ 3(m·r)·rx / r⁵ - mx / r³ ]
+    By = (mu0/4pi) · [ 3(m·r)·ry / r⁵ - my / r³ ]
 
-    Unidades SI:
-        moment  [A·m²]
-        rx, ry  [m]
-        Bx, By  [T]
+SI units:
+    moment [A·m²]
+    rx, ry [m]
+    Bx, By [T]
 
-    Parâmetros
-    ----------
-    rx, ry    : componentes do vetor r = (ponto receptor) − (dipolo fonte)  [m]
-    theta_src : ângulo do dipolo fonte em relação ao eixo +x  [rad]
-    moment    : módulo do momento de dipolo magnético da agulha fonte  [A·m²]
+Parameters
+----------
+rx, ry    : components of r = receiver point - source dipole [m]
+theta_src : angle of the source dipole relative to the +x axis [rad]
+moment    : magnitude of the magnetic dipole moment of the source needle [A·m²]
 
-    Retorna
-    -------
-    (Bx, By)  : componentes do campo magnético no ponto (rx, ry)  [T]
-    """
+Returns
+-------
+(Bx, By) : magnetic-field components at (rx, ry) [T]"""
     r2 = rx**2 + ry**2
     if r2 < 1e-24:
-        # evita divisão por zero quando o ponto coincide com a fonte
+        # avoids division by zero when the point coincides with the source
         return 0.0, 0.0
 
-    r  = np.sqrt(r2)          # distância  [m]
+    r  = np.sqrt(r2)          # distance  [m]
     r5 = r2 * r2 * r          # r⁵  [m⁵]
 
-    mx = moment * np.cos(theta_src)   # componente x do momento  [A·m²]
-    my = moment * np.sin(theta_src)   # componente y do momento  [A·m²]
+    mx = moment * np.cos(theta_src)   # x component of the moment  [THE·m²]
+    my = moment * np.sin(theta_src)   # y component of the moment  [THE·m²]
 
-    mdotr = mx * rx + my * ry         # m · r  [A·m³]
+    mdotr = mx * rx + my * ry         # m · r  [THE·m³]
 
     Bx = MU0_OVER_4PI * (3.0 * mdotr * rx / r5  -  mx / (r2 * r))
     By = MU0_OVER_4PI * (3.0 * mdotr * ry / r5  -  my / (r2 * r))
@@ -514,57 +468,40 @@ def dipole_field_2d(rx, ry, theta_src, moment):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. CAMPO TOTAL SOBRE UMA AGULHA (SI)
+# 3. TOTAL FIELD ON THE NEEDLE (SI)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
                    pbc=False, Lx=None, Ly=None, n_images=1):
-    """
-    Soma o campo dipolar de todas as agulhas vizinhas sobre a agulha (i, j).
+    """Sums the dipolar field from all neighboring needles onto needle (i, j).
 
-    Para eficiência computacional, apenas agulhas dentro do raio `cutoff`
-    são consideradas. Isso é fisicamente justificado porque o campo dipolar
-    decai como 1/r³ — contribuições de agulhas distantes são desprezíveis.
+For computational efficiency, only needles within the cutoff radius are considered. This is physically justified because the dipolar field decays as 1/r³, so distant contributions are negligible.
 
-    Condições periódicas de contorno (PBC)
-    ---------------------------------------
-    Quando pbc=True, a rede é tratada como uma célula unitária que se repete
-    infinitamente em x e em y (estrutura periódica, sem bordas). Para cada
-    par de agulhas (i,j)-(ni,nj), o campo é somado sobre TODAS as réplicas
-    periódicas dentro de ±n_images células em x e em y — não apenas a mais
-    próxima. Com n_images=1 (padrão), cada vizinha contribui através de
-    (2·1+1)² = 9 réplicas (a célula original + 1 réplica de cada lado
-    em x e em y — equivalente à convenção de imagem mínima clássica).
-    Aumentar n_images soma mais réplicas distantes, útil quando o cutoff
-    é grande em relação ao período da rede.
+Periodic boundary conditions (PBC)
+----------------------------------
+When pbc=True, the lattice is treated as a unit cell repeated infinitely in x and y, creating a periodic structure without edges. For each needle pair (i,j)-(ni,nj), the field is summed over all periodic replicas within ±n_images cells in x and y, not only the nearest image. With n_images=1, the default, each neighbor contributes through (2·1+1)² = 9 replicas: the original cell plus one replica on each side in x and y, equivalent to the classical minimum-image convention. Increasing n_images includes more distant replicas and is useful when the cutoff is large relative to the lattice period.
 
-    Isso elimina os efeitos de borda: agulhas na margem da rede passam a
-    "ver" vizinhas do lado oposto (e suas réplicas mais distantes), como
-    se a estrutura fosse infinita.
+This removes edge effects: needles at the boundary see neighbors from the opposite side, and their more distant replicas, as if the structure were infinite.
 
-    Parâmetros
-    ----------
-    i, j     : índices da agulha receptora na grade (N×M)
-    thetas   : array 2D dos ângulos atuais de todas as agulhas  [rad]
-    xs, ys   : arrays 2D das posições fixas das agulhas  [m]
-    cutoff   : raio máximo de interação  [m]
-    moment   : momento magnético de cada agulha  [A·m²]
-    pbc      : se True, aplica condições periódicas de contorno  [bool]
-    Lx, Ly   : dimensões do período da rede em x e y  [m]
-               (necessários apenas se pbc=True; calculados em make_grid)
-    n_images : número de réplicas periódicas a somar de cada lado, em
-               cada direção (padrão: 1). Total de réplicas consideradas
-               por vizinha = (2·n_images+1)² células.
+Parameters
+----------
+i, j     : indices of the receiver needle in the N×M grid
+thetas   : 2D array with current angles of all needles [rad]
+xs, ys   : 2D arrays with fixed needle positions [m]
+cutoff   : maximum interaction radius [m]
+moment   : magnetic moment of each needle [A·m²]
+pbc      : if True, applies periodic boundary conditions [bool]
+Lx, Ly   : lattice periods in x and y [m], required only when pbc=True and computed in make_grid
+n_images : number of periodic replicas to sum on each side in each direction, default 1. Total replicas considered per neighbor = (2·n_images+1)² cells.
 
-    Retorna
-    -------
-    (Bx_tot, By_tot) : campo total na posição da agulha (i, j)  [T]
-    """
+Returns
+-------
+(Bx_tot, By_tot) : total field at needle (i, j) [T]"""
     Bx_tot, By_tot = 0.0, 0.0
     N, M = thetas.shape
     xi, yi = xs[i, j], ys[i, j]
 
-    # deslocamentos das réplicas periódicas a considerar (0 = célula original)
+    # periodic replica shifts to consider (0 = original cell)
     if pbc and Lx and Ly:
         img_range = range(-n_images, n_images + 1)
         x_shifts = [k * Lx for k in img_range]
@@ -576,14 +513,14 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
     for ni in range(N):
         for nj in range(M):
             if ni == i and nj == j and not pbc:
-                continue  # sem PBC: a agulha não interage com ela mesma
+                continue  # without PBC: the needle does not interact with itself
 
             rx0 = xi - xs[ni, nj]   # [m]
             ry0 = yi - ys[ni, nj]   # [m]
 
             for dx_img in x_shifts:
                 for dy_img in y_shifts:
-                    # pula a própria agulha na célula original (distância zero)
+                    # skips the needle itself in the original cell (zero distance)
                     if ni == i and nj == j and dx_img == 0.0 and dy_img == 0.0:
                         continue
 
@@ -592,7 +529,7 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
                     dist = np.sqrt(rx*rx + ry*ry)
 
                     if dist > cutoff:
-                        continue  # fora do raio de corte: ignora
+                        continue  # outside the cutoff radius: ignore
 
                     bx, by = dipole_field_2d(rx, ry, thetas[ni, nj], moment)
                     Bx_tot += bx
@@ -600,33 +537,28 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
 
     return Bx_tot, By_tot   # [T]
 
-    return Bx_tot, By_tot   # [T]
-
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. DINÂMICA INERCIAL (2ª Lei de Newton para rotação — sem atrito no pino)
+# 4. INERTIAL DYNAMICS (Newton's second law for rotation — no pivot friction)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _plot_hysteresis(log):
-    """
-    Plota a curva de histerese M_proj(B) e salva como PNG e CSV.
+def _plot_hysteresis(log, hyst_autoscale=False):
+    """Plots the hysteresis curve M_proj(B) and saves it as PNG and CSV.
 
-    O gráfico mostra a magnetização projetada na direção do campo em função
-    da intensidade do campo aplicado — a clássica curva de histerese M×H.
+The plot shows the magnetization projected along the field direction as a function of the applied-field magnitude, the classical M-H hysteresis curve.
 
-    Parâmetros
-    ----------
-    log : lista de tuplas (t, B_scalar, M_proj, S)
-          gerada durante a integração com field_mode='hysteresis'
-    """
+Parameters
+----------
+log : list of tuples (t, B_scalar, M_proj, S), generated during integration with field_mode='hysteresis'
+hyst_autoscale : bool, default False. If True, autoscales the axes of the hysteresis curve. """
     log = np.array(log)
     t_arr  = log[:, 0]
-    B_arr  = log[:, 1] * 1e3    # converte T → mT para legibilidade
-    M_arr  = log[:, 2]          # magnetização projetada (adimensional, ∈ [−1,1])
+    B_arr  = log[:, 1] * 1e3    # converts T → mT for readability
+    M_arr  = log[:, 2]          # projected magnetization (dimensionless, ∈ [−1,1])
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor='#1A1A2E')
 
-    # ── painel esquerdo: M×B (curva de histerese) ─────────────────────────
+    # ── left panel: M×B (hysteresis curve) ─────────────────────────
     ax1 = axes[0]
     ax1.set_facecolor('#0D1B2A')
     ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
@@ -641,7 +573,14 @@ def _plot_hysteresis(log):
     for sp in ax1.spines.values():
         sp.set_edgecolor('#2C3E50')
 
-    # ── painel direito: M(t) e B(t) versus tempo ──────────────────────────
+    if not hyst_autoscale:
+        B_max = np.max(np.abs(B_arr))
+        if B_max < 1e-5:
+            B_max = 1.0
+        ax1.set_xlim(-1.05 * B_max, 1.05 * B_max)
+        ax1.set_ylim(-1.15, 1.15)
+
+    # ── right panel: M(t) and B(t) versus time ──────────────────────────
     ax2 = axes[1]
     ax2.set_facecolor('#0D1B2A')
     l1, = ax2.plot(t_arr, M_arr, color='#E94560', lw=1.2, label='M (proj.)')
@@ -671,14 +610,12 @@ def _plot_hysteresis(log):
 
 
 def _plot_sine(log, freq):
-    """
-    Plota M(t) e B(t) para o modo de campo senoidal e salva como PNG.
+    """Plots M(t) and B(t) for the sinusoidal-field mode and saves the result as PNG.
 
-    Parâmetros
-    ----------
-    log  : lista de tuplas (t, B_scalar, M_proj, S)
-    freq : frequência do campo senoidal [Hz]
-    """
+Parameters
+----------
+log  : list of tuples (t, B_scalar, M_proj, S)
+freq : sinusoidal-field frequency [Hz]"""
     log   = np.array(log)
     t_arr = log[:, 0]
     B_arr = log[:, 1] * 1e3    # T → mT
@@ -713,60 +650,49 @@ def _plot_sine(log, freq):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3b. CÁLCULO VETORIZADO DO CAMPO DIPOLAR E TORQUES (GPU/CPU)
+# 3b. VECTORIZED CALCULATION OF THE DIPOLAR FIELD AND TORQUES (GPU/CPU)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
                                bx_ext, by_ext,
                                pbc=False, Lx=None, Ly=None, n_images=1):
-    """
-    Calcula o torque magnético sobre cada agulha, somando o campo dipolar
-    de todas as outras agulhas — totalmente vetorizado (sem loops Python).
+    """Computes the magnetic torque on each needle by summing the dipolar field from all other needles, fully vectorized without Python loops.
 
-    Esta função substitui o duplo loop `for i: for j: total_field_on(...)`
-    por operações de array (broadcasting), o que permite executar em GPU
-    via CuPy (idêntico ao NumPy em sintaxe) quando disponível, ou em CPU
-    via NumPy normalmente. A complexidade continua O(K²) onde K = N×M
-    (todas as agulhas interagem com todas), mas a soma é feita em paralelo
-    por todos os núcleos da GPU/CPU de uma só vez, em vez de sequencialmente
-    em Python — ganho de desempenho de 10-100x típico em GPUs como a
-    RTX 3090 para redes grandes (K > ~400 agulhas).
+This function replaces the double loop `for i: for j: total_field_on(...)` with array operations (broadcasting), which makes it possible to run on the GPU through CuPy, whose syntax is identical to NumPy, when available, or normally on the CPU through NumPy. The complexity remains O(K²), where K = N×M, because every needle interacts with every other needle, but the sum is performed in parallel over all GPU/CPU cores at once instead of sequentially in Python. Typical speedups on GPUs such as the RTX 3090 are 10-100x for large lattices (K > about 400 needles).
 
-    Física (idêntica a total_field_on/dipole_field_2d, apenas vetorizada):
+Physics, identical to total_field_on/dipole_field_2d but vectorized:
 
-        B = (μ₀/4π) · [ 3(m̂·r̂)r̂ − m̂ ] / r³
+    B = (mu0/4pi) · [ 3(m_hat·r_hat)r_hat - m_hat ] / r³
 
-    Parâmetros
-    ----------
-    theta_flat : array 1D (K,) com os ângulos de todas as agulhas  [rad]
-    x_flat, y_flat : arrays 1D (K,) com as posições de todas as agulhas [m]
-    moment     : momento magnético de cada agulha  [A·m²]
-    cutoff     : raio máximo de interação  [m]
-    bx_ext, by_ext : componentes do campo externo instantâneo  [T]
-    pbc        : se True, soma réplicas periódicas (ver total_field_on)
-    Lx, Ly     : período da rede em x e y  [m]  (necessários se pbc=True)
-    n_images   : número de réplicas de cada lado, em cada direção (PBC)
+Parameters
+----------
+theta_flat : 1D array (K,) with all needle angles [rad]
+x_flat, y_flat : 1D arrays (K,) with all needle positions [m]
+moment     : magnetic moment of each needle [A·m²]
+cutoff     : maximum interaction radius [m]
+bx_ext, by_ext : instantaneous external-field components [T]
+pbc        : if True, sums periodic replicas (see total_field_on)
+Lx, Ly     : lattice periods in x and y [m], required if pbc=True
+n_images   : number of replicas on each side in each direction (PBC)
 
-    Retorna
-    -------
-    tau_flat : array 1D (K,) com o torque sobre cada agulha  [N·m]
-               (no mesmo backend de theta_flat — GPU ou CPU)
-    """
-    # detecta o backend a partir do array de entrada (em vez de usar a
-    # global _xp do módulo) — assim a função respeita corretamente o
-    # backend efetivo escolhido pelo chamador (CPU ou GPU via --gpu),
-    # mesmo que a detecção global de GPU seja diferente
+Returns
+-------
+tau_flat : 1D array (K,) with the torque on each needle [N·m], in the same backend as theta_flat, GPU or CPU"""
+    # detects the backend from the input array (instead of using the
+    # module global _xp) — so the function correctly respects the
+    # effective backend chosen by the caller (CPU or GPU via --gpu),
+    # even if the global GPU detection is different
     if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
-        xp = cp   # theta_flat é um array CuPy (GPU)
+        xp = cp   # theta_flat is an array CuPy (GPU)
     else:
-        xp = np   # theta_flat é um array NumPy (CPU)
+        xp = np   # theta_flat is an array NumPy (CPU)
     K  = theta_flat.shape[0]
 
-    # vetores de momento magnético de cada agulha fonte
+    # magnetic-moment vectors of each source needle
     mx = moment * xp.cos(theta_flat)   # (K,)
     my = moment * xp.sin(theta_flat)   # (K,)
 
-    # deslocamentos periódicos a somar (0.0 único se pbc=False)
+    # periodic shifts to sum (0.0 single one if pbc=False)
     if pbc and Lx and Ly:
         img_range = range(-n_images, n_images + 1)
         x_shifts = [k * Lx for k in img_range]
@@ -780,33 +706,33 @@ def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
 
     for dx_img in x_shifts:
         for dy_img in y_shifts:
-            # matriz de distâncias K×K: rx[a,b] = posição(a) - posição(b) - deslocamento
-            # broadcasting: x_flat[:, None] é coluna (receptor), x_flat[None, :] é linha (fonte)
+            # distance matrix K×K: rx[the,b] = position(the) - position(b) - shift
+            # broadcasting: x_flat[:, None] is a column (receiver), x_flat[None, :] is a row (source)
             rx = (x_flat[:, None] - x_flat[None, :]) - dx_img   # (K, K)
             ry = (y_flat[:, None] - y_flat[None, :]) - dy_img   # (K, K)
 
             r2 = rx*rx + ry*ry                                   # (K, K)
 
-            # máscara: distância > 0 (evita auto-interação) e <= cutoff
+            # mask: distance > 0 (avoids self-interaction) and <= cutoff
             is_self = (r2 < 1e-24)
             valid   = (~is_self) & (r2 <= cutoff*cutoff)
 
-            # evita divisão por zero nos elementos mascarados (serão zerados depois)
+            # avoids division by zero nos masked elements (will be zeroed afterwards)
             r2_safe = xp.where(valid, r2, 1.0)
             r       = xp.sqrt(r2_safe)
             r5      = r2_safe * r2_safe * r
 
-            # m·r para cada par (a=receptor, b=fonte): usa mx[b], my[b] (fonte)
+            # m·r for each pair (the=receiver, b=source): uses mx[b], my[b] (source)
             mdotr = mx[None, :] * rx + my[None, :] * ry          # (K, K)
 
             bx_pair = MU0_OVER_4PI * (3.0 * mdotr * rx / r5 - mx[None, :] / (r2_safe * r))
             by_pair = MU0_OVER_4PI * (3.0 * mdotr * ry / r5 - my[None, :] / (r2_safe * r))
 
-            # zera contribuições inválidas (fora do cutoff ou auto-interação)
+            # zeros invalid contributions (outside the cutoff or self-interaction)
             bx_pair = xp.where(valid, bx_pair, 0.0)
             by_pair = xp.where(valid, by_pair, 0.0)
 
-            # soma sobre todas as fontes (eixo 1) para cada receptor
+            # sums over all sources (axis 1) for each receiver
             Bx_tot += bx_pair.sum(axis=1)
             By_tot += by_pair.sum(axis=1)
 
@@ -817,56 +743,39 @@ def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
     return tau_flat
 
 
-# ── V40: tensor de interação dipolar pré-computado ─────────────────────────
-# Limite de memória para os 3 blocos K×K do tensor (float64). Acima disso,
-# relax() cai automaticamente para o cálculo por passo (método antigo).
+# ── V40: precomputed dipolar-interaction tensor ─────────────────────────
+# Memory limit for the three blocks K×K of the tensor (float64). Above this,
+# relax() automatically falls back for the per-step computestion (old method).
 TENSOR_MEM_LIMIT_BYTES = 4.0e9   # 4 GB
 
 
 def precompute_dipolar_tensor(x_flat, y_flat, cutoff,
                               pbc=False, Lx=None, Ly=None, n_images=1):
-    """
-    Pré-computa o tensor de interação dipolar da rede (V40).
+    """Precomputes the lattice dipolar-interaction tensor (V40).
 
-    Motivação: as POSIÇÕES das agulhas são fixas durante toda a simulação
-    — apenas os ângulos θ evoluem. Além disso, o campo dipolar é LINEAR
-    nos momentos (mx, my) das fontes. Logo, toda a geometria par-a-par
-    (distâncias, potências de r, máscaras de cutoff e a soma sobre
-    imagens periódicas) pode ser condensada, UMA ÚNICA VEZ antes do loop
-    de integração, em três matrizes constantes K×K:
+Motivation: the positions of the needles are fixed throughout the simulation; only the angles theta evolve. In addition, the dipolar field is linear in the source moments (mx, my). Therefore, all pairwise geometry, including distances, powers of r, cutoff masks, and the sum over periodic images, can be condensed once before the integration loop into three constant K×K matrices:
 
-        Bx_a = Σ_b [ Axx[a,b]·mx_b + Axy[a,b]·my_b ]
-        By_a = Σ_b [ Axy[a,b]·mx_b + Ayy[a,b]·my_b ]   (Ayx = Axy)
+    Bx_a = sum_b [ Axx[a,b]·mx_b + Axy[a,b]·my_b ]
+    By_a = sum_b [ Axy[a,b]·mx_b + Ayy[a,b]·my_b ]   (Ayx = Axy)
 
-    com
-        Axx[a,b] = (μ₀/4π)(3 rx²/r⁵ − 1/r³)
-        Axy[a,b] = (μ₀/4π)(3 rx·ry/r⁵)
-        Ayy[a,b] = (μ₀/4π)(3 ry²/r⁵ − 1/r³)
+with
+    Axx[a,b] = (mu0/4pi)(3 rx²/r⁵ - 1/r³)
+    Axy[a,b] = (mu0/4pi)(3 rx·ry/r⁵)
+    Ayy[a,b] = (mu0/4pi)(3 ry²/r⁵ - 1/r³)
 
-    Cada passo de integração se reduz então a produtos matriz-vetor
-    (BLAS na CPU, cuBLAS na GPU), em vez de reconstruir ~10 arrays K×K
-    com raízes quadradas e máscaras a cada passo — mesma física, mesmos
-    valores por par (a menos de reassociação de ponto flutuante), custo
-    por passo drasticamente menor.
+Each integration step is then reduced to matrix-vector products, BLAS on CPU or cuBLAS on GPU, instead of rebuilding about ten K×K arrays with square roots and masks at every step. The physics is the same, and pair values are the same up to floating-point reassociation; per-step cost is much lower.
 
-    A máscara reproduz exatamente a semântica de
-    compute_torques_vectorized: auto-interação excluída apenas na imagem
-    de deslocamento zero (réplicas periódicas da própria agulha
-    contribuem, como devem), e cutoff aplicado por imagem.
+The mask exactly reproduces compute_torques_vectorized semantics: self-interaction is excluded only in the zero-shift image, periodic replicas of the same needle contribute as they should, and the cutoff is applied image by image.
 
-    Parâmetros
-    ----------
-    x_flat, y_flat : arrays 1D (K,) com as posições [m], no backend
-                     desejado (NumPy/CPU ou CuPy/GPU — o tensor é criado
-                     no mesmo backend dos arrays de entrada)
-    cutoff         : raio máximo de interação [m]
-    pbc, Lx, Ly, n_images : condições periódicas (ver relax())
+Parameters
+----------
+x_flat, y_flat : 1D arrays (K,) with positions [m], in the desired backend, NumPy/CPU or CuPy/GPU. The tensor is created in the same backend as the input arrays.
+cutoff         : maximum interaction radius [m]
+pbc, Lx, Ly, n_images : periodic-boundary settings, see relax()
 
-    Retorna
-    -------
-    (Axx, Axy, Ayy) : três matrizes (K, K) no backend de entrada, em
-                      unidades de T/(A·m²) — campo por unidade de momento.
-    """
+Returns
+-------
+(Axx, Axy, Ayy) : three (K,K) matrices in the input backend, in units of T/(A·m²), field per unit moment."""
     if _GPU_AVAILABLE and hasattr(x_flat, 'get'):
         xp = cp
     else:
@@ -911,12 +820,7 @@ def precompute_dipolar_tensor(x_flat, y_flat, cutoff,
 
 
 def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext):
-    """
-    Calcula os torques usando o tensor pré-computado (V40): quatro
-    produtos matriz-vetor por passo. Fisicamente idêntico a
-    compute_torques_vectorized (diferenças apenas de reassociação de
-    ponto flutuante, ~1e-13 relativo).
-    """
+    """Computes torques using the precomputed tensor (V40): four matrix-vector products per step. Physically identical to compute_torques_vectorized, with differences only from floating-point reassociation, around 1e-13 relative."""
     if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
         xp = cp
     else:
@@ -942,93 +846,75 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           halo_mode='order', domain_tol_deg=15.0, make_images=True,
           hyst_spacing='linear', hyst_log_k=5.0,
           field_delay=0.0, t_pulse=None, torque_tol=1e-3,
-          t_sim_full=False):
-    """
-    Integra a dinâmica inercial real de cada agulha sem atrito no pino.
+          t_sim_full=False, hyst_autoscale=False):
+    """Integrates the real inertial dynamics of each needle with no pivot friction.
 
-    Modelo físico
-    -------------
-    Cada agulha é um corpo rígido com momento de inércia I girando em torno
-    do pino (eixo z). A equação de movimento é a 2ª Lei de Newton rotacional:
+Physical model
+--------------
+Each needle is a rigid body with moment of inertia I rotating around the pivot, the z axis. The equation of motion is Newton's second law for rotation:
 
-        I · d²θ/dt²  =  τ_z(θ, t)  −  b · dθ/dt
+    I · d²theta/dt² = tau_z(theta, t) - b · dtheta/dt
 
-    onde:
-        I        [kg·m²]  : momento de inércia (barra fina: I = mL²/12)
-        τ_z      [N·m]    : torque magnético planar = mx·By − my·Bx
-        b        [N·m·s]  : amortecimento viscoso do ar
-        dθ/dt    [rad/s]  : velocidade angular
+where:
+    I        [kg·m²] : moment of inertia, thin bar: I = mL²/12
+    tau_z    [N·m]   : planar magnetic torque = mx·By - my·Bx
+    b        [N·m·s] : viscous air damping
+    dtheta/dt [rad/s]: angular velocity
 
-    Atrito no pino = ZERO.
+Pivot friction = ZERO.
 
-    Modos de campo externo (field_mode)
-    ------------------------------------
-    'static'
-        Campo constante (Bext_x, Bext_y) em todo o intervalo.
+External-field modes (field_mode)
+---------------------------------
+'static'
+    Constant field (Bext_x, Bext_y) over the whole interval.
 
-    'hysteresis'
-        Campo varia linearmente no tempo ao longo de 3 rampas:
-          0 → t_sim/3  : B sobe de 0 até +B_max
-          t_sim/3 → 2t_sim/3 : B desce de +B_max até −B_max
-          2t_sim/3 → t_sim   : B sobe de −B_max até +B_max
-        A direção é sempre a de phi_ext. A amplitude B_max é |ext_field|.
-        Desabilita a parada por S=1.00 (a magnetização oscila).
+'hysteresis'
+    Field varies linearly in time over three ramps:
+      0 -> t_sim/3          : B rises from 0 to +B_max
+      t_sim/3 -> 2t_sim/3   : B falls from +B_max to -B_max
+      2t_sim/3 -> t_sim     : B rises from -B_max to +B_max
+    The direction is always phi_ext. The amplitude B_max is |ext_field|.
+    The S=1.00 stop condition is disabled because magnetization oscillates.
 
-    'sine'
-        Campo senoidal: B(t) = B_max · sin(2π·f·t)
-        Direção: phi_ext. Amplitude: B_max = |ext_field|. Freq: field_freq [Hz].
-        Desabilita a parada por S=1.00.
+'sine'
+    Sinusoidal field: B(t) = B_max · sin(2*pi*f*t)
+    Direction: phi_ext. Amplitude: B_max = |ext_field|. Frequency: field_freq [Hz].
+    The S=1.00 stop condition is disabled.
 
-    Parâmetros
-    ----------
-    thetas      : array N×M de ângulos iniciais  [rad]
-    xs, ys      : posições fixas das agulhas  [m]
-    t_sim       : tempo físico total da simulação  [s]
-                  (= soma dos passos dt, não tempo de CPU)
-    dt_factor   : fração do período natural T₀ usada como passo de tempo
-    inertia     : momento de inércia de cada agulha  [kg·m²]
-    damping     : coeficiente de amortecimento viscoso b  [N·m·s/rad]
-    cutoff      : raio máximo de interação dipolar  [m]
-    ext_field   : tupla (Bext_x, Bext_y) — campo base [T]
-                  Em 'static': campo constante.
-                  Em 'hysteresis'/'sine': define direção e amplitude máxima.
-    moment      : momento magnético de cada agulha  [A·m²]
-    field_mode  : 'static' | 'hysteresis' | 'sine'
-    field_freq  : frequência do campo senoidal [Hz] (só para field_mode='sine')
-    callback    : função opcional callback(step, thetas, omegas)
-    frame_dir   : diretório onde salvar PNGs de frames (ou None)
-    frame_every : intervalo em passos entre frames salvos
-    make_images : bool, default True
-                  Se False, desliga TODA geração de imagem dentro de relax():
-                  - frames PNG por passo (mesmo que frame_dir seja passado)
-                  - hysteresis_loop.png / sine_field.png de resumo ao final
-                  Os CSVs de dados (hysteresis_loop.csv, sine_field.csv) e o
-                  field_log retornado NÃO são afetados — apenas a renderização
-                  matplotlib, que é o custo dominante em campanhas com muitas
-                  chamadas programáticas de relax() (varreduras de parâmetro).
-    needle_len  : tamanho das agulhas para renderização  [m]
-    needle_width: largura das agulhas  [m]
-    r_halo      : raio dos halos de parâmetro de ordem  [m]
-    pbc         : se True, aplica condições periódicas de contorno em x e y
-                  (a rede se comporta como uma estrutura infinita periódica;
-                  agulhas nas bordas interagem com réplicas do lado oposto)
-    Lx, Ly      : dimensões do período da rede em x e y  [m]
-                  (necessários apenas se pbc=True; calculados em make_grid)
-    n_images    : número de réplicas periódicas a somar de cada lado em
-                  cada direção quando pbc=True (padrão: 1 → soma sobre
-                  uma grade de réplicas (2·1+1)² = 9 células)
-    B_ext       : intensidade do campo externo para rótulo nos frames  [T]
-    phi_ext_deg : direção do campo externo  [graus]
+Parameters
+----------
+thetas      : N×M array of initial angles [rad]
+xs, ys      : fixed needle positions [m]
+t_sim       : total physical simulation time [s], sum of dt steps, not CPU time
+dt_factor   : fraction of the natural period T0 used as time step
+inertia     : moment of inertia of each needle [kg·m²]
+damping     : viscous damping coefficient b [N·m·s/rad]
+cutoff      : maximum dipolar-interaction radius [m]
+ext_field   : tuple (Bext_x, Bext_y), base field [T]. In 'static', constant field. In 'hysteresis'/'sine', defines direction and maximum amplitude.
+moment      : magnetic moment of each needle [A·m²]
+field_mode  : 'static' | 'hysteresis' | 'sine'
+field_freq  : sinusoidal-field frequency [Hz], only for field_mode='sine'
+callback    : optional function callback(step, thetas, omegas)
+frame_dir   : directory for saving PNG frames, or None
+frame_every : step interval between saved frames
+make_images : bool, default True. If False, disables all image generation inside relax(): per-step PNG frames, even if frame_dir is passed, and final hysteresis_loop.png or sine_field.png summaries. Data CSVs and returned field_log are not affected.
+needle_len  : needle size for rendering [m]
+needle_width: needle width [m]
+r_halo      : radius of order-parameter halos [m]
+pbc         : if True, applies periodic boundary conditions in x and y so the lattice behaves as an infinite periodic structure
+Lx, Ly      : lattice periods in x and y [m], required only if pbc=True and computed in make_grid
+n_images    : number of periodic replicas to sum on each side in each direction when pbc=True; default 1 gives a (2·1+1)² = 9-cell replica grid
+B_ext       : external-field magnitude for frame labels [T]
+phi_ext_deg : external-field direction [degrees]
 
-    Retorna
-    -------
-    theta_cur   : array N×M — ângulos no estado final  [rad]
-    omega_cur   : array N×M — velocidades angulares  [rad/s]
-    hist        : lista de tuplas (thetas, omegas) a cada 20 passos
-    n_frames    : número de frames PNG salvos
-    dt          : passo de tempo usado  [s]
-    stop_reason : string descrevendo como a simulação terminou
-    """
+Returns
+-------
+theta_cur   : N×M array, final-state angles [rad]
+omega_cur   : N×M array, angular velocities [rad/s]
+hist        : list of tuples (thetas, omegas) every 20 steps
+n_frames    : number of saved PNG frames
+dt          : time step used [s]
+stop_reason : string describing how the simulation ended"""
     import os
     import time as _time_module
 
@@ -1036,52 +922,52 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     Bext_x, Bext_y = ext_field
     n_frames = 0
 
-    # ── decide o backend efetivo desta chamada (respeita --gpu 0/1) ───────
-    # _GPU_AVAILABLE (global do módulo) indica se CuPy + GPU CUDA funcional
-    # foram detectados na inicialização. use_gpu (parâmetro, vindo de --gpu)
-    # decide se essa capacidade deve de fato ser USADA nesta simulação.
-    # Isso permite comparar diretamente CPU vs GPU sem reiniciar o processo
-    # ou desinstalar o CuPy — útil para medir o ganho real de desempenho.
+    # ── chooses the effective backend for this call (respects --gpu 0/1) ───────
+    # _GPU_AVAILABLE (global of the module) indicates whether CuPy + GPU CUDA funcional
+    # were detected at initialization. use_gpu (parameter, coming from --gpu)
+    # decides whether this capability should actually be USED in this simulation.
+    # This makes it possible to compare directly CPU vs GPU without restarting the process
+    # or uninstalling the CuPy — useful for measuring the real performance gain.
     _active_gpu = use_gpu and _GPU_AVAILABLE
     _active_xp  = cp if _active_gpu else np
 
     def _local_to_backend(arr):
-        """Versão local de _to_backend que respeita _active_gpu desta chamada."""
+        """Local version of _to_backend that respects _active_gpu for this call."""
         if _active_gpu:
             return cp.asarray(arr)
         return np.asarray(arr)
 
     def _local_to_cpu(arr):
-        """Versão local de _to_cpu que respeita _active_gpu desta chamada."""
+        """Local version of _to_cpu that respects _active_gpu for this call."""
         if _active_gpu and hasattr(arr, 'get'):
             return arr.get()
         return arr
 
-    # ── distância entre primeiros vizinhos ─────────────────────────────────
-    # Vetorizado via broadcasting NumPy (em vez de 4 loops Python aninhados,
-    # O(K²) iterações interpretadas) — para redes grandes (K = N×M na casa
-    # dos milhares), a versão com loops Python puros podia levar muitos
-    # segundos só nesta etapa, ANTES da thread de escuta de teclado (Ctrl+I/
-    # Ctrl+C) ser iniciada — deixando o programa "surdo" a qualquer
-    # interrupção durante esse tempo. A versão vetorizada calcula a mesma
-    # coisa (menor distância entre quaisquer duas agulhas distintas da
-    # rede) em microssegundos mesmo para K~10000.
+    # ── nearest-neighbor distance ─────────────────────────────────
+    # Vectorized via NumPy broadcasting (in time of 4 nested Python loops,
+    # O(K²) interpreted iterations) — for large lattices (K = N×M in the
+    # of the milhares), the pure-Python loop version podia levar many
+    # segundos in this step alone, BEFORE the keyboard-listener thread (Ctrl+I/
+    # Ctrl+C) is started — leaving the program "deaf" to any
+    # interruption during that time. The vectorized version computes the same
+    # coisa (minimum distance between any two distinct needles of the
+    # lattice) in microseconds same for K~10000.
     x_flat_for_nn = xs.ravel()
     y_flat_for_nn = ys.ravel()
     dx_nn = x_flat_for_nn[:, None] - x_flat_for_nn[None, :]
     dy_nn = y_flat_for_nn[:, None] - y_flat_for_nn[None, :]
     d_nn  = np.sqrt(dx_nn**2 + dy_nn**2)
-    np.fill_diagonal(d_nn, np.inf)   # exclui distância de cada agulha a si mesma
+    np.fill_diagonal(d_nn, np.inf)   # excludes distance from each needle to itself
     r_nn  = float(np.min(d_nn))
 
-    # ── campo efetivo, frequência natural, dt e n_steps ───────────────────
+    # ── effective field, natural frequency, dt and n_steps ───────────────────
     B_ref     = MU0_OVER_4PI * 2.0 * moment / r_nn**3
     B_ext_mag = np.sqrt(Bext_x**2 + Bext_y**2)
     B_eff     = max(B_ref, B_ext_mag)
     omega0    = np.sqrt(moment * B_eff / inertia)
     T0        = 2.0 * np.pi / omega0
     dt        = dt_factor * T0
-    # número de passos calculado a partir do tempo total pedido
+    # number of steps computested from of the requested total time
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
@@ -1103,15 +989,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _print(f"    Q       = {Q:.1f}  ({q_desc})")
     _print()
 
-    # ── condições iniciais ─────────────────────────────────────────────────
+    # ── initial conditions ─────────────────────────────────────────────────
     theta_cur = thetas.copy()
     omega_cur = np.zeros((N, M))
     hist      = [(theta_cur.copy(), omega_cur.copy())]
 
-    # make_images=False desliga toda geração de imagem (frames PNG por passo
-    # e PNGs de resumo de histerese/senoidal), independente de frame_dir ter
-    # sido passado. Isso evita custo de matplotlib em varreduras programáticas
-    # de parâmetro, sem afetar os CSVs/field_log retornados.
+    # make_images=False turns off all image generation (PNG frames per step
+    # and summary PNGs of hysteresis/sine), regardless of frame_dir ter
+    # sido passado. Isso avoids matplotlib cost in programmatic sweeps
+    # of parameter, without affecting the CSVs/field_log returned.
     if not make_images and frame_dir is not None:
         _print(f"  Aviso: make_images=False -> ignorando frame_dir='{frame_dir}' "
                f"(nenhum PNG sera gerado)")
@@ -1120,7 +1006,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     if frame_dir is not None:
         os.makedirs(frame_dir, exist_ok=True)
 
-    # ── funções auxiliares de formatação ──────────────────────────────────
+    # ── formatting helper functions ──────────────────────────────────
     def _fmt_B(B):
         if B == 0:    return ""
         if B >= 0.1:  return f"B={B:.3f} T"
@@ -1128,27 +1014,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         return            f"B={B*1e6:.1f} µT"
 
     def _draw_clock(ax, t_phys, needle_len, stop_label=None):
-        """
-        Desenha um cronômetro no canto superior esquerdo mostrando o
-        TEMPO FÍSICO DO SISTEMA — a soma dos passos de integração dt,
-        equivalente ao tempo que um cronômetro real marcaria observando
-        as agulhas se mover.
+        """Draws a stopwatch in the upper-left corner showing the system's physical time: the sum of integration steps dt, equivalent to the time a real stopwatch would measure while observing the needles move.
 
-        t_phys = step * dt   [s]
+t_phys = step * dt [s]
 
-        Elementos:
-          - Texto grande: t = X.XXXX s  (tempo físico atual)
-          - Subtexto: / X.XXXX s        (tempo físico total t_sim)
-          - Barra de progresso: t_phys / t_sim
-          - Rótulo de parada quando a simulação termina antes de t_sim
-          - Caixa semitransparente de fundo
-        """
+elements: main text with current time, total requested time, a progress bar, an early-stop label when applicable, and a semitransparent background box."""
         xlim  = ax.get_xlim()
         ylim  = ax.get_ylim()
         xspan = xlim[1] - xlim[0]
         yspan = ylim[1] - ylim[0]
 
-        # posição do painel — canto superior esquerdo
+        # panel position — upper-left corner
         px    = xlim[0] + 0.02 * xspan
         py    = ylim[1] - 0.03 * yspan
 
@@ -1158,7 +1034,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         extra_h = 0.030 * yspan if stop_label else 0.0
 
-        # caixa de fundo semitransparente
+        # semi-transparent background box
         pad = needle_len * 0.25
         ax.add_patch(plt.Rectangle(
             (px - pad * 0.3, bar_y - pad * 0.6 - extra_h),
@@ -1167,16 +1043,16 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             linewidth=0.8, alpha=0.82, zorder=19,
             transform=ax.transData))
 
-        # ── barra de progresso: t_phys / t_sim ────────────────────────────
+        # ── progress bar: t_phys / t_sim ────────────────────────────
         frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
 
-        # trilha cinza
+        # gray track
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w, bar_h,
             facecolor='#252540', edgecolor='none',
             zorder=20, transform=ax.transData))
 
-        # preenchimento: verde → amarelo → vermelho
+        # fill: green → yellow → red
         if frac > 0:
             r_col = min(2.0 * frac, 1.0)
             g_col = min(2.0 * (1.0 - frac), 1.0)
@@ -1185,21 +1061,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 facecolor=(r_col, g_col, 0.15), edgecolor='none',
                 zorder=21, transform=ax.transData))
 
-        # borda
+        # border
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w, bar_h,
             facecolor='none', edgecolor='#5A5A8A',
             linewidth=0.7, zorder=22, transform=ax.transData))
 
-        # marcador branco na posição atual
+        # white marker at the current position
         if 0 < frac < 1.0:
             mx = px + bar_w * frac
             ax.plot([mx, mx], [bar_y, bar_y + bar_h],
                     color='white', lw=1.2, zorder=24,
                     transform=ax.transData)
 
-        # ── texto: tempo físico atual ──────────────────────────────────────
-        # formata em mm:ss.ss se >= 60 s, senão em s com 4 casas decimais
+        # ── text: current physical time ──────────────────────────────────────
+        # formats as mm:ss.ss if >= 60 s, otherwise in seconds with 4 decimal places
         if t_phys >= 60.0:
             mins = int(t_phys // 60)
             secs = t_phys - mins * 60
@@ -1213,14 +1089,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        # subtexto: tempo total solicitado
+        # subtext: requested total time
         ax.text(px + pad * 0.2, py - 0.038 * yspan,
                 f"/ {t_sim:.4f} s  (tempo físico)",
                 color='#5555AA', fontsize=6,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
 
-        # rótulo de parada
+        # stop label
         if stop_label:
             ax.text(px + pad * 0.2,
                     bar_y - pad * 0.5 - extra_h * 0.3,
@@ -1229,39 +1105,33 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     fontfamily='monospace', va='top', ha='left',
                     zorder=25, transform=ax.transData)
 
-    # ── histórico de campo/magnetização (inicializado ANTES das funções de
-    # frame, pois o frame inicial já consulta hysteresis_log para o painel
-    # M×H da histerese) ──────────────────────────────────────────────────
-    # field_log: (t, B, M_proj, S) para todos os modos.
+    # ── field/magnetization history (initialized BEFORE of the functions of
+    # frame, because the initial frame already queries hysteresis_log for the panel
+    # M×H of the hysteresis) ──────────────────────────────────────────────────
+    # field_log: (t, B, M_proj, S) for all modes.
     field_log      = []
     hysteresis_log = [] if field_mode == 'hysteresis' else None
     sine_log       = [] if field_mode == 'sine'       else None
 
     def _save_frame(step, th, om, stop_label=None,
                     B_ext_inst=None, phi_ext_inst=None):
-        """
-        Renderiza e salva um frame PNG.
+        """Renders and saves a PNG frame.
 
-        B_ext_inst : valor COM SINAL do campo projetado na direção phi [T].
-                     Negativo na fase inversa da histerese.
-                     O painel mostra a seta invertida e o valor com sinal.
-        phi_ext_inst: direção base do campo [graus].
-        B_ext (closure) : amplitude máxima — usada para escalar a barra.
+B_ext_inst is the signed value of the field projected along phi [T]. It is negative during the reversed hysteresis phase. The panel shows the inverted arrow and signed value.
 
-        V45: no modo 'hysteresis', gera um frame de DOIS painéis — agulhas
-        à esquerda e a curva M×H (traçada até o instante atual) à direita,
-        evoluindo à medida que o campo é varrido.
-        """
+phi_ext_inst is the base field direction [degrees]. The closure variable B_ext is the maximum amplitude and is used to scale the bar.
+
+V45: in hysteresis mode, creates a two-panel frame: needles on the left and the evolving M-H curve on the right as the field is swept."""
         nonlocal n_frames
         t_phys   = step * dt
         S        = np.abs(np.mean(np.exp(1j * th)))
         om_max   = np.max(np.abs(om))
 
-        # campo com sinal: B_now pode ser negativo (campo invertido)
+        # signed field: B_now can be negative (reversed field)
         b_now    = B_ext_inst   if B_ext_inst   is not None else B_ext
         phi_now  = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
 
-        # texto com sinal: "+60.8 mT" ou "-60.8 mT" ou "0 T"
+        # signed text: "+60.8 mT" or "-60.8 mT" or "0 T"
         if b_now is not None and abs(b_now) > 1e-12:
             sign_str = "+" if b_now > 0 else "-"
             b_str = sign_str + _fmt_B(abs(b_now))
@@ -1270,17 +1140,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         title = f"S = {S:.4f}   w_max = {om_max:.2f} rad/s   B = {b_str}"
 
-        # quando B < 0: a seta aponta na direção oposta (phi + 180°)
+        # when B < 0: the arrow points in the opposite direction (phi + 180°)
         phi_display = phi_now if (b_now is None or b_now >= 0) else (phi_now + 180.0) % 360.0
 
         if field_mode == 'hysteresis':
-            # ── frame de dois painéis: agulhas + curva M×H evolutiva ────────
+            # ── two-panel frame: needles + curve M×H evolving ────────
             fig, (axL, axR) = plt.subplots(
                 1, 2, figsize=(figsize_inches[0] * 2.05, figsize_inches[1]),
                 facecolor='#1A1A2E',
                 gridspec_kw={'width_ratios': [1.0, 1.0]})
 
-            # painel esquerdo: agulhas (halos + bússolas + seta de campo)
+            # left panel: needles (halos + compasss + field arrow)
             axL.set_facecolor('#16213E')
             axL.set_aspect('equal')
             _margin = needle_len * 1.6
@@ -1302,7 +1172,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                           fontfamily='monospace')
             _draw_clock(axL, t_phys, needle_len, stop_label=stop_label)
 
-            # painel direito: curva M×H até o instante atual
+            # right panel: curve M×H up to the current instant
             _render_hyst_panel(axR)
 
             plt.tight_layout()
@@ -1319,7 +1189,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                              B_ext=abs(b_now) if b_now is not None else 0.0,
                              phi_ext_deg=phi_display,
                              B_ext_max=B_ext,
-                             B_signed=b_now,        # valor com sinal para o texto do painel
+                             B_signed=b_now,        # signed value for the text of the panel
                              figsize_inches=figsize_inches,
                              halo_mode=halo_mode,
                              domain_tol_deg=domain_tol_deg)
@@ -1332,19 +1202,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         n_frames += 1
 
     def _render_hyst_panel(axR):
-        """Desenha a curva M×H acumulada até o passo atual (usa o
-        hysteresis_log, preenchido a cada passo do loop). A escala dos
-        eixos é fixa (± B_max no eixo H; ± max|M| observado no eixo M),
-        para que a curva não 'salte' enquanto é traçada. O ponto atual é
-        destacado. Chamado a cada frame no modo histerese (V45)."""
+        """Draws the accumulated M-H curve up to the current step. Uses hysteresis_log, with the current point highlighted. Called at each frame in hysteresis mode (V45)."""
         axR.set_facecolor('#16213E')
         for sp in axR.spines.values():
             sp.set_edgecolor('#2C3E50')
         axR.tick_params(colors='#7F8C9A', labelsize=8)
 
-        # escala fixa de H: ±B_max (em mT para leitura)
+        # fixed scale of H: ±B_max (in mT for readability)
         H_max_mT = (B_ext * 1e3) if B_ext > 0 else 1.0
-        axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
         axR.set_xlabel("H  (mT)", color='#BDC3C7', fontsize=10,
                        fontfamily='monospace')
         axR.set_ylabel("M  (projeção normalizada)", color='#BDC3C7',
@@ -1352,7 +1217,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         axR.set_title("Curva de histerese  M × H", color='#ECF0F1',
                       fontsize=11, fontfamily='monospace')
 
-        # eixos em cruz
+        # cross axes
         axR.axhline(0.0, color='#2C3E50', lw=1.0, zorder=1)
         axR.axvline(0.0, color='#2C3E50', lw=1.0, zorder=1)
 
@@ -1360,32 +1225,49 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             arr = np.array(hysteresis_log)      # (t, B, M, S)
             H_mT = arr[:, 1] * 1e3
             Mv   = arr[:, 2]
-            # M_proj já é a magnetização média POR AGULHA projetada na
-            # direção do campo, normalizada (satura em ±1 quando todas as
-            # agulhas se alinham) — não requer nova normalização.
-            axR.set_ylim(-1.15, 1.15)
+            # M_proj is already the mean magnetization PER NEEDLE projetada na
+            # field direction, normalized (saturates in ±1 when all
+            # needles align) — does not require another normalization.
+            if hyst_autoscale:
+                H_min, H_max = np.min(H_mT), np.max(H_mT)
+                M_min, M_max = np.min(Mv), np.max(Mv)
+                H_span = H_max - H_min
+                M_span = M_max - M_min
+                
+                H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
+                M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
+                
+                axR.set_xlim(H_min - H_margin, H_max + H_margin)
+                axR.set_ylim(M_min - M_margin, M_max + M_margin)
+            else:
+                axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
+                axR.set_ylim(-1.15, 1.15)
+                
             axR.plot(H_mT, Mv, color='#F1C40F', lw=1.6, zorder=3)
-            # ponto atual destacado
+            # current point highlighted
             axR.plot([H_mT[-1]], [Mv[-1]], 'o', color='#E74C3C',
                      ms=7, zorder=4)
+        else:
+            axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
+            axR.set_ylim(-1.15, 1.15)
 
     if frame_dir is not None:
         _save_frame(0, theta_cur, omega_cur)
 
-    # ── thread de escuta de teclado (Ctrl+I = interrupção interativa) ──────
-    # Ctrl+I no terminal envia o caractere ASCII \t (TAB, código 9).
-    # Uma thread separada lê stdin em modo raw e seta uma flag compartilhada
-    # quando detecta \t, sem interromper o processo principal.
-    # Funciona em Linux e macOS. No Windows usa msvcrt.
+    # ── keyboard-listener thread (Ctrl+I = interactive interruption) ──────
+    # Ctrl+I in the terminal sends the ASCII character \t (TAB, code 9).
+    # A separate thread reads stdin in raw mode and sets the shared flag
+    # when it detects \t, without interrupting the main process.
+    # Works on Linux and macOS. On Windows it uses msvcrt.
     import threading, sys, os as _os
 
-    _stop_flag = threading.Event()   # setado pela thread ou por S=1
+    _stop_flag = threading.Event()   # set by the thread or by S=1
 
-    # estado original do terminal — salvo no escopo externo para garantir
-    # restauração mesmo se a simulação terminar por outro motivo que não
-    # Ctrl+I (S=1, t_sim atingido, repouso, pulso concluído). Sem isso, o
-    # terminal pode ficar em modo raw após o programa encerrar, deixando
-    # o shell (zsh/bash) com saída quebrada nos comandos seguintes.
+    # original terminal state — saved in the outer scope for garantir
+    # restoration even if the simulation ends for another reason other than
+    # Ctrl+I (S=1, t_sim reached, rest, pulse completed). Without this, the
+    # terminal may remain in raw mode after the program exits, deixando
+    # the shell (zsh/bash) with broken output in subsequent commands.
     _term_fd  = None
     _term_old = None
     try:
@@ -1393,10 +1275,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _term_fd  = sys.stdin.fileno()
         _term_old = termios.tcgetattr(_term_fd)
     except Exception:
-        pass   # stdin não é um terminal (pipe, redirecionamento, etc.)
+        pass   # stdin is not the terminal (pipe, redirection, etc.)
 
     def _restore_terminal():
-        """Restaura o terminal ao modo normal (cooked), se foi alterado."""
+        """Restores the terminal to normal cooked mode if it was changed."""
         if _term_fd is not None and _term_old is not None:
             try:
                 import termios
@@ -1404,25 +1286,20 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             except Exception:
                 pass
 
-    # registra como rede de segurança final: garante restauração mesmo em
-    # caso de exceção não tratada, Ctrl+C, ou qualquer encerramento abrupto
+    # registers as the final safety net: ensures restoration even in
+    # case of an unhandled exception, Ctrl+C, or any abrupt termination
     import atexit
     atexit.register(_restore_terminal)
 
     def _keyboard_listener():
-        """
-        Lê stdin caractere a caractere em modo raw.
-        Ao detectar Ctrl+I (\\t, ASCII 9), seta _stop_flag (interrupção
-        "suave": aguarda o passo atual terminar, salva frame final, etc).
-        Ao detectar Ctrl+C (\\x03, ASCII 3), encerra o processo IMEDIATAMENTE
-        via os._exit() (interrupção "dura": não salva nada, aborta tudo na
-        hora). Em modo raw, o terminal não gera SIGINT automaticamente a
-        partir de Ctrl+C — essa característica do modo raw desabilita o
-        processamento especial de caracteres de controle, incluindo o que
-        normalmente geraria o sinal. Por isso o encerramento é feito
-        diretamente pela própria thread, sem depender de propagação de
-        sinal entre threads (que se mostrou não confiável em testes).
-        """
+        """Keyboard-listener thread for Ctrl+I (Tab).
+
+Goal: allow interrupting a long simulation and immediately finishing/saving the video, instead of losing all frames already generated.
+
+Implementation:
+- on POSIX systems, puts stdin in cbreak mode and reads one character at a time;
+- Ctrl+I and Tab have ASCII code 9, so either key sets the stop flag;
+- in non-interactive environments, the listener simply returns."""
         try:
             import tty, termios
             fd = sys.stdin.fileno()
@@ -1433,100 +1310,62 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _stop_flag.set()
                     break
                 elif ch == b'\x03':      # Ctrl+C = ETX = ASCII 3
-                    # Encerramento IMEDIATO e incondicional. Em modo raw,
-                    # o terminal não gera SIGINT automaticamente a partir
-                    # de Ctrl+C (isso é desabilitado junto com o resto do
-                    # processamento especial de caracteres de controle).
-                    # Reenviar SIGINT manualmente (os.kill) foi testado e
-                    # mostrou-se não confiável: quando a thread principal
-                    # está em uma chamada bloqueante (ex: aguardando esta
-                    # mesma thread, ou dentro de uma operação NumPy longa),
-                    # a entrega do sinal pode nunca ocorrer. Por isso aqui
-                    # encerramos o processo diretamente — sem esperar a
-                    # thread principal "perceber" nada. Restauramos o
-                    # terminal primeiro, já que os._exit() pula qualquer
-                    # finally/atexit do restante do programa.
+                    # IMMEDIATE and unconditional termination. In mode raw,
+                    # the terminal does not automatically generate SIGINT from
+                    # of Ctrl+C (this is disabled together with the rest of the
+                    # special processing of control characters).
+                    # Manually resending SIGINT (the.kill) was tested and
+                    # proved unreliable: when the thread main
+                    # is in a blocking call (e.g., waiting for this
+                    # same thread, or inside a long NumPy operation),
+                    # the signal delivery may never occur. Therefore here
+                    # we terminate the process directly — without waiting the
+                    # thread main "to notice" anything. Restauramos the
+                    # terminal first, since the._exit() skips any
+                    # finally/atexit from the rest of the program.
                     _restore_terminal()
                     sys.stdout.write("\r\n  Abortado (Ctrl+C) — encerramento imediato.\r\n")
                     sys.stdout.flush()
-                    _os._exit(130)   # 130 = código de saída convencional p/ SIGINT
+                    _os._exit(130)   # 130 = conventional exit code for SIGINT
         except Exception:
-            # stdin não é um terminal (redirecionamento, pipe, Windows sem
-            # msvcrt) — desabilita silenciosamente a escuta de teclado
+            # stdin is not the terminal (redirection, pipe, Windows without
+            # msvcrt) — silently disables the keyboard listening
             pass
         finally:
             _restore_terminal()
 
-    # inicia thread como daemon para não bloquear o encerramento do programa
+    # starts thread the daemon so the not to block the program termination
     _kb_thread = threading.Thread(target=_keyboard_listener, daemon=True)
     _kb_thread.start()
 
-    # ── campo externo base: direção e amplitude máxima ────────────────────
-    Bext_x0, Bext_y0 = ext_field        # campo base (direção + amplitude)
-    B_max = np.sqrt(Bext_x0**2 + Bext_y0**2)   # amplitude máxima [T]
-    phi_rad = np.arctan2(Bext_y0, Bext_x0)      # direção [rad]
+    # ── base external field: direction and maximum amplitude ────────────────────
+    Bext_x0, Bext_y0 = ext_field        # base field (direction + amplitude)
+    B_max = np.sqrt(Bext_x0**2 + Bext_y0**2)   # maximum amplitude [T]
+    phi_rad = np.arctan2(Bext_y0, Bext_x0)      # direction [rad]
     cos_phi = np.cos(phi_rad)
     sin_phi = np.sin(phi_rad)
 
     def field_at(t):
-        """
-        Retorna (Bx, By) do campo externo no instante físico t [s].
+        """Computes the instantaneous signed external field for the selected field mode.
 
-        Modos
-        -----
-        'static'
-            Campo constante = (Bext_x0, Bext_y0) durante toda a simulação.
-
-        'hysteresis'
-            Ciclo completo em 5 segmentos iguais de t_sim/5 cada:
-              segmento 1: t ∈ [0,       t5]   →  B: 0 → +B_max
-              segmento 2: t ∈ [t5,    2*t5]   →  B: +B_max → 0
-              segmento 3: t ∈ [2*t5,  3*t5]   →  B: 0 → -B_max
-              segmento 4: t ∈ [3*t5,  4*t5]   →  B: -B_max → 0
-              segmento 5: t ∈ [4*t5,  t_sim]  →  B: 0 → +B_max
-            Direção: phi_ext (constante). Amplitude máxima: B_max = |ext_field|.
-
-        'sine'
-            B(t) = B_max · sin(2π · field_freq · t)
-            Direção: phi_ext. Frequência: field_freq [Hz].
-
-        'pulse'  (linha do tempo V41)
-            Fase 0 (espera):  B = 0 durante field_delay [s].
-            Fase 1 (pulso):   B = B_max durante t_pulse [s], se t_pulse
-              foi fornecido. Se t_pulse=None (comportamento legado), o
-              campo permanece até uma das condições:
-              A) S >= 0.99 por 20 passos consecutivos, ou
-              B) S estabiliza (variação < 5% na janela deslizante).
-            Fase 2 (estabilização): B = 0; a simulação encerra quando a
-              rede atinge equilíbrio real (ω_max pequeno E torque médio
-              |τ| < torque_tol · τ_ref, por 50 passos) ou em t_sim.
-
-        'step_pos'
-            B = 0 durante field_delay [s]; depois o campo é aplicado e
-            MANTIDO até o fim. Encerra antes se equilibrar (mesmo
-            critério ω+torque da fase 2 do pulso).
-
-        'step_neg'
-            Campo aplicado desde t = 0; em t = field_delay é removido
-            (zerado) e assim permanece. Encerra antes se equilibrar.
-        """
+Returns (bx, by, B_scalar), where B_scalar is the signed projection along phi_ext. In static mode, the scalar is positive. In hysteresis and sine modes, it changes sign according to the ramp or sinusoid."""
         if field_mode == 'static':
             return Bext_x0, Bext_y0
 
         elif field_mode == 'hysteresis':
-            # Ciclo completo: 0→+Bmax→0→-Bmax→0→+Bmax
-            # 5 segmentos de t5 = t_sim/5. Dentro de cada segmento, u0 é a
-            # fração percorrida a partir da extremidade B=0 do segmento.
+            # Full cycle: 0→+Bmax→0→-Bmax→0→+Bmax
+            # 5 segments of t5 = t_sim/5. Within each segment, u0 is the
+            # fraction traversed from of the endpoint B=0 of the segmento.
             #
-            # hyst_spacing='linear' (padrão): |B| = Bmax·u0  (V40 e anteriores)
+            # hyst_spacing='linear' (default): |B| = Bmax·u0  (V40 and earlier)
             # hyst_spacing='log'   : |B| = Bmax·sinh(k·u0)/sinh(k)
-            #     Espaçamento tipo log simétrico (via sinh, pois o log puro
-            #     não cruza zero): dB/dt pequeno perto de B=0 → amostragem
-            #     FINA em campo na região da transição/coercividade; dB/dt
-            #     grande perto de ±Bmax → amostragem GROSSA na saturação.
-            #     k (hyst_log_k) controla a concentração: k→0 recupera o
-            #     linear; k=5 concentra ~15x mais pontos perto de B=0 do
-            #     que perto da saturação.
+            #     symmetric log-like spacing (via sinh, because the pure log
+            #     does not cross zero): dB/dt small near B=0 → amostragem
+            #     FINE field sampling in the transition/coercivity region; dB/dt
+            #     large near ±Bmax → COARSE sampling at saturation.
+            #     k (hyst_log_k) controls the concentratestion: k→0 recupera the
+            #     linear; k=5 concentrates ~15x more points near of B=0 of the
+            #     than near saturation.
             T  = t_sim if t_sim > 0 else 1.0
             t5 = T / 5.0
             if t <= t5:                      # seg 1: 0 → +Bmax
@@ -1540,11 +1379,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             else:                            # seg 5: 0 → +Bmax
                 u0, sgn = ((t - 4.0 * t5) / t5), +1.0
             if hyst_spacing == 'log' and hyst_log_k > 1e-9:
-                # clamp só no modo log: o passo final pode cair além de
-                # t_sim (u0 ligeiramente > 1) e o sinh amplificaria esse
-                # overshoot exponencialmente. No modo linear o overshoot
-                # residual (~dt/t5 de B_max) é mantido por compatibilidade
-                # bit-a-bit com V40 e anteriores.
+                # clamp only in log mode: the final step may fall beyond of
+                # t_sim (u0 slightly > 1) and the sinh amplificaria esse
+                # overshoot exponencialmente. No linear mode the overshoot
+                # residual (~dt/t5 of B_max) is kept for compatibility
+                # bit-for-bit with V40 and earlier.
                 u0 = min(max(u0, 0.0), 1.0)
                 g = np.sinh(hyst_log_k * u0) / np.sinh(hyst_log_k)
             else:
@@ -1557,13 +1396,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'pulse':
-            # Linha do tempo (V41):
-            #   [0, field_delay)                : B = 0   (espera inicial)
-            #   [field_delay, fim do pulso)     : B = B_max
-            #   [fim do pulso, ...)             : B = 0   (estabilização)
-            # O "fim do pulso" é field_delay + t_pulse se t_pulse foi dado;
-            # senão (legado), é quando o critério de S dispara
-            # (_pulse_relaxing, controlado no loop principal).
+            # Timeline (V41):
+            #   [0, field_delay)                : B = 0   (initial wait)
+            #   [field_delay, end of the pulse)     : B = B_max
+            #   [end of the pulse, ...)             : B = 0   (stabilization)
+            # The "end of the pulse" is field_delay + t_pulse if t_pulse was given;
+            # otherwise (legacy), it is when the criterion of S triggers
+            # (_pulse_relaxing, controlled in the main loop).
             if t < field_delay:
                 return 0.0, 0.0
             if t_pulse is not None:
@@ -1575,15 +1414,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return Bext_x0, Bext_y0
 
         elif field_mode == 'step_pos':
-            # Degrau positivo: B=0 durante field_delay, depois campo
-            # aplicado e mantido até o fim.
+            # Positive step: B=0 during field_delay, then field
+            # applied and held until the end.
             if t < field_delay:
                 return 0.0, 0.0
             return Bext_x0, Bext_y0
 
         elif field_mode == 'step_neg':
-            # Degrau negativo: campo aplicado desde t=0; removido (zerado)
-            # em t=field_delay e assim permanece até o fim.
+            # Negative step: field applied from t=0; removed (zeroed)
+            # in t=field_delay and remains so until the end.
             if t < field_delay:
                 return Bext_x0, Bext_y0
             return 0.0, 0.0
@@ -1591,28 +1430,28 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         else:
             return Bext_x0, Bext_y0
 
-    # flag mutável para o modo 'pulse' (lista de 1 elemento para ser
-    # modificável dentro de _save_frame e do loop sem 'nonlocal')
-    _pulse_relaxing = [False]   # False = campo ligado; True = relaxando
+    # mutable flag for the mode 'pulse' (one-element list for be
+    # mutable inside _save_frame and the loop without nonlocal
+    _pulse_relaxing = [False]   # False = field on; True = relaxing
 
-    # imprime instrução de uso
+    # prints usesge instruction
     _print("  [Ctrl+I para interromper e salvar o video agora]")
     _print("  [Ctrl+C para abortar IMEDIATAMENTE, sem salvar nada]")
 
-    # ── função auxiliar: calcula torques SI para estado θ e campo B(t) ────
-    # ── pré-converte posições para arrays "flat" no backend ativo ─────────
-    # (GPU via CuPy se disponível, senão CPU via NumPy) — feito uma única
-    # vez antes do loop de integração, pois xs/ys são fixos durante toda
-    # a simulação (só os ângulos theta mudam a cada passo)
+    # ── helper function: computestes torques SI for state θ and field B(t) ────
+    # ── pre-converts positions to "flat" arrays in the active backend ─────────
+    # (GPU via CuPy if available, otherwise CPU via NumPy) — done only once
+    # time before the integration loop, because xs/ys are fixed during all
+    # the simulation (only the angles theta change at each step)
     x_flat_xp = _local_to_backend(xs.ravel())
     y_flat_xp = _local_to_backend(ys.ravel())
 
-    # ── V40: pré-computa o tensor de interação dipolar ────────────────────
-    # Posições fixas + campo linear nos momentos => toda a geometria K×K
-    # (distâncias, cutoff, imagens PBC) é condensada em 3 matrizes
-    # constantes ANTES do loop; cada passo vira produtos matriz-vetor
-    # (BLAS/cuBLAS). Fallback automático para o método por passo se o
-    # tensor não couber no limite de memória.
+    # ── V40: precomputes the tensor of interaction dipolar ────────────────────
+    # Fixed positions + field linear in the moments => all the geometry K×K
+    # (distances, cutoff, images PBC) is cwherensed in 3 matrizes
+    # constantes BEFORE the loop; each step becomes matrix-vector products
+    # (BLAS/cuBLAS). Automatic fallback to the per-step method if the
+    # tensor does not fit within the memory limit.
     _dipolar_tensor = None
     _K_total = int(x_flat_xp.shape[0])
     _tensor_bytes = 3.0 * _K_total * _K_total * 8.0
@@ -1628,17 +1467,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                f"usando cálculo por passo (método V39)")
 
     def _torques_xp(theta_flat_xp, bx_ext, by_ext):
-        """
-        Versão GPU-resident: recebe e retorna arrays no backend ativo
-        (_xp), sem nenhuma conversão CPU<->GPU. Usada dentro do loop de
-        integração para evitar o overhead de transferência a cada passo
-        — theta/omega/tau permanecem na GPU durante toda a simulação,
-        só sendo convertidos para CPU quando estritamente necessário
-        (salvar frame, gravar histórico, log CSV).
-
-        V40: usa o tensor pré-computado quando disponível (produtos
-        matriz-vetor); senão, cai para o cálculo completo por passo.
-        """
+        """GPU-resident version: receives and returns arrays in the active backend. This avoids CPU-GPU transfers inside the integration loop and is used when the simulation is actually running on the GPU."""
         if _dipolar_tensor is not None:
             return compute_torques_from_tensor(
                 theta_flat_xp, _dipolar_tensor, moment, bx_ext, by_ext)
@@ -1647,23 +1476,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
 
     def _torques(th, bx_ext, by_ext):
-        """
-        Versão de compatibilidade (CPU->GPU->CPU): aceita e retorna
-        array N×M em NumPy/CPU. Mantida para uso fora do loop principal
-        (ex: recalcular tau após zerar campo no modo pulse, fora do
-        hot loop, onde o overhead de uma conversão extra é irrelevante).
-        """
+        """Compatibility version, CPU to GPU to CPU: accepts and returns CPU arrays, internally converting to the active backend only for the torque calculation. Useful for preserving older call sites and comparisons."""
         theta_flat_xp = _local_to_backend(th.ravel())
         tau_flat_xp = _torques_xp(theta_flat_xp, bx_ext, by_ext)
         tau_flat = _local_to_cpu(tau_flat_xp)
         return tau_flat.reshape(N, M)
 
-    # ── instrumentação de desempenho (wall-clock) ──────────────────────────
-    # Mede o tempo real gasto no loop de integração (CPU ou GPU), permitindo
-    # comparar diretamente o ganho de desempenho entre --gpu 0 e --gpu 1.
-    # Sincroniza a GPU antes de iniciar a contagem, para que o tempo medido
-    # reflita o trabalho real (sem isso, chamadas assíncronas da GPU podem
-    # "voltar" antes do cálculo de fato terminar, mascarando o tempo real).
+    # ── performance instrumentation (wall-clock) ──────────────────────────
+    # Measures real time spent in the integration loop (CPU or GPU), allowing
+    # comparar diretamente the ganho of performance between --gpu 0 and --gpu 1.
+    # Synchronizes the GPU before starting the timer, so that the measured time
+    # reflect the actual work (without this, asynchronous GPU calls may
+    # "voltar" before the computestion actually finishes, masking the real time).
     if _active_gpu:
         cp.cuda.Stream.null.synchronize()
     _perf_t_start  = _time_module.perf_counter()
@@ -1674,65 +1498,63 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _last_bar_suffix = f"passo 0/{n_steps}"
 
     def _finish_progress_bar_if_shown():
-        """Fecha a barra de progresso apenas se ela estava habilitada
-        (--progress_bar 1) — evita uma linha vazia desnecessária no
-        terminal quando a barra está desabilitada."""
+        """Closes the progress bar only if it was enabled and visible. This avoids extra blank lines when progress output is disabled."""
         if show_progress:
             _print_progress_bar_finish()
 
-    # ── loop de integração Velocity-Verlet ────────────────────────────────
-    # Estado principal (theta, omega, tau) reside no backend ativo (_xp) —
-    # GPU via CuPy se disponível, durante TODO o loop de integração.
-    # Isso evita o overhead de transferência CPU<->GPU a cada passo, que
-    # dominava o tempo de execução quando apenas _torques() tocava a GPU
-    # (o restante do loop, em NumPy puro, fazia round-trips constantes).
-    # theta_cur/omega_cur (NumPy 2D) são mantidos como "espelhos" em CPU,
-    # atualizados apenas quando necessário (frame, histórico, callback).
-    bx_cur, by_cur    = field_at(0.0)           # campo no instante inicial
-    theta_xp          = _local_to_backend(theta_cur.ravel())   # (K,) no backend
-    omega_xp           = _active_xp.zeros(N * M)                 # (K,) no backend
+    # ── Velocity-Verlet integration loop ────────────────────────────────
+    # Main state (theta, omega, tau) resides in the active backend (_xp) —
+    # GPU via CuPy if available, during the ENTIRE integration loop.
+    # Isso avoids the overhead of transfer CPU<->GPU at each step, que
+    # dominated runtime when only _torques() touched the GPU
+    # (the rest of the loop, in NumPy puro, made constant round trips).
+    # theta_cur/omega_cur (NumPy 2D) are kept the "mirrors" in CPU,
+    # updated only when necessary (frame, history, callback).
+    bx_cur, by_cur    = field_at(0.0)           # field at the initial instant
+    theta_xp          = _local_to_backend(theta_cur.ravel())   # (K,) in the backend
+    omega_xp           = _active_xp.zeros(N * M)                 # (K,) in the backend
     tau_xp             = _torques_xp(theta_xp, bx_cur, by_cur)
     _converged_count  = 0
-    _S1_count         = 0   # passos consecutivos com S >= 0.9999 (parada em static)
-    # S=1 como critério de parada só faz sentido em campo estático.
-    # Em hysteresis e sine o campo oscila; em pulse queremos continuar
-    # após S=1 para observar a relaxação com campo zerado.
-    # V42: t_sim_full=True desativa TODAS as paradas antecipadas por
-    # critério físico (S=1.00, rede em repouso, equilíbrio por torque) —
-    # a simulação roda até o fim de t_sim. Interrupções do usuário
-    # (Ctrl+I, Ctrl+C) continuam funcionando normalmente.
+    _S1_count         = 0   # consecutive steps with S >= 0.9999 (stop in static)
+    # S=1 as a stopping criterion only makes sense in a static field.
+    # In hysteresis and sine the field oscillates; in pulse we want to continue
+    # after S=1 to observe the relaxation with zero field.
+    # V42: t_sim_full=True disables ALL the early stops by
+    # physical criterion (S=1.00, lattice in rest, equilibrium by torque) —
+    # the simulation runs until the end of t_sim. User interruptions
+    # (Ctrl+I, Ctrl+C) continue to work normally.
     _allow_S1_stop     = (field_mode == 'static') and (not t_sim_full)
-    # em hysteresis e sine o campo muda continuamente: parada por repouso
-    # desabilitada (a rede pode estar momentaneamente parada no cruzamento B=0)
-    # parada por repouso: em 'static' sempre permitida; em 'pulse' só na
-    # fase de relaxação (campo já zerado) — nunca durante 'field_on', pois
-    # a rede pode ficar momentaneamente travada num mínimo local frustrado
-    # enquanto o campo ainda está ligado tentando alinhá-la
+    # in hysteresis and sine the field changes continuously: stop by rest
+    # disabled (the lattice may be momentarily stopped at the B=0 crossing)
+    # stop by rest: in 'static' always allowed; in 'pulse' only na
+    # fase of relaxation (field already zeroed) — never during 'field_on', because
+    # the lattice may remain momentarily stuck num frustrated local minimum
+    # while the field is still on trying to align it
     _allow_rest_stop   = (field_mode == 'static') and (not t_sim_full)
     _stop_reason       = "tempo total atingido"
-    # fases do pulso (V41): 'delay' → 'field_on' → 'relaxing' → 'done'
+    # pulse phases (V41): 'delay' → 'field_on' → 'relaxing' → 'done'
     _pulse_phase   = "delay" if (field_mode == 'pulse' and field_delay > 0) \
                      else "field_on"
-    _S99_count        = 0            # passos consecutivos com S ≥ 0.99 (pulse)
-    _S_window         = []           # janela deslizante de S recentes (pulse)
-    # V41: torque de referência para o critério de equilíbrio dos modos
-    # pulse/step_pos/step_neg: τ_ref = I·ω0² = m·B_eff (torque característico
-    # do campo dominante). Equilíbrio real = ω_max pequeno E torque médio
-    # |τ| < torque_tol·τ_ref (ω pequeno sozinho pode ser só um ponto de
-    # retorno da oscilação, com torque grande).
+    _S99_count        = 0            # consecutive steps with S ≥ 0.99 (pulse)
+    _S_window         = []           # sliding window of S recentes (pulse)
+    # V41: reference torque for the equilibrium criterion of the modes
+    # pulse/step_pos/step_neg: τ_ref = I·ω0² = m·B_eff (characteristic torque
+    # of the dominant field). real equilibrium = ω_max small AND torque mean
+    # |τ| < torque_tol·τ_ref (ω small alone may be only a point of
+    # retorno of the oscillation, with large torque).
     _tau_ref = inertia * omega0 * omega0
-    _step_after_announced = False    # controle de mensagem dos modos step
-    # janela cobre pelo menos 2 períodos naturais de oscilação (2 * 1/dt_factor
-    # passos), garantindo que ciclos completos de oscilação sejam capturados
-    # antes de declarar estabilidade — evita disparo falso em picos/vales
-    # passageiros do sistema sub-amortecido
+    _step_after_announced = False    # message control of the modes step
+    # window covers at least 2 natural oscillation periods (2 * 1/dt_factor
+    # steps), ensuring that full cycles of oscillation are captured
+    # before declaring stability — avoids False triggering in picos/vales
+    # passageiros of the underdamped system
     _S_WINDOW_SIZE    = max(40, int(2.0 / dt_factor))
 
     for step in range(1, n_steps + 1):
 
-        t_now = step * dt          # tempo físico atual [s]
+        t_now = step * dt          # current physical time [s]
 
-        # ── verifica interrupção por teclado (Ctrl+I) ──────────────────────
+        # ── checks keyboard interruption (Ctrl+I) ──────────────────────
         if _stop_flag.is_set():
             _finish_progress_bar_if_shown()
             _print(f"\n  Interrompido (Ctrl+I) em t={t_now:.4f}s  (passo {step}/{n_steps})")
@@ -1744,19 +1566,19 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                             stop_label="■ interrompido (Ctrl+I)")
             break
 
-        # ── campo externo no instante t (pode variar com o tempo) ──────────
+        # ── external field at instant t (may vary with time) ──────────
         bx_new, by_new = field_at(t_now)
 
-        # ── passo 1: atualiza θ usando θ(t), ω(t), τ(t) ───────────────────
-        # (tudo em arrays "flat" (K,) no backend ativo — GPU se disponível)
+        # ── step 1: updates θ using θ(t), ω(t), τ(t) ───────────────────
+        # (everything in "flat" arrays (K,) in the active backend — GPU if available)
         accel_xp  = (tau_xp - damping * omega_xp) / inertia
         theta_new_xp = theta_xp + omega_xp * dt + 0.5 * accel_xp * dt**2
         theta_new_xp = (theta_new_xp + _active_xp.pi) % (2.0 * _active_xp.pi) - _active_xp.pi
 
-        # ── passo 2: calcula τ(t+dt) com o novo θ e o novo campo ──────────
+        # ── step 2: computes τ(t+dt) with the new θ and the novo field ──────────
         tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
 
-        # ── passo 3: atualiza ω (Velocity-Verlet implícito) ────────────────
+        # ── step 3: updates ω (implicit Velocity-Verlet) ────────────────
         b_half    = damping * dt / (2.0 * inertia)
         omega_new_xp = (omega_xp * (1.0 - b_half)
                         + dt * (tau_xp + tau_new_xp) / (2.0 * inertia)) \
@@ -1768,10 +1590,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         bx_cur    = bx_new
         by_cur    = by_new
 
-        # ── calcula S, ω_max, mx_mean, my_mean NA GPU (reduções) ──────────
-        # só os escalares finais (4 floats) são trazidos para CPU a cada
-        # passo, em vez dos arrays N×M inteiros — reduz drasticamente o
-        # volume de dados transferido por passo de integração
+        # ── computes S, ω_max, mx_mean, my_mean ON THE GPU (reductions) ──────────
+        # only the final scalars (4 floats) are brought to CPU the each
+        # step, instead of the entire N×M arrays — drastically reducing the
+        # volume of data transferred per integration step
         S_now_xp     = _active_xp.abs(_active_xp.mean(_active_xp.exp(1j * theta_xp)))
         omega_max_xp = _active_xp.max(_active_xp.abs(omega_xp))
         mx_mean_xp   = _active_xp.mean(_active_xp.cos(theta_xp))
@@ -1782,9 +1604,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         mx_mean   = float(mx_mean_xp)
         my_mean   = float(my_mean_xp)
 
-        # ── sincroniza para CPU 2D apenas quando necessário ────────────────
-        # (callback, histórico periódico, frame): conversão "preguiçosa",
-        # evita o custo de reshape/transferência quando não é preciso
+        # ── syncs to 2D CPU only when necessary ────────────────
+        # (callback, periodic history, frame): "lazy" conversion,
+        # avoids the reshape/transfer cost when it is not needed
         _need_cpu_sync = (callback is not None) or (step % 20 == 0) or \
                          (frame_dir is not None and step % frame_every == 0)
         if _need_cpu_sync:
@@ -1797,9 +1619,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if step % 20 == 0:
             hist.append((theta_cur.copy(), omega_cur.copy()))
 
-        # ── registra log de histerese / senoidal ──────────────────────────
-        # M_proj: componente da magnetização média na direção do campo
-        # ── log universal: campo e magnetização a cada passo ────────────────
+        # ── records log of hysteresis / sine ──────────────────────────
+        # M_proj: component of mean magnetization along the field direction
+        # ── universal log: field and magnetization at each step ────────────────
         M_proj   = mx_mean * cos_phi + my_mean * sin_phi
         B_scalar = bx_cur * cos_phi + by_cur * sin_phi
         entry    = (t_now, B_scalar, M_proj, S_now)
@@ -1809,14 +1631,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if sine_log is not None:
             sine_log.append(entry)
 
-        # ── barra de progresso em tempo real (opcional) ────────────────────
-        # Mostra visualmente a fração concluída da integração, junto com
-        # throughput (passos/s) e o backend ativo (CPU/GPU). Atualiza no
-        # máximo a cada ~0.15s de wall-clock para a barra parecer fluida
-        # sem sobrecarregar o terminal com escritas excessivas. Pode ser
-        # desabilitada via --progress_bar 0 (ex: ao redirecionar a saída
-        # para um arquivo de log, onde a atualização por \r não se
-        # comporta como em um terminal interativo).
+        # ── real-time progress bar (optional) ────────────────────
+        # Visually shows the completed fraction of the integration, together with
+        # throughput (steps/s) and the active backend (CPU/GPU). Updates at
+        # maximum the each ~0.15s of wall-clock for the bar look smooth
+        # without overloading the terminal with excessive writes. Pode be
+        # disabled via --progress_bar 0 (ex: when redirecting output
+        # for a log file, where the update through \r not se
+        # comporta as in a interactive terminal).
         if show_progress:
             _perf_now = _time_module.perf_counter()
             if (_perf_now - _perf_last_print_time) >= 0.15 or step == n_steps:
@@ -1835,19 +1657,19 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _perf_last_print_step = step
                 _perf_last_print_time = _perf_now
 
-        # ── status periódico independente (campo, S, ω) ────────────────────
-        # Mostra a evolução do campo externo, parâmetro de ordem e velocidade
-        # angular ao longo do tempo, a cada ~2s de wall-clock — SEMPRE ativo,
-        # independente de --progress_bar.
-        # V44: com a barra habilitada em terminal interativo, o status é a
-        # 2a linha do painel vivo, reescrita em cima de si mesma (não gera
-        # mais uma linha permanente a cada ciclo — que era o que fazia a
-        # barra "empilhar" linhas). Sem barra, ou em saída redirecionada
-        # (não-TTY), permanece o comportamento de log: uma linha nova por
+        # ── independent periodic status (field, S, ω) ────────────────────
+        # Shows the evolution of the external field, order parameter and velocidade
+        # angular over time, the each ~2s of wall-clock — ALWAYS active,
+        # regardless of --progress_bar.
+        # V44: with the bar enabled in an interactive terminal, the status is the
+        # 2the row of the panel vivo, rewritten over itself (does not generate
+        # a permanent line each cycle — which was what made the
+        # bar "empilhar" rows). Without the bar, or in output redirecioanything
+        # (not-TTY), keeps log behavior: a row nova by
         # ciclo via _print().
         _status_now = _time_module.perf_counter()
         if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
-            B_status = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
+            B_status = bx_cur * cos_phi + by_cur * sin_phi   # [T], with sign
             _status_text = (f"  [passo {step}/{n_steps}]  t={t_now:.4f}s  "
                             f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
                             f"w_max={omega_max:.3f}rad/s")
@@ -1865,17 +1687,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _print(_status_text)
             _last_status_print_time = _status_now
 
-        # ── salva frame periódico ──────────────────────────────────────────
+        # ── saves periodic frame ──────────────────────────────────────────
         if frame_dir is not None and step % frame_every == 0:
-            # B_signed: projeção com sinal na direção do campo
-            # (negativo quando o campo aponta contra phi_ext, ex: hysteresis)
-            B_signed = bx_cur * cos_phi + by_cur * sin_phi   # [T], com sinal
+            # B_signed: signed projection along the field direction
+            # (negative when the field points against phi_ext, ex: hysteresis)
+            B_signed = bx_cur * cos_phi + by_cur * sin_phi   # [T], with sign
             _save_frame(step, theta_cur, omega_cur,
                         B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg)
-            # (progresso agora mostrado pela barra de progresso em tempo
-            # real, acima — não é mais necessário um print por frame)
+            # (progress now shown pela progress bar in time
+            # real-time, above — a print per frame is no longer necessary)
 
-        # ── condição 1: S = 1.00 (só em campo estático) ──────────────────
+        # ── condition 1: S = 1.00 (only in the static field) ──────────────────
         if _allow_S1_stop:
             if S_now >= 0.9999:
                 _S1_count += 1
@@ -1894,15 +1716,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="★ S = 1.00  alinhamento total")
                 break
 
-        # ── V41: transições de fase temporais (pulse com delay/t_pulse e steps) ──
+        # ── V41: timeral phase transitions (pulse with delay/t_pulse and steps) ──
         if field_mode == 'pulse':
-            # fim da espera inicial: campo liga
+            # end of the initial wait: field turns on
             if _pulse_phase == 'delay' and t_now >= field_delay:
                 _pulse_phase = 'field_on'
                 _finish_progress_bar_if_shown()
                 _print(f"\n  Pulso: espera inicial concluída em t={t_now:.4f}s  campo LIGADO")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
-            # fim do pulso por duração fixa (t_pulse fornecido)
+            # end of the pulse by fixed duration (t_pulse provided)
             if (_pulse_phase == 'field_on' and t_pulse is not None
                     and t_now >= field_delay + t_pulse):
                 _pulse_relaxing[0] = True
@@ -1927,27 +1749,27 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _print(f"\n  Step-: campo REMOVIDO em t={t_now:.4f}s (permanece zerado)")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
 
-        # ── modo pulse (legado, t_pulse=None): desliga o campo quando S>=0.99
-        # OU quando S estabiliza ──
-        # Condição A: S >= 0.99 por 20 passos consecutivos (alinhamento total)
-        # Condição B: dentro de uma janela deslizante cobrindo pelo menos
-        #             2 períodos naturais de oscilação (_S_WINDOW_SIZE
-        #             passos), a AMPLITUDE de variação de S (max - min da
-        #             janela) é menor que 5% do valor médio. A janela larga
-        #             garante que ciclos completos de oscilação sejam
+        # ── pulse mode (legacy, t_pulse=None): turns off the field when S>=0.99
+        # OR when S stabilizes ──
+        # Condition THE: S >= 0.99 for 20 consecutive steps (full alignment)
+        # Condition B: inside a sliding window cobrindo pelo less
+        #             2 natural oscillation periods (_S_WINDOW_SIZE
+        #             steps), the AMPLITUDE of the S variation (max - min of the
+        #             window) is smaller than 5% of the mean value. The wide window
+        #             ensures that complete oscillation cycles are
         #             capturados, evitando disparo falso nos picos/vales
-        #             passageiros do sistema sub-amortecido (onde a
-        #             diferença instantânea entre passos pode ser pequena
-        #             mesmo longe de uma estabilização real).
+        #             passageiros of the underdamped system (where the
+        #             instantaneous difference between steps may be small
+        #             same longe of a stabilization real).
         if (field_mode == 'pulse' and _pulse_phase == 'field_on'
                 and t_pulse is None):
-            # condição A: S >= 0.99
+            # condition THE: S >= 0.99
             if S_now >= 0.99:
                 _S99_count += 1
             else:
                 _S99_count = 0
 
-            # condição B: amplitude de S dentro da janela deslizante < 5%
+            # condition B: amplitude of S inside of the sliding window < 5%
             _S_window.append(S_now)
             if len(_S_window) > _S_WINDOW_SIZE:
                 _S_window.pop(0)
@@ -1965,7 +1787,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _trigger_A = (_S99_count >= 20)
 
             if _trigger_A or _trigger_B:
-                # alinhamento atingido OU S estabilizou → desliga o campo
+                # arowmento reached OR S estabilizou → turns off the field
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
                 _finish_progress_bar_if_shown()
@@ -1973,27 +1795,27 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     _print(f"\n  Pulso: S>=0.99 em t={t_now:.4f}s  campo zerado, relaxando")
                 else:
                     _print(f"\n  Pulso: S estabilizou (S={S_now:.4f}) em t={t_now:.4f}s  campo zerado, relaxando")
-                # atualiza tau com campo=0 para o próximo passo (mantém
-                # o estado residente no backend ativo — GPU se disponível)
+                # updates tau with field=0 for the next step (keeps
+                # the resident state is in the active backend — GPU if available)
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
-                    # B_ext_inst=0 mostra campo desligado no painel,
-                    # mas phi_ext_deg é mantido para mostrar a direção
+                    # B_ext_inst=0 shows the field off in the panel,
+                    # but phi_ext_deg is kept to show the direction
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="campo zerado - relaxando",
                                 B_ext_inst=0.0)
 
-        # ── condição 2: rede em equilíbrio ─────────────────────────────────
-        # Em 'static': ω_max → 0 (comportamento original, inalterado).
-        # Em 'pulse' (fase 'relaxing') e nos modos 'step_pos'/'step_neg'
-        # (após field_delay): critério V41 de equilíbrio REAL — ω_max
-        # pequeno E torque médio |τ| < torque_tol·τ_ref, ambos por 50
-        # passos. O torque entra porque ω≈0 sozinho pode ser apenas um
-        # ponto de retorno da oscilação (com torque grande); ω e τ pequenos
-        # juntos caracterizam o equilíbrio ("torque total pequeno").
-        # Em 'hysteresis'/'sine': nunca, pois o campo muda continuamente.
+        # ── condition 2: lattice in equilibrium ─────────────────────────────────
+        # In 'static': ω_max → 0 (comportamento original, inalterado).
+        # In 'pulse' (fase 'relaxing') and nos modes 'step_pos'/'step_neg'
+        # (after field_delay): V41 criterion for REAL equilibrium — ω_max
+        # small AND torque mean |τ| < torque_tol·τ_ref, ambos by 50
+        # steps. Torque is included because ω≈0 alone may be only a
+        # turning point of the oscillation (with large torque); ω and τ are small
+        # juntos caracterizam the equilibrium ("torque total small").
+        # In 'hysteresis'/'sine': nunca, because the field changes continuously.
         _in_step_final = (field_mode in ('step_pos', 'step_neg')
                           and t_now >= field_delay)
         _rest_stop_active = (not t_sim_full) and (_allow_rest_stop or (
@@ -2023,26 +1845,26 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                                 stop_label="● rede em repouso")
                 break
 
-    # garante que a barra de progresso seja fechada mesmo se o loop terminou
-    # normalmente (atingiu n_steps) sem passar por nenhuma das mensagens
-    # acima que já fecham a barra explicitamente
+    # ensures that the progress bar seja fechada even if the loop terminou
+    # normalmente (atingiu n_steps) without passar by nenhuma of the mensagens
+    # above, which already close the bar explicitly
     _finish_progress_bar_if_shown()
 
-    # ── garante sincronização final CPU<->GPU antes de retornar ───────────
-    # (o loop pode ter terminado num passo onde _need_cpu_sync era False)
+    # ── ensures final CPU<->GPU synchronization before returning ───────────
+    # (the loop may have ended on a step where _need_cpu_sync was False)
     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
 
-    # ── relatório final de desempenho (wall-clock) ─────────────────────────
-    # Sincroniza a GPU antes de parar o cronômetro, para que o tempo medido
-    # reflita o trabalho real concluído (chamadas CUDA são assíncronas por
-    # padrão — sem essa sincronização, o tempo medido poderia ser menor
-    # que o tempo real de cálculo).
+    # ── final performance report (wall-clock) ─────────────────────────
+    # Synchronizes the GPU before stopping the timer, so that the measured time
+    # reflect the actual completed work (CUDA calls are asynchronous by
+    # default — without this synchronization, the measured time could be smaller
+    # than the real calculation time).
     if _active_gpu:
         cp.cuda.Stream.null.synchronize()
     _perf_t_end       = _time_module.perf_counter()
     _perf_total_s     = _perf_t_end - _perf_t_start
-    _perf_steps_done  = step   # último valor de step executado no loop
+    _perf_steps_done  = step   # last step value executed in the loop
     _perf_steps_per_s = _perf_steps_done / _perf_total_s if _perf_total_s > 0 else 0.0
     _perf_ms_per_step = (_perf_total_s / _perf_steps_done * 1000.0) if _perf_steps_done > 0 else 0.0
     _perf_backend_tag = "GPU" if _active_gpu else "CPU"
@@ -2054,14 +1876,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
            f"({_perf_ms_per_step:.4f} ms/passo)")
     _print(f"  Agulhas na rede     : {N*M}  (K = N x M)")
 
-    _stop_flag.set()   # garante que a thread de teclado encerra
+    _stop_flag.set()   # ensures that the thread of keyboard encerra
 
-    # restaura o terminal explicitamente aqui — não confia apenas na thread,
-    # pois ela pode não ter tempo de processar o _stop_flag antes do
-    # programa encerrar, deixando o terminal em modo raw para o shell
+    # restores the terminal explicitly here — not relying only on the thread,
+    # because it may not have time to process _stop_flag before the
+    # programa encerrar, deixando the terminal in raw mode for the shell
     _restore_terminal()
 
-    # ── exporta dados de histerese / senoidal para CSV ─────────────────────
+    # ── exporta dados of hysteresis / sine for CSV ─────────────────────
     if hysteresis_log:
         import csv
         csv_path = "hysteresis_loop.csv"
@@ -2071,7 +1893,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w.writerows(hysteresis_log)
         _print(f"  Dados de histerese salvos: {csv_path}")
         if make_images:
-            _plot_hysteresis(hysteresis_log)
+            _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale)
 
     if sine_log:
         import csv
@@ -2086,35 +1908,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason, field_log
 
+
 def next_available_path(path):
-    """
-    Sempre usa sufixo numérico de 4 dígitos, nunca cria o arquivo sem sufixo.
-    Encontra o próximo número disponível na sequência verificando apenas
-    o arquivo de vídeo (.mp4). O CSV correspondente sempre usa o mesmo número.
-
-    Exemplos:
-        sim.mp4         →  sim0000.mp4  (primeira vez)
-                        →  sim0001.mp4  (segunda vez)
-        sim0003.mp4     →  mesma série "sim", encontra próximo disponível
-        dominios.mp4    →  dominios0000.mp4
-
-    Parâmetros
-    ----------
-    path : str — nome desejado (com ou sem sufixo numérico)
-
-    Retorna
-    -------
-    str — próximo caminho disponível na série nome0000, nome0001, ...
-    """
+    """Builds a file path that does not overwrite an existing file by adding a numeric suffix when needed, for example name0001.mp4, name0002.mp4, and so on."""
     import os, re
 
     base, ext = os.path.splitext(path)
 
-    # remove sufixo numérico final (4 dígitos) do base, se houver
+    # remove final numeric suffix (4 digits) from the base, if present
     # "sim0008" → "sim",  "dominios0003" → "dominios",  "sim" → "sim"
     prefix = re.sub(r'\d{4}$', '', base)
 
-    # encontra o próximo número na sequência verificando só o arquivo de vídeo
+    # finds the next number in the sequence by checking only the video file
     n = 0
     while True:
         candidate = f"{prefix}{n:04d}{ext}"
@@ -2124,40 +1929,9 @@ def next_available_path(path):
 
 
 def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
-    """
-    Agrega os PNGs numerados de `frame_dir` em um vídeo MP4 usando ffmpeg.
+    """Aggregates numbered PNG frames from frame_dir into an MP4 video using ffmpeg.
 
-    Tenta estratégias em ordem, parando na primeira que funcionar:
-
-    1. H.264 via NVENC (h264_nvenc) — encoder de HARDWARE da GPU NVIDIA.
-       Só tentado se use_gpu=True (vindo de --gpu 1) E uma GPU NVIDIA foi
-       detectada (via CuPy) E o ffmpeg instalado tem suporte a NVENC
-       compilado. Tipicamente 5-10x mais rápido que codificação por
-       software para o mesmo conteúdo, mas gera arquivos um pouco
-       maiores para a mesma qualidade percebida (NVENC prioriza
-       velocidade sobre taxa de compressão).
-    2. H.264 (libx264) com -f mp4 explícito — codificação por software
-       (CPU), melhor qualidade/compressão, máxima compatibilidade.
-    3. MPEG-4 (mpeg4) com -f mp4 — fallback para builds antigas do ffmpeg
-       (conda macOS, por exemplo) que não incluem libx264.
-    4. Codec nativo do ffmpeg (sem -c:v) — último recurso.
-
-    O argumento -f mp4 força o formato de saída explicitamente, contornando
-    o bug em versões antigas do ffmpeg que não inferem o formato pela extensão
-    do arquivo de saída ("Unable to find a suitable output format").
-
-    Parâmetros
-    ----------
-    frame_dir   : diretório com frame_00000.png, frame_00001.png, …
-    output_path : caminho do arquivo MP4 de saída
-    fps         : quadros por segundo (padrão 24)
-    crf         : qualidade H.264 (0=lossless … 51=pior; padrão 20)
-
-    Retorna
-    -------
-    True  se o ffmpeg gerou o arquivo com sucesso
-    False se todas as tentativas falharam
-    """
+Tries hardware-accelerated H.264 through NVENC first when available, then software H.264 through libx264, and finally MPEG-4 as a compatibility fallback. The explicit -f mp4 option avoids older ffmpeg builds failing to infer the output format from the file extension."""
     import subprocess, shutil, os
 
     if not shutil.which('ffmpeg'):
@@ -2173,11 +1947,11 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
 
     strategies = []
 
-    # NVENC só é oferecido como primeira opção se: (1) o usuário pediu
-    # explicitamente --gpu 1 (mesma filosofia usada para o cálculo físico:
-    # GPU só é usada quando solicitada), E (2) uma GPU NVIDIA foi de fato
-    # detectada nesta máquina (via CuPy). Isso evita perder tempo tentando
-    # NVENC em máquinas sem GPU NVIDIA, ou quando o usuário optou por CPU.
+    # NVENC is offered as the first option only if: (1) the user requested
+    # explicitly --gpu 1 (same philosophy used for the physical calculation:
+    # GPU is used only when requested), AND (2) an NVIDIA GPU was actually
+    # detected on this machine (via CuPy). This avoids wasting time trying
+    # NVENC on machines without an NVIDIA GPU, or when the user chose CPU.
     if use_gpu and _GPU_AVAILABLE:
         strategies.append((
             "H.264 via NVENC (GPU)",
@@ -2224,163 +1998,35 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
     _print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
     _print(result.stderr[-600:])
     return False
-    """
-    Agrega os PNGs numerados de `frame_dir` em um vídeo MP4 usando ffmpeg.
-
-    Tenta três estratégias em ordem, parando na primeira que funcionar:
-
-    1. H.264 (libx264) com -f mp4 explícito — melhor qualidade, máxima
-       compatibilidade com players modernos.
-    2. MPEG-4 (mpeg4) com -f mp4 — fallback para builds antigas do ffmpeg
-       (conda macOS, por exemplo) que não incluem libx264.
-    3. Codec nativo do ffmpeg (sem -c:v) — último recurso.
-
-    O argumento -f mp4 força o formato de saída explicitamente, contornando
-    o bug em versões antigas do ffmpeg que não inferem o formato pela extensão
-    do arquivo de saída ("Unable to find a suitable output format").
-
-    Parâmetros
-    ----------
-    frame_dir   : diretório com frame_00000.png, frame_00001.png, …
-    output_path : caminho do arquivo MP4 de saída
-    fps         : quadros por segundo (padrão 24)
-    crf         : qualidade H.264 (0=lossless … 51=pior; padrão 20)
-
-    Retorna
-    -------
-    True  se o ffmpeg gerou o arquivo com sucesso
-    False se todas as tentativas falharam
-    """
-    import subprocess, shutil, os
-
-    if not shutil.which('ffmpeg'):
-        _print("AVISO: ffmpeg não encontrado. Instale com:")
-        _print("  Ubuntu/Debian : sudo apt install ffmpeg")
-        _print("  macOS (brew)  : brew install ffmpeg")
-        _print("  conda         : conda install -c conda-forge ffmpeg")
-        _print("  Windows       : https://ffmpeg.org/download.html")
-        return False
-
-    input_pattern = os.path.join(frame_dir, "frame_%05d.png")
-
-    # filtro de vídeo: garante dimensões pares (obrigatório para H.264/MPEG-4)
-    vf = 'pad=ceil(iw/2)*2:ceil(ih/2)*2'
-
-    # lista de estratégias: (descrição, argumentos extras de codec)
-    strategies = [
-        ("H.264 (libx264)",
-         ['-c:v', 'libx264', '-preset', 'fast', '-crf', str(crf),
-          '-pix_fmt', 'yuv420p']),
-        ("MPEG-4 (mpeg4) — fallback para ffmpeg antigo",
-         ['-c:v', 'mpeg4', '-q:v', '5',
-          '-pix_fmt', 'yuv420p']),
-        ("codec padrão do ffmpeg",
-         ['-pix_fmt', 'yuv420p']),
-    ]
-
-    _print(f"\nMontando vídeo MP4: {output_path}")
-    _print(f"  Fonte : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
-
-    for desc, codec_args in strategies:
-        cmd = [
-            'ffmpeg', '-y',
-            '-framerate', str(fps),
-            '-i', input_pattern,
-        ] + codec_args + [
-            '-vf', vf,
-            '-f', 'mp4',          # força formato de saída — corrige bug em versões antigas
-            output_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode == 0:
-            size_mb = os.path.getsize(output_path) / 1024**2
-            _print(f"  Codec : {desc}")
-            _print(f"  Salvo : {output_path}  ({size_mb:.1f} MB)")
-            return True
-        else:
-            # extrai apenas a última linha do erro para não poluir o terminal
-            last_err = result.stderr.strip().splitlines()
-            short_err = last_err[-1] if last_err else "(sem mensagem)"
-            _print(f"  [{desc}] falhou: {short_err}")
-
-    # todas as estratégias falharam — mostra erro completo da última tentativa
-    _print(f"\nERRO: ffmpeg não conseguiu gerar o vídeo. Erro completo:")
-    _print(result.stderr[-600:])
-    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. GERAÇÃO DA GRADE DE AGULHAS
+# 5. GENERATION OF THE NEEDLE GRID
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
-    """
-    Cria as posições e os ângulos iniciais de uma grade N×M de agulhas.
+    """Creates the positions and initial angles of an N×M grid of needles.
 
-    O parâmetro unificador é R [m] — o raio do círculo que envolve cada agulha.
-    As posições são calculadas de modo que círculos adjacentes se toquem
-    tangencialmente (distância entre centros = 2R), garantindo uma rede
-    visualmente correta e sem sobreposição de círculos em qualquer geometria.
+The unifying parameter is R [m], the radius of the circle enclosing each needle. Positions are computed so adjacent circles touch tangentially, with center-to-center distance 2R, ensuring a visually correct lattice without circle overlap in any geometry.
 
-    Parâmetros
-    ----------
-    N, M      : número de linhas e colunas de agulhas
-    geometry  : tipo de rede (ver abaixo)
-    noise     : amplitude do ruído aleatório nos ângulos iniciais  [rad]
-                  0   → todas apontam para +x
-                  π   → orientação totalmente aleatória
-    R         : raio do círculo que envolve cada agulha  [m]
-                Padrão: 0.025 m = 2.5 cm
-                A distância entre centros de agulhas adjacentes = 2R.
+Parameters
+----------
+N, M      : number of needle rows and columns
+geometry  : lattice type
+noise     : random-noise amplitude in the initial angles [rad]; 0 means all needles point to +x, and pi means fully random orientation
+R         : radius of the circle enclosing each needle [m], default 0.025 m = 2.5 cm
+seed      : random-number-generator seed
 
-    Geometrias e espaçamentos resultantes
-    --------------------------------------
-    'square'
-        Grade retangular. Vizinhos em 4 direções, todos a 2R.
-            dx_real = 2R    (horizontal)
-            dy_real = 2R    (vertical)
-        Cada sítio tem 4 vizinhos mais próximos.
-
-    'triangular'
-        Grade triangular equilateral. Vizinhos em 6 direções, todos a 2R.
-            dx_real = 2R          (espaçamento horizontal entre colunas)
-            dy_real = R·√3        (espaçamento vertical entre linhas)
-            offset  = R           (deslocamento de linhas ímpares)
-        Cada sítio tem 6 vizinhos mais próximos.
-
-    'honeycomb'
-        Rede colmeia (grafeno). Lado do hexágono = 2R.
-        Construída por linhas horizontais com padrão A-B alternado:
-
-            linha par  (tipo A): offset_x = 0,        Δy_próx = R
-            linha ímpar(tipo B): offset_x = R·√3,     Δy_próx = 2R
-
-        Espaçamentos:
-            entre colunas na mesma linha : 2R·√3
-            Δy(A→B)                      : R
-            Δy(B→A)                      : 2R   (período = 3R no total)
-
-        Verificação: distância entre vizinhos A e B:
-            d = √((R√3)² + R²) = √(3R²+R²) = 2R  ✓
-
-        Cada sítio tem exatamente 3 vizinhos mais próximos (coordenação 3).
-        Total de agulhas = N × M.
-
-    Retorna
-    -------
-    xs, ys  : arrays 2D (N×M) com as coordenadas das agulhas  [m]
-    thetas  : array 2D (N×M) com os ângulos iniciais  [rad]
-    nn_dist : distância entre primeiros vizinhos  [m]  (= 2R em todos os casos)
-    Lx, Ly  : dimensões do período da rede em x e y  [m]
-              (usadas para condições periódicas de contorno, --pbc)
-    """
+Returns
+-------
+thetas    : N×M array of initial angles [rad]
+xs, ys    : N×M arrays of needle-center positions [m]
+Lx, Ly    : lattice periods for periodic boundary conditions [m]"""
     s3 = np.sqrt(3.0)
 
-    # ── grade quadrada ─────────────────────────────────────────────────────
+    # ── grid square ─────────────────────────────────────────────────────
     if geometry == 'square':
-        d = 2.0 * R          # distância entre vizinhos
+        d = 2.0 * R          # distance between neighbors
         xs = np.zeros((N, M))
         ys = np.zeros((N, M))
         for i in range(N):
@@ -2388,15 +2034,15 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
                 xs[i, j] = j * d
                 ys[i, j] = i * d
         thetas = noise * np.random.randn(N, M)
-        Lx, Ly = M * d, N * d   # período da rede para PBC [m]
+        Lx, Ly = M * d, N * d   # period of the lattice for PBC [m]
         return xs, ys, thetas, d, Lx, Ly
 
-    # ── grade triangular equilateral ───────────────────────────────────────
+    # ── grid triangular equilateral ───────────────────────────────────────
     elif geometry == 'triangular':
-        d      = 2.0 * R          # distância entre vizinhos
-        dx_col = d                # espaçamento entre colunas
-        dy_row = R * s3           # espaçamento entre linhas = R·√3 = d·(√3/2)
-        offset = R                # offset de linhas ímpares = R = d/2
+        d      = 2.0 * R          # distance between neighbors
+        dx_col = d                # spacing between columns
+        dy_row = R * s3           # spacing between rows = R·√3 = d·(√3/2)
+        offset = R                # odd-row offset = R = d/2
         xs = np.zeros((N, M))
         ys = np.zeros((N, M))
         for i in range(N):
@@ -2405,59 +2051,36 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
                 xs[i, j] = j * dx_col + x_off
                 ys[i, j] = i * dy_row
         thetas = noise * np.random.randn(N, M)
-        Lx, Ly = M * dx_col, N * dy_row   # período da rede para PBC [m]
+        Lx, Ly = M * dx_col, N * dy_row   # period of the lattice for PBC [m]
         return xs, ys, thetas, d, Lx, Ly
 
-    # ── grade honeycomb (colmeia) ──────────────────────────────────────────
+    # ── grid honeycomb (honeycomb) ──────────────────────────────────────────
     elif geometry == 'honeycomb':
-        # ── Geometria da imagem ──────────────────────────────────────────
-        # Linhas COMPLETAS alternando com linhas de MEIA DENSIDADE,
-        # criando buracos hexagonais visíveis.
-        #
-        # Linha par  (row=0,2,4,...): M agulhas, passo 2R, offset 0
-        #   x = 0, 2R, 4R, ..., (M-1)*2R
-        #
-        # Linha ímpar(row=1,3,5,...): ~M/2 agulhas, passo 4R, offset R
-        #   x = R, 5R, 9R, ...
-        #
-        # Δy entre linhas consecutivas = R*√3
-        #
-        # Cada agulha da linha completa toca:
-        #   - 2 vizinhos na mesma linha (a dist 2R)
-        #   - 1 vizinho na linha ímpar acima  (a dist 2R)  ← B(-R, +dy)
-        #   - 1 vizinho na linha ímpar abaixo (a dist 2R)
-        #
-        # Verificação:  A(0,0) → B(-R, dy):
-        #   d = √(R² + 3R²) = 2R  ✓
-        #
-        # Estratégia de preenchimento:
-        #   Gera rede maior (N+4 pares de linhas) e recorta o retângulo W×H.
-        # ─────────────────────────────────────────────────────────────────
-        dy  = R * np.sqrt(3.0)   # espaçamento vertical entre linhas [m]
-        d   = 2.0 * R            # distância entre vizinhos [m]
+        dy  = R * np.sqrt(3.0)   # spacing vertical between rows [m]
+        d   = 2.0 * R            # distance between neighbors [m]
 
-        # Dimensões alvo do retângulo
-        W = (M - 1) * 2.0 * R   # largura: M agulhas na linha completa
-        H = (N - 1) * dy         # altura:  N linhas com espaçamento dy
+        # Target rectangle dimensions
+        W = (M - 1) * 2.0 * R   # width: M needles in a complete row
+        H = (N - 1) * dy         # altura:  N rows with spacing dy
 
-        # Gera rede maior (padding de 2 linhas/colunas em cada lado)
-        N_rows = (N + 4) * 2     # * 2 porque alternamos par e ímpar
-        x_start = -2.0 * 2 * R   # começa 2 agulhas à esquerda
-        y_start = -2.0 * dy       # começa 2 linhas abaixo
+        # Generates lattice larger (padding of 2 rows/columns in each side)
+        N_rows = (N + 4) * 2     # * 2 porque alternamos pair and odd
+        x_start = -2.0 * 2 * R   # starts two needles to the left
+        y_start = -2.0 * dy       # starts two rows below
 
         xs_list, ys_list = [], []
         for row in range(N_rows):
             y = y_start + row * dy
             if row % 2 == 0:
-                # linha completa: x = x_start, x_start+2R, x_start+4R, ...
+                # complete row: x = x_start, x_start+2R, x_start+4R, ...
                 x = x_start
                 while x <= W + 2 * 2 * R:
                     xs_list.append(x)
                     ys_list.append(y)
                     x += 2.0 * R
             else:
-                # linha meia: x = x_start+R, x_start+5R, x_start+9R, ...
-                # offset de R em relação à linha par, passo 4R
+                # row meia: x = x_start+R, x_start+5R, x_start+9R, ...
+                # offset of R relative to the row pair, step 4R
                 x = x_start + R
                 while x <= W + 2 * 2 * R:
                     xs_list.append(x)
@@ -2467,7 +2090,7 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
         all_x = np.array(xs_list)
         all_y = np.array(ys_list)
 
-        # Recorta: mantém pontos dentro do retângulo alvo com margem R
+        # Clip: keeps points inside the target rectangle with margin R
         margin = R * 0.99
         mask = ((all_x >= -margin) & (all_x <= W + margin) &
                 (all_y >= -margin) & (all_y <= H + margin))
@@ -2478,7 +2101,7 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
         xs     = clipped_x.reshape(n_pts, 1)
         ys     = clipped_y.reshape(n_pts, 1)
         thetas = noise * np.random.randn(n_pts, 1)
-        Lx, Ly = W, H   # período aproximado da rede para PBC [m]
+        Lx, Ly = W, H   # period aproximado of the lattice for PBC [m]
         return xs, ys, thetas, d, Lx, Ly
 
     else:
@@ -2487,46 +2110,22 @@ def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5b. IDENTIFICAÇÃO DE DOMÍNIOS MAGNÉTICOS
+# 5b. IDENTIFICATION OF MAGNETIC DOMAINS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def label_magnetic_domains(thetas, tol_deg=15.0):
-    """
-    Identifica domínios magnéticos: regiões CONEXAS de agulhas vizinhas
-    cuja diferença angular fica dentro de uma tolerância (tol_deg).
+    """Identifies magnetic domains: connected regions of neighboring needles whose angular difference remains within a tolerance tol_deg.
 
-    Diferente do parâmetro de ordem local (halo verde/vermelho, que mede
-    apenas o grau médio de alinhamento de cada agulha com seus vizinhos),
-    esta função agrupa o reticulado inteiro em regiões — cada uma
-    recebendo um rótulo inteiro distinto — análogas a domínios magnéticos
-    reais: áreas onde a magnetização aponta essencialmente na mesma
-    direção, separadas por "paredes de domínio" onde a orientação muda
-    abruptamente além da tolerância.
+Unlike the local order parameter, shown as green/red halos and measuring only the average alignment of each needle with its neighbors, this function groups the whole lattice into regions. Each region receives a distinct integer label, analogous to real magnetic domains: areas where magnetization points essentially in the same direction, separated by domain walls where orientation changes abruptly beyond the tolerance.
 
-    Algoritmo
-    ---------
-    Union-Find (disjoint-set) sobre a grade N×M: dois sítios vizinhos
-    diretos (cima/baixo/esquerda/direita — mesma vizinhança usada no
-    parâmetro de ordem local) são unidos na mesma região se a diferença
-    angular entre eles, medida corretamente no círculo (tratando a
-    natureza cíclica de ângulos, ex: 179° e -179° diferem por apenas 2°),
-    for menor ou igual a tol_deg. A identificação dos pares candidatos é
-    vetorizada com NumPy; apenas a fusão final (inerentemente sequencial)
-    usa um loop Python, mas sobre uma lista já filtrada e tipicamente
-    pequena comparada a N×M.
+Algorithm
+---------
+Union-Find (disjoint-set) over the N×M grid. Direct neighbors (up/down/left/right, the same neighborhood used for the local order parameter) are merged when their angular difference modulo 2pi is <= tol_deg. The result is then relabeled compactly from 0 to n_domains-1.
 
-    Parâmetros
-    ----------
-    thetas  : array N×M de ângulos das agulhas  [rad]
-    tol_deg : tolerância angular máxima entre vizinhos para serem
-              considerados parte do mesmo domínio  [graus]
-
-    Retorna
-    -------
-    labels      : array N×M de inteiros 0..n_domains-1, rótulo do
-                  domínio de cada agulha
-    n_domains   : número total de domínios identificados
-    """
+Returns
+-------
+labels    : N×M integer array with domain labels
+n_domains : number of domains"""
     N, M = thetas.shape
     K = N * M
     parent = np.arange(K)
@@ -2547,13 +2146,13 @@ def label_magnetic_domains(thetas, tol_deg=15.0):
     tol_rad = np.deg2rad(tol_deg)
 
     def _angdiff(a, b):
-        # diferença angular mínima no círculo, sempre em [0, π]
+        # minimum angular difference on the circle, always in [0, π]
         d = a - b
         return np.abs(np.arctan2(np.sin(d), np.cos(d)))
 
     idx_grid = np.arange(K).reshape(N, M)
 
-    # pares verticais (i, i+1) cuja diferença angular está dentro da tolerância
+    # vertical pairs (i, i+1) whose angular difference is within the tolerance
     if N > 1:
         d_vert = _angdiff(thetas[:-1, :], thetas[1:, :])
         mask_vert = d_vert <= tol_rad
@@ -2562,7 +2161,7 @@ def label_magnetic_domains(thetas, tol_deg=15.0):
     else:
         pairs_a, pairs_b = [], []
 
-    # pares horizontais (j, j+1)
+    # pairs horizontais (j, j+1)
     if M > 1:
         d_horiz = _angdiff(thetas[:, :-1], thetas[:, 1:])
         mask_horiz = d_horiz <= tol_rad
@@ -2582,91 +2181,78 @@ def label_magnetic_domains(thetas, tol_deg=15.0):
 
 
 def _domain_color_palette(n_domains):
-    """
-    Gera n_domains cores visualmente distintas e determinísticas (mesmo
-    rótulo de domínio → mesma cor, entre frames/chamadas), usando o
-    colormap 'hsv' do matplotlib amostrado em passos regulares ao redor
-    do círculo de matiz (hue). Funciona bem tanto para poucos domínios
-    (cores bem separadas) quanto para muitos (até ficar visualmente
-    denso, inerente a qualquer paleta com dezenas+ de categorias).
+    """Generates visually distinct and deterministic colors for n_domains domains, so the same domain label maps to the same color across frames and calls. Uses matplotlib's 'hsv' colormap sampled at regular hue intervals. Works well for a few domains and remains usable for many domains until the palette becomes visually dense, which is inherent to any palette with dozens of categories.
 
-    Parâmetros
-    ----------
-    n_domains : número de domínios a colorir
+Parameters
+----------
+n_domains : number of domains to color
 
-    Retorna
-    -------
-    array (n_domains, 4) de cores RGBA
-    """
+Returns
+-------
+array (n_domains, 4) with RGBA colors"""
     if n_domains <= 1:
         return np.array([[0.55, 0.55, 0.85, 1.0]])
     hues = np.linspace(0.0, 1.0, n_domains, endpoint=False)
-    # pequeno deslocamento (golden ratio) evita que domínios vizinhos em
-    # rótulo numérico (que tendem a ser vizinhos espaciais também, já que
-    # o union-find rotula em ordem de varredura) caiam em matizes próximos
+    # small shift (golden ratio) prevents neighboring domains in
+    # numeric label (which also tends to reflect spatial neighbors, since
+    # the union-find rotula in order of varredura) caiam in matizes nearby
     hues = (hues * 0.618034 + 0.15) % 1.0
     return cm.hsv(hues)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. DESENHO DE UMA AGULHA DE BÚSSOLA
+# 6. DESENHO OF A NEEDLE OF COMPASS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def draw_compass(ax, x, y, theta, length=0.42, width=0.10,
                  color_n='#FFFFFF', color_s='#2E6DB4',
                  edge='#1a1a1a', zorder=4):
-    """
-    Desenha uma agulha de bússola tradicional: losango bicolor.
+    """Draws a traditional compass needle as a two-color diamond.
 
-    Geometria do losango (coordenadas locais, eixo longo ao longo de +x):
-        vértice 0  (+half,  0)      → ponta norte  (polo +)
-        vértice 1  (0,  +half_w)    → largura superior
-        vértice 2  (−half,  0)      → ponta sul    (polo −)
-        vértice 3  (0,  −half_w)    → largura inferior
+Diamond geometry in local coordinates, with the long axis along +x:
+    vertex 0 (+half, 0)      -> north tip, positive pole
+    vertex 1 (0, +half_w)    -> upper width
+    vertex 2 (-half, 0)      -> south tip, negative pole
+    vertex 3 (0, -half_w)    -> lower width
 
-    O losango é dividido em duas metades pelo centro (x, y):
-        norte (branca) : triângulo [0, 1, centro, 3]
-        sul   (azul)   : triângulo [2, 1, centro, 3]
+The diamond is split into two halves at the center (x, y):
+    north, white : triangle [0, 1, center, 3]
+    south, blue  : triangle [2, 1, center, 3]
 
-    Após construir em coordenadas locais, aplica rotação por theta e
-    translação para (x, y).
+After construction in local coordinates, rotation by theta and translation to (x, y) are applied.
 
-    Parâmetros
-    ----------
-    ax               : eixo matplotlib onde desenhar
-    x, y             : posição do centro (pivô) da agulha
-    theta            : ângulo de orientação (rad), medido do eixo +x
-    length           : comprimento total da agulha
-    width            : largura máxima (no centro do losango)
-    color_n, color_s : cores das metades norte e sul
-    edge             : cor da borda do losango
-    zorder           : ordem de empilhamento para sobreposição correta
-    """
+Parameters
+----------
+ax      : matplotlib axis on which to draw
+x, y    : needle center or pivot position
+theta   : needle angle [rad]
+length  : needle length
+width   : needle width"""
     half   = length / 2.0
     half_w = width  / 2.0
 
-    # vértices em coordenadas locais (não rotacionados)
+    # vertices in coordeanythings locais (not rotacionados)
     pts_local = np.array([
-        [ half,     0.0    ],   # 0: ponta norte
-        [ 0.0,      half_w ],   # 1: largura superior
-        [-half,     0.0    ],   # 2: ponta sul
-        [ 0.0,     -half_w ],   # 3: largura inferior
+        [ half,     0.0    ],   # 0: tip north
+        [ 0.0,      half_w ],   # 1: width upper
+        [-half,     0.0    ],   # 2: tip south
+        [ 0.0,     -half_w ],   # 3: width lower
     ])
 
-    # matriz de rotação 2×2 pelo ângulo theta
+    # matriz of rotation 2×2 pelo angle theta
     c, s = np.cos(theta), np.sin(theta)
     R = np.array([[c, -s],
                   [s,  c]])
-    # aplica rotação e translação
+    # applies rotation and translation
     pts = (R @ pts_local.T).T + np.array([x, y])
 
-    # metade norte: polígono [ponta_norte, largura_sup, centro, largura_inf]
+    # north half: polygon [north_tip, upper_width, center, lower_width]
     north = plt.Polygon(
         [pts[0], pts[1], [x, y], pts[3]],
         closed=True, facecolor=color_n,
         edgecolor=edge, linewidth=0.5, zorder=zorder)
 
-    # metade sul: polígono [ponta_sul, largura_sup, centro, largura_inf]
+    # south half: polygon [south_tip, upper_width, center, lower_width]
     south = plt.Polygon(
         [pts[2], pts[1], [x, y], pts[3]],
         closed=True, facecolor=color_s,
@@ -2675,7 +2261,7 @@ def draw_compass(ax, x, y, theta, length=0.42, width=0.10,
     ax.add_patch(south)
     ax.add_patch(north)
 
-    # pino central (eixo de rotação)
+    # pino central (axis of rotation)
     ax.plot(x, y, 'o', ms=2.0, color='#555555',
             markeredgecolor='#222222', markeredgewidth=0.4,
             zorder=zorder + 1)
@@ -2684,38 +2270,11 @@ def draw_compass(ax, x, y, theta, length=0.42, width=0.10,
 def draw_compass_batch(ax, xs, ys, thetas, length=0.42, width=0.10,
                        color_n='#FFFFFF', color_s='#2E6DB4',
                        edge='#1a1a1a', zorder=4):
-    """
-    Versão vetorizada de draw_compass(): desenha TODAS as agulhas da rede
-    de uma vez, usando duas PatchCollection (metades norte e sul) e um
-    único ax.scatter() para os pinos centrais, em vez de uma chamada de
-    ax.add_patch()/ax.plot() POR AGULHA.
+    """Vectorized version of draw_compass(): draws all needles in the lattice at once using two PatchCollection objects for the north and south halves and a single ax.scatter() call for the central pivots, instead of one ax.add_patch()/ax.plot() call per needle.
 
-    Motivação (desempenho)
-    -----------------------
-    Cada ax.add_patch() individual aciona _update_patch_limits(), que
-    percorre a geometria do path (incluindo curvas Bézier) para atualizar
-    a bounding box do eixo — um custo fixo por objeto que, multiplicado
-    por milhares de agulhas, se torna o gargalo dominante na geração de
-    cada frame (medido em ~1.5-1.85 ms por agulha). PatchCollection
-    recebe todos os polígonos de uma vez e atualiza os limites em lote,
-    eliminando esse custo repetido. O resultado visual é pixel-a-pixel
-    idêntico ao loop original — só a forma de construção muda.
-
-    Parâmetros
-    ----------
-    ax              : eixo matplotlib onde desenhar
-    xs, ys, thetas  : arrays N×M (posições e ângulos de TODAS as agulhas)
-    length, width   : dimensões da agulha (iguais para todas)
-    color_n, color_s: cores das metades norte e sul
-    edge            : cor da borda dos losangos
-    zorder          : ordem de empilhamento
-
-    Retorna
-    -------
-    (pc_north, pc_south, scatter_pins) : os três artistas criados,
-    para o caso de quem chamar precisar referenciá-los depois (ex: nas
-    poucas funções que atualizam frames in-place em vez de redesenhar).
-    """
+Performance motivation
+----------------------
+Each individual ax.add_patch() triggers _update_patch_limits(), which traverses the path geometry, including Bezier curves, to update the axis bounding box. This fixed per-object cost becomes the dominant bottleneck when generating each frame with thousands of needles, measured around 1.5-1.85 ms per needle. PatchCollection receives all polygons at once and updates limits in batch, eliminating the repeated cost. The visual result is essentially identical, but rendering is much faster."""
     half   = length / 2.0
     half_w = width  / 2.0
     x_flat = np.asarray(xs).ravel()
@@ -2723,35 +2282,34 @@ def draw_compass_batch(ax, xs, ys, thetas, length=0.42, width=0.10,
     th_flat = np.asarray(thetas).ravel()
     K = x_flat.shape[0]
 
-    # vértices locais (não rotacionados), mesmos para todas as agulhas
+    # vertices locais (not rotacionados), same for all the needles
     pts_local = np.array([
-        [ half,     0.0    ],   # 0: ponta norte
-        [ 0.0,      half_w ],   # 1: largura superior
-        [-half,     0.0    ],   # 2: ponta sul
-        [ 0.0,     -half_w ],   # 3: largura inferior
+        [ half,     0.0    ],   # 0: tip north
+        [ 0.0,      half_w ],   # 1: width upper
+        [-half,     0.0    ],   # 2: tip south
+        [ 0.0,     -half_w ],   # 3: width lower
     ])   # shape (4, 2)
 
-    # matrizes de rotação para todas as K agulhas de uma vez: shape (K, 2, 2)
+    # matrizes of rotation for all the K needles of a time: shape (K, 2, 2)
     c = np.cos(th_flat)
     s = np.sin(th_flat)
-    # R[k] = [[c_k, -s_k], [s_k, c_k]]
     R = np.empty((K, 2, 2))
     R[:, 0, 0] = c
     R[:, 0, 1] = -s
     R[:, 1, 0] = s
     R[:, 1, 1] = c
 
-    # aplica a rotação de cada agulha a todos os 4 vértices locais de uma vez:
+    # applies the rotation of each needle to all four local vertices at once:
     # pts_rot[k, v, :] = R[k] @ pts_local[v]   →  shape (K, 4, 2)
     pts_rot = np.einsum('kab,vb->kva', R, pts_local)
-    # translada cada agulha para sua posição (x_k, y_k)
+    # translada each needle for sua position (x_k, y_k)
     pts_rot[:, :, 0] += x_flat[:, None]
     pts_rot[:, :, 1] += y_flat[:, None]
 
-    # monta os polígonos norte/sul de cada agulha a partir dos vértices já
-    # rotacionados e transladados (mesma topologia da versão original):
-    #   norte = [ponta_norte, largura_sup, centro, largura_inf]
-    #   sul   = [ponta_sul,   largura_sup, centro, largura_inf]
+    # builds the north/south polygons of each needle from the vertices already
+    # rotated and translated (same topology as the original version):
+    #   north = [ponta_norte, largura_sup, center, largura_inf]
+    #   south   = [ponta_sul,   largura_sup, center, largura_inf]
     centers = np.stack([x_flat, y_flat], axis=1)   # shape (K, 2)
 
     north_patches = []
@@ -2773,8 +2331,8 @@ def draw_compass_batch(ax, xs, ys, thetas, length=0.42, width=0.10,
     ax.add_collection(pc_south)
     ax.add_collection(pc_north)
 
-    # pinos centrais: um único scatter para todas as agulhas, em vez de
-    # K chamadas individuais a ax.plot()
+    # central pins: a single scatter call for all needles, instead of
+    # K individual calls to ax.plot()
     scatter_pins = ax.scatter(
         x_flat, y_flat, s=4.0, c='#555555',
         edgecolors='#222222', linewidths=0.4,
@@ -2784,11 +2342,11 @@ def draw_compass_batch(ax, xs, ys, thetas, length=0.42, width=0.10,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. VISUALIZAÇÃO DO ESTADO DA REDE
+# 7. LATTICE-STATE VISUALIZATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fmt_B(B):
-    """Formata intensidade de campo em unidade legível (T, mT ou µT)."""
+    """Formats field intensity in a readable unit: T, mT, or microtesla."""
     if B == 0:      return "0 T"
     if B >= 0.1:    return f"{B:.4f} T"
     if B >= 1e-4:   return f"{B*1e3:.4f} mT"
@@ -2798,47 +2356,32 @@ def _fmt_B(B):
 def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
                               needle_len, B_ext_max=None, B_signed=None,
                               color='#FFD700'):
-    """
-    Representa o campo externo na imagem.  SEMPRE desenhado, mesmo quando
-    B_ext = 0 (campo desligado após pulso, etc.).
+    """Represents the external field in the image. It is always drawn, even when B_ext = 0, for example after a pulse has been turned off.
 
-    Elementos
-    ---------
-    1. SETAS NOS SÍTIOS — setas douradas em cada agulha apontando na
-       direção do campo. Quando B_ext = 0, as setas ficam invisíveis
-       (alpha=0) mas o painel de referência continua visível.
+Elements
+--------
+1. ARROWS AT SITES: golden arrows at each needle pointing in the field direction. When B_ext = 0, the arrows become invisible (alpha=0) but the reference panel remains visible.
 
-    2. PAINEL DE CAMPO — caixa no canto SUPERIOR DIREITO (espelha a
-       geometria do cronômetro, que fica no canto superior esquerdo),
-       evitando sobreposição com as agulhas:
-         • Texto: intensidade atual em SI  e  ângulo em graus
-         • Barra de intensidade horizontal (cheia = B_max, vazia = 0)
-         • Seta pequena mostrando a direção, à direita da barra
-       Quando B_ext = 0: seta apagada, texto "0 T", barra vazia.
-       A direção exibida é sempre phi_ext_deg (direção do campo máximo).
+2. FIELD PANEL: box in the upper-right corner, mirroring the stopwatch geometry in the upper-left corner and avoiding overlap with the needles. It contains the current SI intensity and angle in degrees, a horizontal intensity bar, and a small direction arrow to the right of the bar. When B_ext = 0, the arrow is hidden, the text reads "0 T", and the bar is empty.
 
-    Parâmetros
-    ----------
-    ax          : eixo matplotlib
-    xs, ys      : arrays 2D de posições  [m]
-    B_ext       : intensidade ATUAL do campo  [T]  (pode ser 0)
-    phi_ext_deg : direção do campo  [graus]
-    needle_len  : comprimento de referência das agulhas  [m]
-    B_ext_max   : intensidade máxima do campo  [T]  (para escalar a seta)
-                  Se None, usa B_ext como máximo.
-    color       : cor das setas e do painel (padrão: dourado)
-    """
+Parameters
+----------
+ax           : matplotlib axis
+xs, ys       : needle positions
+B_ext        : external-field magnitude [T]
+phi_ext_deg  : external-field direction [degrees]
+needle_len   : reference needle length for scaling"""
     phi      = np.deg2rad(phi_ext_deg)
     cos_phi  = np.cos(phi)
     sin_phi  = np.sin(phi)
     B_max_ref = B_ext_max if (B_ext_max and B_ext_max > 0) else max(B_ext, 1e-30)
-    frac      = min(abs(B_ext) / B_max_ref, 1.0)   # 0→1, proporção do campo máximo
-    field_on  = (B_ext > 1e-30)                     # True se campo não-nulo
+    frac      = min(abs(B_ext) / B_max_ref, 1.0)   # 0→1, proportion of the maximum field
+    field_on  = (B_ext > 1e-30)                     # True if the field is nonzero
 
-    # ── 2. painel de campo (SEMPRE visível) — canto superior direito ──────
-    # Espelha a geometria do cronômetro (canto superior esquerdo): caixa
-    # retangular ancorada ao topo, texto e barra horizontal dentro dela.
-    # Isso evita sobreposição com as agulhas, que ficam na área central.
+    # ── 2. panel field (ALWAYS visible) — corner upper right ──────
+    # Mirrors the clock geometry (upper-left corner): box
+    # retangular ancorada ao top, text and bar horizontal insidela.
+    # This avoids overlap with the needles, which remain in the central area.
     xlim  = ax.get_xlim()
     ylim  = ax.get_ylim()
     xspan = xlim[1] - xlim[0]
@@ -2846,16 +2389,16 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 
     bar_w = 0.20 * xspan
     bar_h = 0.018 * yspan
-    arrow_zone_w = 0.07 * xspan   # espaço reservado para a seta de direção
+    arrow_zone_w = 0.07 * xspan   # space reserved for the direction arrow
 
-    # canto superior direito: alinhado ao topo, com margem à direita
+    # upper-right corner: anchored to the top, with a right margin
     box_w = bar_w + arrow_zone_w
-    px = xlim[1] - 0.02 * xspan - box_w    # borda esquerda da caixa
-    py = ylim[1] - 0.03 * yspan             # topo da caixa (mesmo nível do relógio)
+    px = xlim[1] - 0.02 * xspan - box_w    # border left of the caixa
+    py = ylim[1] - 0.03 * yspan             # top of the box (same level as the clock)
 
     pad = needle_len * 0.25
 
-    # caixa de fundo semitransparente — mesmo estilo visual do cronômetro
+    # semi-transparent background box — same visual style as the clock
     box_h = 0.140 * yspan + pad
     ax.add_patch(plt.Rectangle(
         (px - pad * 0.3, py - box_h),
@@ -2864,7 +2407,7 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
         linewidth=0.8, alpha=0.82, zorder=19,
         transform=ax.transData))
 
-    # ── texto: intensidade e direção (linha superior da caixa) ────────────
+    # ── text: intensidade and direction (row upper of the caixa) ────────────
     b_val = B_signed if B_signed is not None else (B_ext if field_on else 0.0)
     if abs(b_val) > 1e-12:
         sign_str = "+" if b_val >= 0 else "-"
@@ -2882,27 +2425,27 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     ax.text(px, py - 0.072 * yspan, phi_str, color=text_color,
             fontsize=7, fontfamily='monospace', ha='left', va='top', zorder=23)
 
-    # ── barra de intensidade horizontal (estilo idêntico ao cronômetro) ───
+    # ── horizontal intensity bar (same style as the clock) ───
     bar_y = py - 0.115 * yspan
     # trilha
     ax.add_patch(plt.Rectangle(
         (px, bar_y), bar_w, bar_h,
         facecolor='#252540', edgecolor='none',
         zorder=20, transform=ax.transData))
-    # preenchimento proporcional ao campo atual / máximo
+    # fill proporcional ao field current / maximum
     if frac > 0.01:
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w * frac, bar_h,
             facecolor=color if field_on else '#555555',
             edgecolor='none', alpha=0.85, zorder=21,
             transform=ax.transData))
-    # borda
+    # border
     ax.add_patch(plt.Rectangle(
         (px, bar_y), bar_w, bar_h,
         facecolor='none', edgecolor='#5A5A8A',
         linewidth=0.7, zorder=22, transform=ax.transData))
 
-    # ── seta de direção pequena, à direita da barra, dentro da caixa ──────
+    # ── small direction arrow, to the right of the bar, inside the box ──────
     arrow_cx = px + bar_w + arrow_zone_w / 2.0
     arrow_cy = bar_y + bar_h / 2.0
     alen     = min(needle_len * 0.7, arrow_zone_w * 0.8)
@@ -2922,13 +2465,13 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     else:
         ax.plot(arrow_cx, arrow_cy, 'o', ms=3, color='#555555', zorder=20)
 
-    # ── 1. setas nos sítios (só quando campo está ligado) ─────────────────
-    # ax.quiver desenha TODAS as setas em uma única chamada (em vez de
-    # N×M chamadas individuais a ax.annotate, cada uma criando um patch
-    # de seta com seu próprio custo de atualização de bounding box).
-    # Como o campo é uniforme, todas as setas têm a mesma direção/magnitude
-    # — quiver aceita arrays de posição com escalares de componente (U, V),
-    # fazendo broadcast automaticamente para todos os pontos.
+    # ── 1. arrows at the sites (only when the field is on) ─────────────────
+    # ax.quiver draws ALL arrows in a single call (instead of
+    # N×M individual calls to ax.annotate, each creating an arrow patch
+    # arrow patch with its own bounding-box update cost).
+    # Because the field is uniform, all arrows have the same direction/magnitude
+    # — quiver aceita arrays of position with escalares of component (U, V),
+    # broadcasting automatically to all points.
     if field_on:
         alen = needle_len * 0.35
         dx_a = alen * cos_phi
@@ -2945,64 +2488,49 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
 
 def draw_halos_batch(ax, xs, ys, thetas, needle_len, r_halo=None,
                      halo_mode='order', domain_tol_deg=15.0):
-    """
-    Desenha os halos coloridos de todas as agulhas em um eixo (V43 —
-    lógica extraída de plot_state para reutilização na figura de
-    comparação lado a lado e em qualquer outro painel).
+    """Draws the colored halos of all needles on an axis (V43). The logic was extracted from plot_state for reuse in the side-by-side comparison figure and in other panels.
 
-    Cálculo vetorizado via deslocamentos de array (em vez de loops
-    Python por agulha), e desenho via PatchCollection (1 chamada para
-    todos os círculos, em vez de N×M chamadas individuais).
+The calculation is vectorized through array shifts instead of Python loops over needles, and drawing uses PatchCollection, one call for all circles instead of N×M individual calls.
 
-    Modos (halo_mode):
-      'order'   : verde=alinhado com vizinhos, vermelho=frustrado —
-                  média de cos(Δθ) com os vizinhos diretos da grade.
-      'domains' : cada região conexa de orientação similar (dentro de
-                  domain_tol_deg) recebe uma cor categórica distinta;
-                  domínios pequenos (< max(3; 2% das agulhas)) ficam em
-                  cinza neutro para não degenerar a paleta.
-
-    Retorna
-    -------
-    (n_domains_found, n_significant) : contagens quando
-        halo_mode='domains'; (None, None) no modo 'order'.
-    """
+Modes (halo_mode):
+  'order'   : green means aligned with neighbors and red means frustrated, based on the average cos(delta theta) with direct grid neighbors.
+  'domains' : each connected region with similar orientation, within domain_tol_deg, receives a distinct categorical color; small domains, smaller than max(3, 2% of needles), are shown in neutral gray to reduce visual noise."""
     N, M = thetas.shape
     _r = r_halo if r_halo is not None else needle_len * 0.58
     _n_domains_found = None
     _n_significant   = None
 
     if halo_mode == 'domains':
-        # ── modo domínios: cada região conexa de orientação similar
-        # recebe uma cor categórica distinta, identificando domínios
-        # magnéticos (paredes de domínio = mudança abrupta de cor).
+        # ── domain mode: each connected region with similar orientation
+        # receives a distinct categorical color, identifying magnetic domains
+        # (domain walls = abrupt color change).
         #
-        # Domínios muito pequenos (tipicamente 1-poucas agulhas, fruto
-        # de ruído residual numa rede ainda não totalmente relaxada)
-        # recebem uma cor CINZA NEUTRA em vez de uma cor distinta da
-        # paleta — caso contrário, com centenas de domínios pequenos,
-        # a paleta categórica degenera visualmente num gradiente
-        # contínuo (matizes adjacentes muito próximos), escondendo os
-        # poucos domínios grandes que de fato importam para a leitura.
-        # O limiar é proporcional ao tamanho da rede (ou um mínimo
-        # absoluto de 3 agulhas, o que for maior), e os domínios
-        # "significativos" remanescentes recebem cores ordenadas do
-        # maior para o menor, maximizando contraste entre domínios
-        # espacialmente vizinhos (que tendem a ter rótulos numéricos
-        # próximos, já que o union-find rotula em ordem de varredura).
+        # Very small domains (typically one to a few needles, caused
+        # from residual noise in a lattice that is not fully relaxed yet)
+        # receive a color CINZA NEUTRA in time of a color distinta of the
+        # palette — otherwise, with hundreds of small domains,
+        # the categorical palette visually degenerates into a gradient
+        # continuous (adjacent hues very close), hiding the
+        # few large domains that actually matter for interpretation.
+        # The threshold is proportional to the lattice size (or an absolute minimum
+        # absolute minimum of 3 needles, whichever is larger), and the domains
+        # "significactives" remanescentes receive colors ordeanythings of the
+        # larger for the smaller, maximizando contraste between domains
+        # spatially neighboring domains (which tend to have numerical labels
+        # nearby, since the union-find rotula in order of varredura).
         domain_labels, _n_domains_found = label_magnetic_domains(
             thetas, tol_deg=domain_tol_deg)
         K_total = N * M
         _unique_labels, _inverse, _counts = np.unique(
             domain_labels, return_inverse=True, return_counts=True)
-        _inverse = _inverse.ravel()   # NumPy recente retorna shape igual à entrada (N,M); precisamos de (K,)
+        _inverse = _inverse.ravel()   # Recent NumPy returns the same shape as the input (N,M); we need (K,)
         _min_domain_size = max(3, int(0.02 * K_total))
         _is_significant = _counts >= _min_domain_size
         _n_significant = int(np.sum(_is_significant))
 
-        # ordena domínios significativos do maior para o menor, para
-        # que a paleta atribua cores na mesma ordem (maior domínio
-        # recebe a primeira cor da paleta, e assim por diante)
+        # sorts domains significactives of the larger for the smaller, for
+        # so that the palette assigns colors in the same order (largest domain
+        # receives the primeira color of the palette, and assim by diante)
         _sig_idx = np.where(_is_significant)[0]
         _sig_order = _sig_idx[np.argsort(-_counts[_sig_idx])]
         _color_rank = np.full(len(_unique_labels), -1, dtype=int)
@@ -3016,16 +2544,16 @@ def draw_halos_batch(ax, xs, ys, thetas, needle_len, r_halo=None,
 
         colors = per_label_colors[_inverse]
     else:
-        # ── modo ordem (padrão): verde=alinhado, vermelho=frustrado —
-        # média de cos(Δθ) com os vizinhos diretos (até 4: cima/baixo/
-        # esquerda/direita), tratando bordas da grade corretamente
-        # (vizinhos fora da grade não contam)
+        # ── order mode (default): green=aligned, red=frustrated —
+        # mean of cos(Δθ) with the neighbors diretos (until 4: cima/baixo/
+        # left/right), tratando borders of the grid corretamente
+        # (neighbors outside of the grid not contam)
         align_sum   = np.zeros((N, M))
         align_count = np.zeros((N, M))
         for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            # dst = região de (i,j) que tem vizinho válido em (i+di, j+dj);
-            # src = mesma região, deslocada por (di, dj) — é o vizinho
-            # correspondente de cada elemento de dst, par a par
+            # dst = region of (i,j) that has a valid neighbor at (i+di, j+dj);
+            # src = same region, shifted by (di, dj) — it is the corresponding neighbor
+            # correspwherente of each elemento of dst, pair the pair
             dst_i0, dst_i1 = max(0, -di), N - max(0, di)
             dst_j0, dst_j1 = max(0, -dj), M - max(0, dj)
             src_i0, src_i1 = dst_i0 + di, dst_i1 + di
@@ -3052,54 +2580,36 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
                B_signed=None, figsize_inches=None,
                halo_mode='order', domain_tol_deg=15.0):
-    """
-    Gera uma figura com o estado instantâneo da rede de agulhas.
+    """Generates a figure with the instantaneous state of the needle lattice.
 
-    Elementos visuais
-    -----------------
-    - Halo colorido em torno de cada agulha. Dois modos (halo_mode):
-        'order'   (padrão) — verde = vizinhos alinhados, vermelho =
-                  anti-alinhados/frustrados; parâmetro de ordem LOCAL,
-                  média de cos(Δθ) com os vizinhos em grade (±1 em i, j).
-        'domains' — cada região CONEXA de agulhas com orientação similar
-                  (dentro de domain_tol_deg) recebe uma cor categórica
-                  distinta, identificando domínios magnéticos.
-    - Agulhas desenhadas como losangos bicolores (branco = norte, azul = sul).
-    - Setas douradas em cada sítio mostrando a direção do campo externo.
-    - Painel no canto inferior direito com seta de direção, intensidade
-      em SI e ângulo em graus.
-    - Legenda com a convenção de cores.
+Visual elements
+---------------
+- Colored halo around each needle. Two modes are available:
+    'order', default: green = neighbors aligned, red = anti-aligned/frustrated; local order parameter from the average cos(delta theta) with grid neighbors.
+    'domains': each connected region of similarly oriented needles, within domain_tol_deg, receives a distinct categorical color, identifying magnetic domains.
+- Needles drawn as two-color diamonds, white = north and blue = south.
+- Golden arrows at each site showing the external-field direction.
+- A lower-right panel with the field magnitude/direction.
 
-    Parâmetros
-    ----------
-    thetas        : array N×M de ângulos das agulhas  [rad]
-    xs, ys        : arrays N×M de posições  [m]
-    title         : título da figura
-    show_order    : se True, desenha os halos (em qualquer halo_mode)
-    needle_len    : comprimento das agulhas  [m]
-    needle_width  : largura das agulhas  [m]
-    r_halo        : raio dos halos  [m]
-    B_ext         : intensidade do campo externo  [T]
-    phi_ext_deg   : direção do campo externo  [graus]
-    figsize_inches: tupla (largura, altura) em polegadas, ou None para
-                    calcular automaticamente em função do número de agulhas
-    halo_mode     : 'order' (padrão) ou 'domains' — ver acima
-    domain_tol_deg: tolerância angular [graus] entre vizinhos para serem
-                    considerados parte do mesmo domínio magnético.
-                    Usado apenas quando halo_mode='domains'.
-
-    Retorna
-    -------
-    fig, ax : objetos matplotlib
-    """
-    # ── tamanho da figura: escala com a extensão física da rede ──────────
-    # Garante que agulhas tenham tamanho visual adequado independente de
-    # quantas há na rede. A figura cresce com a rede mas é limitada.
+Parameters
+----------
+thetas      : N×M array of needle angles
+xs, ys      : N×M arrays of positions
+outpath     : PNG output path
+needle_len  : rendered needle length
+needle_width: rendered needle width
+B_ext       : external-field magnitude [T]
+phi_ext_deg : external-field direction [degrees]
+halo_mode   : 'order' or 'domains'
+domain_tol_deg : angular tolerance for domain grouping [degrees]"""
+    # ── size of the figure: escala with the extension physics of the lattice ──────────
+    # Ensures needles have adequate visual size regardless of
+    # how many there are in the lattice. The figure grows with the lattice but is limited.
     if figsize_inches is None:
         x_span = xs.max() - xs.min() + 2 * needle_len * 2.0
         y_span = ys.max() - ys.min() + 2 * needle_len * 4.0
         aspect = x_span / y_span if y_span > 0 else 1.0
-        # base: 8 polegadas no lado menor, máximo 20 polegadas
+        # base: 8 inches on the smaller side, maximum 20 inches
         base = 8.0
         if aspect >= 1.0:
             fig_w = min(base * aspect, 20.0)
@@ -3113,25 +2623,25 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
     ax.set_facecolor('#16213E')
     N, M = thetas.shape
 
-    # ── halos coloridos: parâmetro de ordem local OU domínios magnéticos ──
-    # (lógica extraída para draw_halos_batch — V43 — para reutilização na
-    # figura de comparação lado a lado; comportamento idêntico ao anterior)
+    # ── halos coloridos: order parameter local OR domains magnetic ──
+    # (logic extracted to draw_halos_batch — V43 — for reuse in the
+    # side-by-side comparison figure; behavior identical to the previous one)
     if show_order:
         _n_domains_found, _n_significant = draw_halos_batch(
             ax, xs, ys, thetas, needle_len, r_halo=r_halo,
             halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
 
-    # ── agulhas ───────────────────────────────────────────────────────────
+    # ── needles ───────────────────────────────────────────────────────────
     draw_compass_batch(ax, xs, ys, thetas,
                        length=needle_len, width=needle_width)
 
-    # ── formatação dos eixos (deve vir ANTES do painel de campo) ──────────
+    # ── axis formatting (must come BEFORE the field panel) ──────────
     ax.set_aspect('equal')
     margin = needle_len * 1.6
-    # margem superior maior: reserva espaço para os painéis de cronômetro
-    # (canto sup. esquerdo) e campo externo (canto sup. direito), com
-    # espaço vazio adicional abaixo dos painéis até a primeira fileira
-    # de agulhas, evitando qualquer sobreposição
+    # larger upper margin: reserves space for the clock panels
+    # (corner upper left) and external field (corner upper right), with
+    # additional empty space below the panels until the first row
+    # of needles, evitando any sobreposition
     top_margin = needle_len * 7.0
     ax.set_xlim(xs.min() - margin, xs.max() + margin)
     ax.set_ylim(ys.min() - margin, ys.max() + top_margin)
@@ -3141,7 +2651,7 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
     for spine in ax.spines.values():
         spine.set_edgecolor('#2C3E50')
 
-    # ── campo externo (setas + painel) — depois de set_xlim/ylim ─────────
+    # ── external field (arrows + panel) — debecause of set_xlim/ylim ─────────
     draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len,
                               B_ext_max=B_ext_max, B_signed=B_signed)
 
@@ -3174,34 +2684,31 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. ANIMAÇÃO DA RELAXAÇÃO
+# 8. RELAXATION ANIMATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def animate_relaxation(thetas_hist, xs, ys,
                        needle_len=0.42, needle_width=0.10,
                        B_ext=0.0, phi_ext_deg=0.0,
                        interval=80, save_gif=None):
-    """
-    Gera uma animação quadro a quadro da evolução temporal da rede.
+    """Generates a frame-by-frame animation of the lattice time evolution.
 
-    Cada quadro corresponde a um snapshot salvo durante a relaxação
-    (um a cada 20 passos de integração).
+Each frame corresponds to a snapshot saved during relaxation, one every 20 integration steps.
 
-    Parâmetros
-    ----------
-    thetas_hist  : lista de arrays N×M (saída do campo `hist` de `relax`)
-    xs, ys       : posições das agulhas
-    needle_len   : tamanho das agulhas
-    needle_width : largura das agulhas
-    B_ext        : intensidade do campo externo (para seta)
-    phi_ext_deg  : direção do campo externo (graus)
-    interval     : tempo entre quadros em ms (menor = mais rápido)
-    save_gif     : caminho para salvar o GIF; None = exibe na tela
+Parameters
+----------
+thetas_hist  : list of N×M arrays from the `hist` field returned by `relax`
+xs, ys       : needle positions
+needle_len   : needle size
+needle_width : needle width
+B_ext        : external-field magnitude, for the arrow
+phi_ext_deg  : external-field direction, in degrees
+interval     : time between frames in ms, smaller means faster
+save_gif     : path for saving the GIF; None displays on screen
 
-    Retorna
-    -------
-    fig, ani : objetos matplotlib (FuncAnimation)
-    """
+Returns
+-------
+fig, ani : matplotlib objects (FuncAnimation)"""
     fig, ax = plt.subplots(figsize=(7, 7), facecolor='#1A1A2E')
     ax.set_facecolor('#16213E')
     ax.set_aspect('equal')
@@ -3212,7 +2719,7 @@ def animate_relaxation(thetas_hist, xs, ys,
     N, M = thetas_hist[0].shape
 
     def update(frame):
-        # limpa todos os artistas do quadro anterior
+        # clears all artists from the previous frame
         for art in ax.lines + ax.patches + ax.collections:
             art.remove()
         thetas = thetas_hist[frame]
@@ -3232,31 +2739,28 @@ def animate_relaxation(thetas_hist, xs, ys,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 9. GRÁFICO DO PARÂMETRO DE ORDEM GLOBAL
+# 9. GLOBAL ORDER-PARAMETER PLOT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def plot_order_parameter(thetas_hist, outpath, dt=None):
-    """
-    Plota a evolução temporal do parâmetro de ordem magnético global S(t).
+    """Plots the time evolution of the global magnetic order parameter S(t).
 
-        S(t) = |〈e^{iθ}〉|  ∈ [0, 1]
+    S(t) = |<e^{i theta}>| in [0, 1]
 
-    S ≈ 1 → agulhas alinhadas;  S ≈ 0 → orientações aleatórias.
+S close to 1 means aligned needles; S close to 0 means random orientations.
 
-    Parâmetros
-    ----------
-    thetas_hist : lista de arrays N×M (histórico de `relax`, cada 20 passos)
-    outpath     : caminho do arquivo de saída (PNG)
-    dt          : passo de tempo [s] — se fornecido, eixo x em segundos reais;
-                  se None, eixo x em índice de snapshot
-    """
+Parameters
+----------
+thetas_hist : list of N×M arrays, the `relax` history sampled every 20 steps
+outpath     : output-file path (PNG)
+dt          : time step [s]; if provided, the x axis is in real seconds, otherwise it is the snapshot index"""
     order_params = [
         np.abs(np.mean(np.exp(1j * th)))
         for th in thetas_hist
     ]
 
     if dt is not None:
-        # cada snapshot corresponde a 20 passos
+        # each snapshot corresponds to 20 steps
         time_ax = np.arange(len(order_params)) * 20 * dt
         xlabel  = "Tempo  t  [s]"
     else:
@@ -3282,31 +2786,29 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 10. INTERFACE DE LINHA DE COMANDO (main)
+# 10. INTERFACE OF LINE OF COMANDO (main)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    """
-    Ponto de entrada da simulação via linha de comando.
+    """Command-line entry point of the simulation.
 
-    Fluxo de execução
-    -----------------
-    1. Parseia os argumentos (geometria, espaçamento, campo externo, etc.)
-    2. Converte (B_ext, phi_ext) → (Bext_x, Bext_y) em coordenadas cartesianas
-    3. Gera a grade de posições e ângulos iniciais (make_grid)
-    4. Calcula o cutoff e tamanho das agulhas de acordo com a geometria
-    5. Salva figura do estado inicial
-    6. Executa a relaxação (relax)
-    7. Salva figura do estado de equilíbrio
-    8. Salva figura comparativa inicial vs. equilíbrio
-    9. Plota o parâmetro de ordem ao longo da relaxação
-    10. (Opcional) Gera animação da relaxação
-    """
+Execution flow
+--------------
+1. Parses arguments: geometry, spacing, external field, and related options
+2. Converts (B_ext, phi_ext) into (Bext_x, Bext_y) Cartesian coordinates
+3. Generates the grid of positions and initial angles with make_grid
+4. Computes the cutoff and needle size according to geometry
+5. Saves the initial-state figure
+6. Runs relaxation with relax
+7. Saves the equilibrium-state figure
+8. Saves the initial-vs-equilibrium comparison figure
+9. Plots the order parameter during relaxation
+10. Optionally generates the relaxation animation"""
     parser = argparse.ArgumentParser(
         description="Simulacao de rede de bussolas — campo dipolar 2D",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    # ── grupo 1: geometria da rede ────────────────────────────────────────
+    # ── group 1: geometria of the lattice ────────────────────────────────────────
     grp = parser.add_argument_group("Geometria da rede")
     grp.add_argument('--N', type=int, default=8,
                      help='Numero de LINHAS de agulhas')
@@ -3325,7 +2827,7 @@ def main():
                      default='square',
                      help='Tipo de rede')
 
-    # ── grupo 2: parâmetros físicos e de simulação ────────────────────────
+    # ── group 2: physical and simulation parameters ────────────────────────
     grp2 = parser.add_argument_group("Fisica e simulacao")
     grp2.add_argument('--moment', type=float, default=None,
                       help='Momento magnetico de cada agulha [A·m²]. '
@@ -3483,7 +2985,7 @@ def main():
                            'mesmo dominio magnetico. Usado apenas quando '
                            '--halo_mode domains. Padrao: 15.0 graus')
 
-    # ── grupo 3: campo externo ────────────────────────────────────────────
+    # ── group 3: external field ────────────────────────────────────────────
     grp3 = parser.add_argument_group(
         "Campo externo uniforme (SI)",
         "Intensidade em Tesla. Exemplos: campo terrestre = 50e-6 T; "
@@ -3501,7 +3003,7 @@ def main():
                       help='Componente By do campo externo [T] '
                            '(sobrescreve --B_ext/--phi_ext se informado)')
 
-    # ── grupo 4: saída ────────────────────────────────────────────────────
+    # ── group 4: output ────────────────────────────────────────────────────
     grp4 = parser.add_argument_group("Saida")
     grp4.add_argument('--video', type=str, default=None,
                       metavar='NOME',
@@ -3534,14 +3036,16 @@ def main():
                            '150-200 para melhor qualidade de imagem.')
     grp4.add_argument('--keep_frames', action='store_true',
                       help='Mantém a pasta de PNGs intermediários após gerar o MP4')
+    grp4.add_argument('--hyst_autoscale', type=int, choices=[0, 1], default=0,
+                      help='Enables automatic scaling (autoscale) of the axes for the MxH hysteresis curve in both the frames and the final plot: 1=enabled, 0=disabled (default).')
     grp4.add_argument('--csv_order', choices=['t', 'B'], default='t',
                       help='Ordem das colunas no CSV exportado: '
                            't (padrao) = tempo na 1a coluna: t,B,M_proj,S. '
                            'B = tempo na ultima coluna: B,M_proj,S,t.')
     args = parser.parse_args()
 
-    # ── valida e limita needle_frac ao intervalo [0, 0.8] ──────────────────
-    # acima de 0.8 as agulhas começam a se tocar/sobrepor visualmente
+    # ── validates and limits needle_frac ao intervalo [0, 0.8] ──────────────────
+    # above 0.8 the needles begin to touch or overlap visually
     if args.needle_frac < 0.0 or args.needle_frac > 0.8:
         clamped = max(0.0, min(args.needle_frac, 0.8))
         _print(f"  Aviso: --needle_frac {args.needle_frac} fora do intervalo "
@@ -3550,7 +3054,7 @@ def main():
 
     np.random.seed(args.seed)
 
-    # ── converte campo externo para coordenadas cartesianas ───────────────
+    # ── converts external field for coordeanythings cartesianas ───────────────
     # Prioridade: --ext_Bx/--ext_By (cartesiano) sobrescreve --B_ext/--phi_ext
     if args.ext_Bx is not None or args.ext_By is not None:
         Bext_x = args.ext_Bx if args.ext_Bx is not None else 0.0
@@ -3558,28 +3062,28 @@ def main():
         B_ext_mag = np.sqrt(Bext_x**2 + Bext_y**2)
         phi_ext_deg = np.degrees(np.arctan2(Bext_y, Bext_x))
     else:
-        # converte (intensidade, ângulo) → (Bx, By)
+        # converts (intensidade, angle) → (Bx, By)
         phi_rad = np.deg2rad(args.phi_ext)
         Bext_x  = args.B_ext * np.cos(phi_rad)
         Bext_y  = args.B_ext * np.sin(phi_rad)
         B_ext_mag   = args.B_ext
         phi_ext_deg = args.phi_ext
 
-    # ── tamanhos derivados de R (calculados aqui para uso no resumo e no
-    #    cálculo automático do momento de inércia, antes de imprimir) ──────
-    # R  = raio do círculo visual de cada agulha
-    # 2R = distância entre vizinhos (nn_dist) em qualquer geometria
-    # needle_len = fração de 2R controlada por --needle_frac
-    # needle_width = 22% de needle_len (proporção visual de bússola)
+    # ── sizes derived from R (computed here for use in the summary and in the
+    #    automatic moment-of-inertia calculation, before printing) ──────
+    # R  = radius of the circle visual of each needle
+    # 2R = distance between neighbors (nn_dist) in any geometria
+    # needle_len = fraction of 2R controlled by --needle_frac
+    # needle_width = 22% of needle_len (visual compass proportion)
     R          = args.R
-    needle_len = args.needle_frac * 2.0 * R   # comprimento da agulha [m]
-    needle_width = needle_len * 0.22           # largura do losango [m]
+    needle_len = args.needle_frac * 2.0 * R   # length of the needle [m]
+    needle_width = needle_len * 0.22           # width of the diamond [m]
 
-    # ── momento de inércia: calculado da geometria, ou valor explícito ────
-    # Se o usuário não passou --inertia, calcula automaticamente a partir
-    # das dimensões reais da agulha (comprimento, largura, espessura) e
-    # da densidade do aço, modelando-a como uma lâmina retangular fina.
-    # Se --inertia foi fornecido explicitamente, esse valor tem prioridade.
+    # ── moment of inertia: computed from geometry, or explicit value ────
+    # Se the user not passou --inertia, computes automatically from
+    # the real needle dimensions (length, width, thickness) and
+    # the steel density, modeling the needle as a thin rectangular sheet.
+    # If --inertia was provided explicitly, that value takes precedence.
     if args.inertia is None:
         inertia = compute_inertia_from_geometry(
             needle_len, needle_width, args.needle_thickness,
@@ -3589,13 +3093,13 @@ def main():
         inertia = args.inertia
         _inertia_auto = False
 
-    # ── momento magnético: calculado da geometria (aço saturado), ou
-    #    valor explícito ──────────────────────────────────────────────────
-    # Se o usuário não passou --moment, calcula automaticamente assumindo
-    # que a agulha está SATURADA na direção do seu eixo longo (Norte):
-    # m = Ms * volume, com volume = L * largura * espessura (mesma
-    # geometria já usada para a inércia). Se --moment foi fornecido
-    # explicitamente, esse valor tem prioridade.
+    # ── magnetic moment: computed from geometry (saturated steel), or
+    #    explicit value ──────────────────────────────────────────────────
+    # Se the user not passou --moment, computes automatically assumindo
+    # that the needle is SATURATED along its long axis direction (North):
+    # m = Ms * volume, with volume = L * width * thickness (same
+    # geometry already used for the inertia). If --moment was provided
+    # explicitly, that value takes precedence.
     if args.steel_Bsat is not None:
         _Ms_used = args.steel_Bsat / (4.0 * np.pi * 1e-7)   # Bsat = mu0 * Ms
     else:
@@ -3608,8 +3112,8 @@ def main():
         moment = args.moment
         _moment_auto = False
 
-    # ── resumo dos parâmetros ─────────────────────────────────────────────
-    # formata campo para exibição em unidade mais legível
+    # ── summary of the parameters ─────────────────────────────────────────────
+    # formats field for display in a more readable unit
     def fmt_field(B):
         if B == 0:      return "0 T"
         if B >= 0.1:    return f"{B:.4f} T"
@@ -3686,9 +3190,9 @@ def main():
     _print(f"  Ruido/seed   : {args.noise:.2f} rad  seed={args.seed}")
     _print(f"{'═'*62}\n")
 
-    # ── gera grade de posições e ângulos iniciais ─────────────────────────
-    # make_grid usa R como parâmetro único; retorna também nn_dist = 2R
-    # e Lx, Ly = período da rede para condições periódicas de contorno
+    # ── generates grid of positions and angles iniciais ─────────────────────────
+    # make_grid uses R as the only parameter; also returns nn_dist = 2R
+    # and Lx, Ly = lattice period for periodic boundary conditions
     xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
         args.N, args.M,
         geometry=args.geometry,
@@ -3696,16 +3200,16 @@ def main():
         R=args.R,
     )
 
-    # ── tamanhos derivados de R que faltam (R/needle_len/needle_width e a
-    #    inércia já foram calculados antes do resumo do terminal) ──────────
-    # r_halo = R (exatamente o raio do círculo) — círculos se tocam tangencialmente
-    # cutoff = 2.6 * 2R — cobre 1ª e 2ª camadas de vizinhos
-    r_halo     = R * 0.98                      # ligeiramente menor que R para gap visível
-    cutoff     = nn_dist * 2.6                 # raio de corte da interação dipolar [m]
+    # ── remaining sizes derived from R (R/needle_len/needle_width and the
+    #    inertia were already computed before the terminal summary) ──────────
+    # r_halo = R (exactly the circle radius) — circles touch tangentially
+    # cutoff = 2.6 * 2R — cobre 1ª and 2ª layers of neighbors
+    r_halo     = R * 0.98                      # slightly smaller than R for a visible gap
+    cutoff     = nn_dist * 2.6                 # radius of cutoff of the interaction dipolar [m]
 
-    # ── PBC: limita cutoff a min(Lx,Ly)/2 para evitar contagem dupla ───────
-    # Acima desse limite, a convenção de imagem mínima pode contar a mesma
-    # réplica mais de uma vez, gerando resultados fisicamente incorretos.
+    # ── PBC: limits cutoff the min(Lx,Ly)/2 for evitar count dupla ───────
+    # Above this limit, the minimum-image convention may count the same
+    # replica more of a time, gerando physically incorrect results.
     if args.pbc:
         max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
         if cutoff > max_cutoff_pbc:
@@ -3713,7 +3217,7 @@ def main():
                     f"{max_cutoff_pbc*100:.2f}cm (limite min(Lx,Ly)/2)")
             cutoff = max_cutoff_pbc
 
-    # campo dipolar de referência entre primeiros vizinhos (para exibição)
+    # reference dipolar field between nearest neighbors (for display)
     B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
     _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (entre vizinhos)")
     if B_ext_mag > 0:
@@ -3726,9 +3230,9 @@ def main():
                       r_halo=r_halo, halo_mode=args.halo_mode,
                       domain_tol_deg=args.domain_tol)
 
-    # ── tamanho da figura proporcional à extensão da rede ─────────────────
-    # Calculado uma vez e reutilizado em todos os frames e figuras estáticas.
-    # A lógica espelha a de plot_state mas usa xs/ys já conhecidos.
+    # ── figure size proportional to the lattice extent ─────────────────
+    # Calculated once and reused in all frames and static figures.
+    # The logic mirrors plot_state but uses xs/ys already known.
     _x_span = (xs.max() - xs.min()) + 4 * needle_len
     _y_span = (ys.max() - ys.min()) + 6 * needle_len
     _aspect = _x_span / _y_span if _y_span > 0 else 1.0
@@ -3743,7 +3247,7 @@ def main():
 
     ext_kwargs['figsize_inches'] = figsize_main
 
-    # ── figura do estado inicial ──────────────────────────────────────────
+    # ── figure of the estado initial ──────────────────────────────────────────
     if args.make_images:
         fig0, _ = plot_state(thetas_init, xs, ys,
                              title="Estado inicial (aleatório)",
@@ -3755,7 +3259,7 @@ def main():
         plt.close(fig0)
         _print("Estado inicial salvo.")
 
-    # ── integração dinâmica inercial ──────────────────────────────────────
+    # ── inertial dynamic integration ──────────────────────────────────────
     frame_dir   = None
     final_video = None
     if args.video and not args.make_images:
@@ -3766,12 +3270,12 @@ def main():
 
     if args.video:
         import os
-        # se o usuário não informou extensão, adiciona .mp4 automaticamente
+        # if the user did not provide an extension, automatically adds .mp4
         # ex: "--video simples" -> "simples.mp4" -> "simples0000.mp4"
         if not os.path.splitext(args.video)[1]:
             args.video = args.video + ".mp4"
-        # resolve o nome final do vídeo ANTES de criar a pasta de frames,
-        # garantindo que pasta e arquivo usem o mesmo nome base
+        # resolves the final video name BEFORE creating the frames folder,
+        # ensuring that the folder and file use the same base name
         final_video = next_available_path(args.video)
         _print(f"  Video sera salvo como '{final_video}'")
         base      = os.path.splitext(final_video)[0]
@@ -3815,22 +3319,23 @@ def main():
         t_pulse=args.t_pulse,
         torque_tol=args.torque_tol,
         t_sim_full=bool(args.t_sim_full),
+        hyst_autoscale=bool(args.hyst_autoscale),
     )
     frames_str = f"  ({n_frames} frames salvos)" if n_frames else ""
     _print(f"Integracao concluida - {stop_reason}{frames_str}")
 
-    # ── exporta CSV universal com campo e magnetização ────────────────────
-    # Nome = mesmo nome do vídeo (se houver), senão "compass_field_log.csv"
+    # ── exporta CSV universal with field and magnetization ────────────────────
+    # Name = same name as the video (if any), otherwise "compass_field_log.csv"
     import csv as _csv, os as _os
     if args.video and final_video:
         csv_path = _os.path.splitext(final_video)[0] + ".csv"
     else:
         csv_path = "compass_field_log.csv"
 
-    # ── ordem das colunas conforme --csv_order ────────────────────────────
-    # field_log armazena tuplas (t, B, M_proj, S)
-    # 't' (padrao): tempo na 1a coluna  -> t, B, M_proj, S
-    # 'B'         : tempo na ultima coluna -> B, M_proj, S, t
+    # ── order of the columns conforme --csv_order ────────────────────────────
+    # field_log stores tuples (t, B, M_proj, S)
+    # t: time in the first column  -> t, B, M_proj, S
+    # B: time in the last column -> B, M_proj, S, t
     if args.csv_order == 'B':
         header = ['B_aplicado_T', 'M_proj', 'S', 't_s']
         rows   = [(B, Mp, S, t) for (t, B, Mp, S) in field_log]
@@ -3844,7 +3349,7 @@ def main():
         w.writerows(rows)
     _print(f"  CSV salvo: {csv_path}  ({len(field_log)} pontos)")
 
-    # ── figura do estado de equilíbrio ────────────────────────────────────
+    # ── figure of the estado of equilibrium ────────────────────────────────────
     if args.make_images:
         title_eq = (f"Equilíbrio — {args.geometry} {args.N}×{args.M}"
                     + (f"  |  B={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
@@ -3859,7 +3364,7 @@ def main():
         plt.close(fig1)
         _print("Estado de equilíbrio salvo.")
 
-        # ── figura comparativa lado a lado ────────────────────────────────
+        # ── figure comparativa side the side ────────────────────────────────
         fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
         margin = needle_len * 1.6
         for ax_ in axes:
@@ -3878,10 +3383,10 @@ def main():
                           fontsize=12, fontfamily='monospace')
 
         N_g, M_g = thetas_init.shape
-        # ── halos (V43): mesmos modo/tolerância das demais figuras ──────
-        # A comparação nunca desenhava halos (em nenhum modo); agora usa a
-        # mesma rotina de plot_state — em 'domains', o título de cada
-        # painel ganha a contagem de domínios daquele estado.
+        # ── halos (V43): same mode/tolerance as the other figures ──────
+        # The comparison previously never drew halos in any mode; now it uses the
+        # same plot_state routine — in domains mode, the title of each
+        # panel ganha the count of domains daquele estado.
         _nd0, _ns0 = draw_halos_batch(axes[0], xs, ys, thetas_init,
                                       needle_len, r_halo=r_halo,
                                       halo_mode=args.halo_mode,
@@ -3905,7 +3410,7 @@ def main():
         draw_compass_batch(axes[1], xs, ys, thetas_eq,
                            length=needle_len, width=needle_width)
 
-        # setas de campo externo em ambos os painéis
+        # external-field arrows in both panels
         draw_ext_field_on_lattice(axes[0], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
         draw_ext_field_on_lattice(axes[1], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
 
@@ -3922,13 +3427,13 @@ def main():
         plt.close(fig2)
         _print("Comparação salva.")
 
-        # ── parâmetro de ordem global ────────────────────────────────────
-        # hist contém tuplas (thetas, omegas); extraímos só os thetas
+        # ── order parameter global ────────────────────────────────────
+        # hist contains tuples (thetas, omegas); we extract only the thetas
         plot_order_parameter([th for th, _ in thetas_hist],
                              "compass_order_param.png",
                              dt=sim_dt)
 
-    # ── geração do vídeo MP4 ──────────────────────────────────────────────
+    # ── MP4 video generation ──────────────────────────────────────────────
     if final_video and frame_dir and n_frames > 0:
         import shutil
         ok = render_video(frame_dir, final_video, fps=args.fps, use_gpu=bool(args.gpu))
