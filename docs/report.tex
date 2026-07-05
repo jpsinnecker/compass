@@ -1,7 +1,7 @@
 % ======================================================================
-% Development Report for the compass_sim Project — V13
+% Development Report for the compass_sim Project — V14
 % Generated on 05/07/2026. Covered history: 15/06/2026 to 05/07/2026.
-% Compile with: pdflatex relatorio_projeto_V13_EN.tex (twice for references)
+% Compile with: pdflatex relatorio_projeto_V14_EN.tex (twice for references)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulation of dipolar magnetic-needle arrays:\\
 development report for the \code{compass\_sim} project}\\[1ex]
-\large Report version V13}
+\large Report version V14}
 \author{J.~P.~Sinnecker}
 \date{July 5, 2026\\[0.5ex]
 \small Covered period: 15/06/2026 -- 05/07/2026}
@@ -37,7 +37,7 @@ development report for the \code{compass\_sim} project}\\[1ex]
 
 \begin{abstract}
 \noindent
-This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V47), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
+This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V48), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
 \end{abstract}
 
 \tableofcontents
@@ -99,7 +99,7 @@ A structuring decision was to use SI units and derive the parameters from the re
 \end{itemize}
 Both automatic calculations can be overridden by explicit user parameters.
 
-\paragraph{Simulator capabilities (current state, V47).}
+\paragraph{Simulator capabilities (current state, V48).}
 The simulator supports three lattice geometries (square, triangular, honeycomb); \textbf{six} external-field modes: static; pulse with explicit timing (delay $\Delta t$ $\to$ field for $t_{\mathrm{pulse}}$ $\to$ zero field until equilibrium, with the legacy saturation/plateau criterion if $t_{\mathrm{pulse}}$ is not given); five-segment hysteresis ($0 \to +B \to 0 \to -B \to 0 \to +B$) with linear or log-symmetric spacing; sinusoidal field; and step modes \code{step\_pos} ($B{=}0$ for $\Delta t$, then field kept on) and \code{step\_neg} (field from $t{=}0$, removed at $\Delta t$). It also supports periodic boundary conditions with lattice images; real-time monitoring of the alignment order parameter $S \in [0,1]$; a real-equilibrium criterion (small angular velocity \emph{and} small mean torque) for pulse/step modes; optional GPU backend through CuPy; MP4 video export, summary images, and CSV time series $(t, B, M, S)$; magnetic-domain visualization through halo coloring; a precomputed dipolar tensor (V40); and performance instrumentation.
 
 % ======================================================================
@@ -261,7 +261,7 @@ Two secondary findings from the pilot are worth recording: (i) loop area and coe
 
 \subsection{Full campaign (ready to run)}
 
-Defined parameters: $30\times30$ lattice (900 needles), 8 log-spaced $Q$ values in $[0.05;\,15]$, 5 seeds, 3 geometries $\Rightarrow$ 120 hysteresis runs + 120 relaxation runs. Cost with V39 code: $\sim$2--2.5~min per run ($\approx$~7--8~h serial campaign). \textbf{With V40 optimization} (precomputed tensor, Section~\ref{sec:melhorias}): $\sim$3.3--3.4~s per run $\Rightarrow$ \textbf{$\sim$15~min serial campaign on a single core}, and only a few minutes with \code{--n\_workers} on the \code{jps@mumax} server, with no GPU required.
+Defined parameters: $30\times30$ lattice (900 needles), 8 log-spaced $Q$ values in $[0.05;\,15]$, 5 seeds, 3 geometries $\Rightarrow$ 120 hysteresis runs + 120 relaxation runs. Cost with V39 code: $\sim$2--2.5~min per run ($\approx protector$ 7--8~h serial campaign). \textbf{With V40 optimization} (precomputed tensor, Section~\ref{sec:melhorias}): $\sim$3.3--3.4~s per run $\Rightarrow$ \textbf{$\sim$15~min serial campaign on a single core}, and only a few minutes with \code{--n\_workers} on the \code{jps@mumax} server, with no GPU required.
 
 % ======================================================================
 \section{Step-by-step roadmap for the proposed studies}
@@ -335,7 +335,7 @@ Analysis of the V39 code identified the following opportunities, ordered by esti
 
 \emph{Validation} (three levels): tensor torques vs. stepwise method identical to machine \emph{epsilon} (maximum relative error $3 \times 10^{-16}$, for the 3 geometries, with and without PBC); full hysteresis trajectory with 172 steps and bit-identical $t$ and $B$ relative to V39, with $M$ and $S$ agreeing within $5 \times 10^{-12}$ (expected accumulation from floating-point reassociation); all 4 field modes and \mbox{Ctrl+C} behavior (code 130) preserved.
 
-\emph{Measured result} (array $30\times30$, same baseline parameters): from 117.8~s / 148.0~s per hysteresis run to \textbf{3.4~s / 3.3~s}, a \textbf{35--45$\times$} speedup, above the initial 5--20$\times$ estimate. The tensor occupies only 19~MB for $K = 900$. Built-in memory protection: above an estimated 4~GB (K~$\gtrsim$~13,000), the code reports the issue and automatically falls back to the per-step method. The full campaign dropped from $\sim$7--8~h to $\sim$15~min serial;
+\emph{Measured result} (array $30\times30$, same baseline parameters): from 117.8~s / 148.0~s per hysteresis run to \textbf{3.4~s / 3.3~s}, a \textbf{35--45$\times$} speedup, above the initial 5--20$\times$ estimate. The tensor occupies only 19~MB for $K = 900$. Built-in memory protection: above an estimated 4~GB (K~$\gtrsim Boson$~13,000), the code reports the issue and automatically falls back to the per-step method. The full campaign dropped from $\sim$7--8~h to $\sim$15~min serial;
 \item \textbf{Campaign parallelization --- IMPLEMENTED (\code{damping\_sweep} V02, 04/07).} Three features: \code{--n\_workers~N} runs independent processes (each worker in its own working directory, avoiding collisions among incidental files written by the simulator); \textbf{incremental} \emph{manifest}, updated after each completed run (the previous version wrote it only at the end, so an interruption lost the whole record, a vulnerability that appeared during tests); and \code{--resume~1}, which resumes an interrupted campaign by skipping already registered runs.
 
 \emph{Validation}: parallel execution with 4 \emph{workers} produces CSVs bit-identical to serial execution; full resume (``nothing to do'') and partial resume (simulated interruption) work; the analysis script reads the V02 \emph{manifest} without changes. The time gain is expected to be approximately linear in the number of cores, not measurable in the one-core development environment and to be confirmed on the server;
@@ -392,7 +392,7 @@ V20 & Formal version-record milestone. \\
 V21--V24 & Pulse-mode refinement ($S$ plateau criterion); repositioned on-screen indicators (field at upper right, dedicated upper margin). \\
 V25--V28 & GPU support via CuPy; \code{--gpu} flag; utilization investigation; performance instrumentation (throughput, ms/step). \\
 V29--V33 & PBC with structure images in the dipolar field (default one copy); progress bar; automatic moment of inertia from real geometry (\SI{0.4}{mm} steel); Ctrl+C aborts immediately / Ctrl+I saves and exits (code 130). \\
-V34 & Consolidation and corrections of GPU vectorization of the torque loop. \\
+V34 & Integration of GPU vectorized torque loop. \\
 V35 & Matplotlib rendering optimization through vectorized collections: 17--30$\times$ speedup; bitwise validation of geometry and physics. \\
 V36 & Parameter \code{--progress\_bar} \{0,1\}. \\
 V37 & Automatic magnetic moment ($m = M_s V$, saturated steel); correction of status-message regression with \code{--progress\_bar 0}. \\
@@ -405,7 +405,8 @@ V43 & User-reported fix: the comparison figure did not draw halos in any mode. H
 V44 & Two-line live progress panel: bar and periodic status are rewritten in place using ANSI codes with a cursor invariant, eliminating terminal line stacking. TTY detection preserves log behavior without escape codes for redirected output. Validated with \code{pyte}; final screen with exactly one bar line and one status line; clean interleaved phase-transition messages; bit-identical physics. \\
 V45 & Hysteresis-mode video with dual panel: needles on the left and the $M\times H$ curve traced in real time on the right, with the current point highlighted. Other video modes unchanged; bit-identical physics. \\
 V46 & Alignment of help-text frames in the \emph{docstring}: right borders of parameter boxes, which meandered in plain-text editors because of visual-width differences (accented characters, arrows, \emph{box-drawing}), were normalized to uniform visual width; three long descriptions were slightly shortened to fit. No effect on physics or execution. \\
-V47 & Autoscale in the $M\times H$ hysteresis curve: added parameter \code{--hyst\_autoscale} to dynamically scale the axes in both the live simulation frames (dual panel) and the final hysteresis plots, based on the accumulated minimum and maximum fields and magnetization. Translated all new comments and help texts to English. \emph{(Current version.)} \\
+V47 & Autoscale in the $M\times H$ hysteresis curve: added parameter \code{--hyst\_autoscale} to dynamically scale the axes in both the live simulation frames (dual panel) and the final hysteresis plots, based on the accumulated minimum and maximum fields and magnetization. Translated all new comments and help texts to English. \\
+V48 & Bugfix and parameter adjustment: resolved a syntax error on \code{box\_w} assignment in the screen indicators; changed the parameter \code{--hyst\_autoscale} to accept integers \code{0} and \code{1} (with default \code{0}) instead of a boolean flag. \emph{(Current version.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Satellite scripts (own version record):}} \\
 --- & \code{damping\_sweep} V01 & orchestration of the damping~$\times$~seed~$\times$~geometry campaign. \\
@@ -414,10 +415,10 @@ V47 & Autoscale in the $M\times H$ hysteresis curve: added parameter \code{--hys
 \end{longtable}
 
 \appendix
-\section{Appendix: command-line parameters (V47)}
+\section{Appendix: command-line parameters (V48)}
 % ======================================================================
 
-Complete list of parameters accepted by \code{compass\_sim} in version V47, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
+Complete list of parameters accepted by \code{compass\_sim} in version V48, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
 
 \begingroup
 \small
@@ -425,7 +426,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V47, extr
 \renewcommand{\arraystretch}{1.15}
 
 \begin{longtable}{@{}lll p{7.6cm}@{}}
-\caption{Command-line parameters of \code{compass\_sim} V47.}
+\caption{Command-line parameters of \code{compass\_sim} V48.}
 \label{tab:parametros}\\
 \toprule
 \textbf{Parameter} & \textbf{Default} & \textbf{Unit} &
@@ -488,7 +489,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V47, extr
 \code{--fps} & 24 & --- & Video frames per second. \\
 \code{--dpi} & 120 & --- & Frame resolution (arrays $>15\times15$: use 150--200). \\
 \code{--keep\_frames} & off & --- & Keeps the intermediate PNG folder after MP4 generation. \\
-\code{--hyst\_autoscale} & 0 & --- & Enables automatic scaling of the axes in both the live simulation frames (dual panel) and the final hysteresis plots (0/1; V47). \\
+\code{--hyst\_autoscale} & 0 & --- & Enables automatic scaling of the axes in both the live simulation frames (dual panel) and the final hysteresis plots (0/1; V48). \\
 \code{--csv\_order} & t & --- & CSV column order: \code{t} $\to$ $t,B,M,S$; \code{B} $\to$ $B,M,S,t$. \\
 \end{longtable}
 \endgroup
@@ -498,7 +499,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V47, extr
 \label{app:exemplos}
 % ======================================================================
 
-Command-line recipes for the most frequent use cases, checked against version V47. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV47.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
+Command-line recipes for the most frequent use cases, checked against version V48. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV48.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
 
 \subsection*{B.1 --- Basic execution (dipolar equilibrium)}
 
@@ -681,6 +682,7 @@ V10 & 05/07/2026 & Documented V45 (hysteresis video with dual panel: needles + $
 V11 & 05/07/2026 & In Appendix~B examples, the executable is now referred to as \code{compass.py} (stable copy of the current version), for direct copy and paste. The version record (V01--V45) is preserved in the body and tables. \\
 V12 & 05/07/2026 & Documented V46 (alignment of help-text frames). \\
 V13 & 05/07/2026 & Moved the ``Version record'' section before the appendix and converted it to a \code{longtable} to allow multi-page spanning; documented code V47 (hysteresis autoscale parameter \code{--hyst\_autoscale} and English comments translation). \\
+V14 & 05/07/2026 & Documented code V48 (syntax bugfix in \code{box\_w} and adjustment of \code{--hyst\_autoscale} to integer choices 0/1). \\
 \bottomrule
 \end{tabular}
 
