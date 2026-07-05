@@ -1,7 +1,7 @@
 % ======================================================================
-% Development Report for the compass_sim Project — V18
+% Development Report for the compass_sim Project — V19
 % Generated on 05/07/2026. Covered history: 15/06/2026 to 05/07/2026.
-% Compile with: pdflatex relatorio_projeto_V18_EN.tex (twice for references)
+% Compile with: pdflatex relatorio_projeto_V19_EN.tex (twice for references)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulation of dipolar magnetic-needle arrays:\\
 development report for the \code{compass\_sim} project}\\[1ex]
-\large Report version V18}
+\large Report version V19}
 \author{J.~P.~Sinnecker}
 \date{July 5, 2026\\[0.5ex]
 \small Covered period: 15/06/2026 -- 05/07/2026}
@@ -37,7 +37,7 @@ development report for the \code{compass\_sim} project}\\[1ex]
 
 \begin{abstract}
 \noindent
-This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V52), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
+This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V53), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
 \end{abstract}
 
 \tableofcontents
@@ -99,7 +99,7 @@ A structuring decision was to use SI units and derive the parameters from the re
 \end{itemize}
 Both automatic calculations can be overridden by explicit user parameters.
 
-\paragraph{Simulator capabilities (current state, V52).}
+\paragraph{Simulator capabilities (current state, V53).}
 The simulator supports three lattice geometries (square, triangular, honeycomb); \textbf{six} external-field modes: static; pulse with explicit timing (delay $\Delta t$ $\to$ field for $t_{\mathrm{pulse}}$ $\to$ zero field until equilibrium, with the legacy saturation/plateau criterion if $t_{\mathrm{pulse}}$ is not given); five-segment hysteresis ($0 \to +B \to 0 \to -B \to 0 \to +B$) with linear or log-symmetric spacing; sinusoidal field; and step modes \code{step\_pos} ($B{=}0$ for $\Delta t$, then field kept on) and \code{step\_neg} (field from $t{=}0$, removed at $\Delta t$). It also supports periodic boundary conditions with lattice images; real-time monitoring of the alignment order parameter $S \in [0,1]$; a real-equilibrium criterion (small angular velocity \emph{and} small mean torque) for pulse/step modes; optional GPU backend through CuPy; MP4 video export, summary images, and CSV time series $(t, B, M, S)$; magnetic-domain visualization through halo coloring; a precomputed dipolar tensor (V40); and performance instrumentation.
 
 % ======================================================================
@@ -173,7 +173,7 @@ With the instrument mature, the focus shifted to science:
 \item \textbf{Campaign infrastructure}: the scripts \code{damping\_sweep.py} (orchestration of damping~$\times$~\emph{seed}~$\times$~geometry sweeps, calling the simulator programmatically) and \code{damping\_sweep\_analysis.py} (full statistical analysis), both validated end to end (Section~\ref{sec:campanha});
 \item \textbf{Performance optimizations implemented (04/07)}: the precomputed dipolar tensor (\textbf{V40}) and campaign parallelization with incremental \emph{manifest} and resume support (\code{damping\_sweep} V02). Details and measurements are in Section~\ref{sec:melhorias}. The measured V40 speedup is \textbf{35--45$\times$} per run, reducing the full campaign from $\sim$7--8~h to $\sim$15~min on a single core;
 \item \textbf{New field protocols and refinements (V41--V45)}: hysteresis with log-symmetric spacing; pulse with explicit timing ($\Delta t$ + $t_{\mathrm{pulse}}$ + torque equilibrium); step modes \code{step\_pos}/\code{step\_neg}; \code{--t\_sim\_full} flag (run to the end without early stopping); halos also in the comparison figure (V43); a two-line live progress panel (V44); and hysteresis video with a dual progress panel (V45).
-\item \textbf{Layout, terminal updates and translations (V46--V52)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); and full translation of all remaining terminal console prints and confirmations to English (V52).
+\item \textbf{Layout, terminal updates, and translations (V46--V53)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); full translation of all remaining terminal console prints and confirmations to English (V52); and circular direction dial and sign indicator arrow next to the horizontal field bar updates (V53).
 \end{enumerate}
 
 % ======================================================================
@@ -183,7 +183,7 @@ With the instrument mature, the focus shifted to science:
 
 \subsection{The gap in the literature}
 
-The review covered three fronts. \textbf{(i)}~Classical compass-needle arrays: the founding work (square $22\times22$ lattice, Phys.\ Rev.\ B \textbf{58}, 9238, 1998~\cite{prb1998}) uses equilibrium Monte Carlo with a random field mimicking thermal noise, not Newtonian dynamics. \textbf{(ii)}~Classical dipoles in honeycomb/kagome/triangular lattices (2012--2025): Luttinger--Tisza methods, energy minimization, spin waves, and Monte Carlo with \emph{parallel tempering}, all focused on ground states and thermal \emph{equilibrium} transitions. \textbf{(iii)}~\emph{Artificial spin ice}~\cite{nisoli2013}: real temporal dynamics is studied, but through discrete macrospins (Ising-like) or experimental data (MOKE/MFM), almost never with continuous angular dynamics and explicit mechanical inertia.
+\noindent The review covered three fronts. \textbf{(i)}~Classical compass-needle arrays: the founding work (square $22\times22$ lattice, Phys.\ Rev.\ B \textbf{58}, 9238, 1998~\cite{prb1998}) uses equilibrium Monte Carlo with a random field mimicking thermal noise, not Newtonian dynamics. \textbf{(ii)}~Classical dipoles in honeycomb/kagome/triangular lattices (2012--2025): Luttinger--Tisza methods, energy minimization, spin waves, and Monte Carlo with \emph{parallel tempering}, all focused on ground states and thermal \emph{equilibrium} transitions. \textbf{(iii)}~\emph{Artificial spin ice}~\cite{nisoli2013}: real temporal dynamics is studied, but through discrete macrospins (Ising-like) or experimental data (MOKE/MFM), almost never with continuous angular dynamics and explicit mechanical inertia.
 
 The question of how damping controls hysteresis and avalanches is active and publishable in adjacent fields. It is established that underdamped and overdamped regimes form different universality classes in short-range or mean-field systems~\cite{dahmen2011}, but this has not been answered for complete dipolar coupling (long-range, anisotropic) with real spatial geometry. This is the gap occupied by the project.
 
@@ -409,7 +409,8 @@ V48 & Bugfix and parameter adjustment: resolved a syntax error on \code{box\_w} 
 V49 & Parameter and visualization refinement: resolved overlap between HUD boxes and the top row of needles by dynamically reserving the top 20\% of the vertical space; adjusted the field indicator bar to accept and represent signed values, ranging from $-B_{\max}$ (empty) to $+B_{\max}$ (full), with the center (half-full) representing zero field; updated the box arrow to rotate by $180^\circ$ for negative fields. \\
 V50 & Progress bar translation and English layout: reorganized the terminal output progress tracking to a clean 3-line print format using standard English labels (`Integrating`, `step`, `steps/s`) to display runtime physics parameters and step counts in real time. \\
 V51 & Legend layout alignment: vertically aligned the top edges of the time and external field HUD boxes; redesigned the field arrow to have a constant length and placed it inside the field box at the top right (adjacent to the label), ensuring visibility even at very small fields. \\
-V52 & English translation: fully translated all remaining Portuguese console/terminal logs printed during initialization, physical parameters display, and simulation completion to English. \emph{(Current version.)} \\
+V52 & English translation: fully translated all remaining Portuguese console/terminal logs printed during initialization, physical parameters display, and simulation completion to English. \\
+V53 & Circular direction dial and sign indicator: added a circular direction dial at the top right of the external field box and a sign indicator arrow next to the horizontal field intensity bar at the bottom right. \emph{(Current version.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Satellite scripts (own version record):}} \\
 \code{damping\_sweep} V01 & orchestration of the damping~$\times$~seed~$\times$~geometry campaign. \\
@@ -418,15 +419,15 @@ V52 & English translation: fully translated all remaining Portuguese console/ter
 \end{longtable}
 
 \appendix
-\section{Appendix: command-line parameters (V52)}
+\section{Appendix: command-line parameters (V53)}
 % ======================================================================
 
-Complete list of parameters accepted by \code{compass\_sim} in version V52, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
+Complete list of parameters accepted by \code{compass\_sim} in version V53, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
 
 \begingroup
 \small
 \begin{longtable}{@{}llll@{}}
-\caption{Command-line parameters of \code{compass\_sim} V52.}
+\caption{Command-line parameters of \code{compass\_sim} V53.}
 \label{tab:parametros} \\
 \toprule
 \textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
@@ -498,7 +499,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V52, extr
 \label{app:exemplos}
 % ======================================================================
 
-Command-line recipes for the most frequent use cases, checked against version V52. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV52.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
+Command-line recipes for the most frequent use cases, checked against version V53. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV53.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
 
 \subsection*{B.1 --- Basic execution (dipolar equilibrium)}
 
@@ -686,6 +687,7 @@ V15 & 05/07/2026 & Documented code V49 (HUD overlap fixes, bipolar signed field 
 V16 & 05/07/2026 & Documented code V50 (re-styled English progress bar on a 3-line terminal console layout). \\
 V17 & 05/07/2026 & Documented code V51 (HUD box vertical alignment and constant-length field arrow position update). \\
 V18 & 05/07/2026 & Documented code V52 (full translation of remaining terminal output strings to English). \\
+V19 & 05/07/2026 & Documented code V53 (circular direction dial and sign indicator arrow next to the horizontal field bar updates). \\
 \bottomrule
 \end{tabular}
 
