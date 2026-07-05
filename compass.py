@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V55
+compass.py — Simulation of a compass-needle lattice V56
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -112,7 +112,7 @@ COMMAND-LINE PARAMETERS
 │                                                            │
 │  --frame_every int Save one frame every N steps.           │
 │                    Smaller = smoother video, slower run.   │
-│                    Default: 5                              │
+					Default: 5                              │
 │                                                            │
 │  --fps       int   Frames per second of the MP4 video.     │
 │                    Default: 24                             │
@@ -1728,11 +1728,8 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
     f = max(-1.0, min(f, 1.0))
     
     if field_on and abs(f) > 1e-5:
-        if f < 0:
-            phi_arrow = (phi_ext_deg + 180.0) % 360.0
-        else:
-            phi_arrow = phi_ext_deg
-        arrow_len = abs(f) * r_dial
+        phi_arrow = (phi_ext_deg + 180.0) % 360.0 if f < 0 else phi_ext_deg
+        arrow_len = (0.35 + 0.65 * abs(f)) * r_dial
         
         x_tail = arrow_cx
         y_tail = arrow_cy
@@ -2180,7 +2177,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V55")
+    _print(f"  Version      : V56")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
