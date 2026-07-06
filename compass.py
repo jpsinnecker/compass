@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V65
+compass.py — Simulation of a compass-needle lattice V66
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -112,7 +112,7 @@ COMMAND-LINE PARAMETERS
 │                                                            │
 │  --frame_every int Save one frame every N steps.           │
 │                    Smaller = smoother video, slower run.   │
-					Default: 5                              │
+│                    Default: 5                              │
 │                                                            │
 │  --fps       int   Frames per second of the MP4 video.     │
 │                    Default: 24                             │
@@ -456,8 +456,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                               bx_ext, by_ext,
-                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
+                                bx_ext, by_ext,
+                                pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
     K  = theta_flat.shape[0]
 
     mx = moment * xp.cos(theta_flat)
@@ -1712,16 +1712,35 @@ def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
         (px, bar_y), bar_w, bar_h,
         facecolor='#252540', edgecolor='none',
         zorder=20, transform=ax.transData))
-    if frac > 0.01:
+    
+    # Active bar (centered, growing left for negative fields and right for positive fields)
+    f = b_val / B_max_ref if B_max_ref > 0 else 0.0
+    f = max(-1.0, min(f, 1.0))
+    center_x = px + bar_w / 2.0
+    
+    if abs(f) > 0.001:
+        if f >= 0.0:
+            fill_x = center_x
+            fill_w = (bar_w / 2.0) * f
+        else:
+            fill_w = (bar_w / 2.0) * abs(f)
+            fill_x = center_x - fill_w
+            
         ax.add_patch(plt.Rectangle(
-            (px, bar_y), bar_w * frac, bar_h,
+            (fill_x, bar_y), fill_w, bar_h,
             facecolor=color if field_on else '#555555',
             edgecolor='none', alpha=0.85, zorder=21,
             transform=ax.transData))
+            
     ax.add_patch(plt.Rectangle(
         (px, bar_y), bar_w, bar_h,
         facecolor='none', edgecolor='#5A5A8A',
         linewidth=0.7, zorder=22, transform=ax.transData))
+
+    # Red vertical center line (representing zero field reference)
+    ax.plot([center_x, center_x], [bar_y, bar_y + bar_h],
+            color='#FF0000' if field_on else '#777777',
+            linewidth=1.2, zorder=23, transform=ax.transData)
 
     # ── direction dial (circle + arrow): centered next to the text lines ──
     arrow_cx = px + box_w - pad - 0.01 * xspan
@@ -2205,7 +2224,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V65")
+    _print(f"  Version      : V66")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
