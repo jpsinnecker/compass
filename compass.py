@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V60
+compass.py — Simulation of a compass-needle lattice V61
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -373,9 +373,9 @@ def _plot_hysteresis(log, hyst_autoscale=False):
     ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
     ax1.axhline(0, color='#4A4A6A', lw=0.6, ls='--')
     ax1.axvline(0, color='#4A4A6A', lw=0.6, ls='--')
-    ax1.set_xlabel("Campo B  [mT]",    color='#BDC3C7')
-    ax1.set_ylabel("Magnetização  M (projeção)",  color='#BDC3C7')
-    ax1.set_title("Curva de Histerese  M × B", color='#ECF0F1',
+    ax1.set_xlabel("Field B [mT]",    color='#BDC3C7')
+    ax1.set_ylabel("Magnetization M (projection)",  color='#BDC3C7')
+    ax1.set_title("Hysteresis Loop M x B", color='#ECF0F1',
                   fontfamily='monospace')
     ax1.tick_params(colors='#7F8C8D')
     ax1.grid(True, color='#2C3E50', alpha=0.5)
@@ -395,11 +395,11 @@ def _plot_hysteresis(log, hyst_autoscale=False):
     ax2b = ax2.twinx()
     ax2b.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
               ls='--', label='B (mT)')
-    ax2b.set_ylabel("Campo B  [mT]", color='#FFD700')
+    ax2b.set_ylabel("Field B [mT]", color='#FFD700')
     ax2b.tick_params(colors='#FFD700')
-    ax2.set_xlabel("Tempo físico  t  [s]", color='#BDC3C7')
-    ax2.set_ylabel("Magnetização  M", color='#E94560')
-    ax2.set_title("Evolução temporal", color='#ECF0F1', fontfamily='monospace')
+    ax2.set_xlabel("Physical time t [s]", color='#BDC3C7')
+    ax2.set_ylabel("Magnetization M", color='#E94560')
+    ax2.set_title("Time evolution", color='#ECF0F1', fontfamily='monospace')
     ax2.tick_params(colors='#7F8C8D')
     ax2.grid(True, color='#2C3E50', alpha=0.4)
     for sp in ax2.spines.values():
@@ -429,10 +429,10 @@ def _plot_sine(log, freq):
     ax2 = ax.twinx()
     ax2.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
              ls='--', label=f'B (mT)  f={freq:.2f} Hz')
-    ax.set_xlabel("Tempo físico  t  [s]", color='#BDC3C7')
-    ax.set_ylabel("Magnetização  M", color='#E94560')
-    ax2.set_ylabel("Campo B  [mT]", color='#FFD700')
-    ax.set_title(f"Campo Senoidal — f = {freq:.3f} Hz",
+    ax.set_xlabel("Physical time t [s]", color='#BDC3C7')
+    ax.set_ylabel("Magnetization M", color='#E94560')
+    ax2.set_ylabel("Field B [mT]", color='#FFD700')
+    ax.set_title(f"Sinusoidal Field — f = {freq:.3f} Hz",
                  color='#ECF0F1', fontfamily='monospace')
     ax.tick_params(colors='#7F8C8D')
     ax2.tick_params(colors='#FFD700')
@@ -2209,7 +2209,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V60")
+    _print(f"  Version      : V61")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
