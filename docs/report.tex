@@ -1,7 +1,7 @@
 % ======================================================================
-% Development Report for the compass_sim Project — V21
+% Development Report for the compass_sim Project — V23
 % Generated on 05/07/2026. Covered history: 15/06/2026 to 05/07/2026.
-% Compile with: pdflatex relatorio_projeto_V21_EN.tex (twice for references)
+% Compile with: pdflatex relatorio_projeto_V22_EN.tex (twice for references)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -27,7 +27,7 @@
 
 \title{\textbf{Simulation of dipolar magnetic-needle arrays:\\
 development report for the \code{compass\_sim} project}\\[1ex]
-\large Report version V21}
+\large Report version V23}
 \author{J.~P.~Sinnecker}
 \date{July 5, 2026\\[0.5ex]
 \small Covered period: 15/06/2026 -- 05/07/2026}
@@ -37,7 +37,7 @@ development report for the \code{compass\_sim} project}\\[1ex]
 
 \begin{abstract}
 \noindent
-This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V55), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
+This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V56), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
 \end{abstract}
 
 \tableofcontents
@@ -65,7 +65,7 @@ The literature has established that underdamped and overdamped systems belong to
 \section{The physical model}
 % ======================================================================
 
-Each needle $i$ is represented as a point magnetic dipole of moment $m$ fixed at a lattice position \vec r_i, free to rotate in the plane around a central pin with no contact friction, but with viscous damping from air. The dynamics is Newton's second law for rotation:
+Each needle $i$ is represented as a point magnetic dipole of moment $m$ fixed at a lattice position $\vec{r}_i$, free to rotate in the plane around a central pin with no contact friction, but with viscous damping from air. The dynamics is Newton's second law for rotation:
 \begin{equation}
 I\,\ddot\theta_i \;=\; \tau_i^{\mathrm{dip}} + \tau_i^{\mathrm{ext}}
 - b\,\dot\theta_i,
@@ -99,14 +99,14 @@ A structuring decision was to use SI units and derive the parameters from the re
 \end{itemize}
 Both automatic calculations can be overridden by explicit user parameters.
 
-\paragraph{Simulator capabilities (current state, V55).}
+\paragraph{Simulator capabilities (current state, V56).}
 The simulator supports three lattice geometries (square, triangular, honeycomb); \textbf{six} external-field modes: static; pulse with explicit timing (delay $\Delta t$ $\to$ field for $t_{\mathrm{pulse}}$ $\to$ zero field until equilibrium, with the legacy saturation/plateau criterion if $t_{\mathrm{pulse}}$ is not given); five-segment hysteresis ($0 \to +B \to 0 \to -B \to 0 \to +B$) with linear or log-symmetric spacing; sinusoidal field; and step modes \code{step\_pos} ($B{=}0$ for $\Delta t$, then field kept on) and \code{step\_neg} (field from $t{=}0$, removed at $\Delta t$). It also supports periodic boundary conditions with lattice images; real-time monitoring of the alignment order parameter $S \in [0,1]$; a real-equilibrium criterion (small angular velocity \emph{and} small mean torque) for pulse/step modes; optional GPU backend through CuPy; MP4 video export, summary images, and CSV time series $(t, B, M, S)$; magnetic-domain visualization through halo coloring; a precomputed dipolar tensor (V40); and performance instrumentation.
 
 % ======================================================================
 \section{Development chronology}
 % ======================================================================
 
-Development took place over six intensive sessions (15--18/06/2026), followed by successive consolidation sessions (04--05/07/2026). This section summarizes the decisions and results from each phase; Table~\ref{tab:versoes} consolidates the version record.
+Development took place over six intensive sessions (15--18/06/2026), followed by successive consolidation sessions (04--05/07/2026). This section summarizes the decisions and results from each phase; Table~\ref{tab:versions} consolidates the version record.
 
 \subsection{Phase 1 --- simulation core (15/06)}
 
@@ -152,14 +152,14 @@ This phase included refinement of the pulse mode; repositioning of on-screen ind
 \item \textbf{Interruption handling}: \mbox{Ctrl+I} interrupts gracefully (saving video/data); \mbox{Ctrl+C} aborts immediately. The investigation revealed that the default handler was masked by the integration loop, and this was corrected (exit code 130);
 \item \textbf{Rendering optimization (V35)}: replacement of thousands of individual matplotlib calls by vectorized collections (\emph{PatchCollections} + \emph{quiver}), with a measured speedup of \textbf{17--30$\times$}: a $25\times25$ array that exceeded 30~s of rendering dropped to 3.9~s, and $40\times40$ (previously impractical) dropped to 14~s, with bitwise validation of polygon geometry and physics CSV;
 \item \textbf{Automatic magnetic moment (V37)} from the saturated volume ($M_s = \SI{1.59e6}{A/m}$, researched for ordinary carbon steel), and correction of a regression where \code{--progress\_bar 0} also suppressed periodic status messages;
-\item \textbf{Magnetic-domain visualization (V38)}: halo coloring by domain. Neighboring needles whose directions differ by less than an angular tolerance (\code{--domain\_tol}, default $15^\circ$) are grouped through \emph{union--find}; small domains ($<\max(3;\,2\%)$ of the needles) are painted neutral gray so the main domains stand out (Figure~\ref{fig:dominios}). This feature began as visualization and became a measurement instrument: the same routine feeds the domain-size statistics of the scientific campaign.
+\item \textbf{Magnetic-domain visualization (V38)}: halo coloring by domain. Neighboring needles whose directions differ by less than an angular tolerance (\code{--domain\_tol}, default $15^\circ$) are grouped through \emph{union--find}; small domains ($<\max(3;\,2\%)$ of the needles) are painted neutral gray so the main domains stand out (Figure~\ref{fig:domains}). This feature began as visualization and became a measurement instrument: the same routine feeds the domain-size statistics of the scientific campaign.
 \end{itemize}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.72\textwidth]{figs/halo_domains_v3.png}
 \caption{Magnetic-domain visualization (V38): square $24\times24$ array after long relaxation. The five main domains receive distinct colors and small domains appear in gray. The same labeling routine feeds the domain statistics of the scientific campaign.}
-\label{fig:dominios}
+\label{fig:domains}
 \end{figure}
 
 \subsection{Phase 6 --- from tool to research (18/06 and 04--05/07)}
@@ -167,18 +167,18 @@ This phase included refinement of the pulse mode; repositioning of on-screen ind
 With the instrument mature, the focus shifted to science:
 
 \begin{enumerate}
-\item \textbf{Literature review}, detailed in Section~\ref{sec:pesquisa}, identifying the gap and study design;
+\item \textbf{Literature review}, detailed in Section~\ref{sec:research}, identifying the gap and study design;
 \item \textbf{Publication strategy}, including ACS journals, the CAPES agreement, and high-impact alternatives;
 \item \textbf{\code{--make\_images} (V39)}: it was found that, even without \code{--video}, the program unconditionally generated 4--5 summary PNG images per run. This cost is negligible in large arrays, but dominant in small arrays used for sweeps. The new parameter suppresses all image generation while preserving data CSVs, with a measured speedup of $\sim 3\times$ in small runs (2.03~s $\to$ 0.65~s for an $8\times8$ array);
-\item \textbf{Campaign infrastructure}: the scripts \code{damping\_sweep.py} (orchestration of damping~$\times$~\emph{seed}~$\times$~geometry sweeps, calling the simulator programmatically) and \code{damping\_sweep\_analysis.py} (full statistical analysis), both validated end to end (Section~\ref{sec:campanha});
-\item \textbf{Performance optimizations implemented (04/07)}: the precomputed dipolar tensor (\textbf{V40}) and campaign parallelization with incremental \emph{manifest} and resume support (\code{damping\_sweep} V02). Details and measurements are in Section~\ref{sec:melhorias}. The measured V40 speedup is \textbf{35--45$\times$} per run, reducing the full campaign from $\sim$7--8~h to $\sim$15~min on a single core;
+\item \textbf{Campaign infrastructure}: the scripts \code{damping\_sweep.py} (orchestration of damping~$\times$~\emph{seed}~$\times$~geometry sweeps, calling the simulator programmatically) and \code{damping\_sweep\_analysis.py} (full statistical analysis), both validated end to end (Section~\ref{sec:campaign});
+\item \textbf{Performance optimizations implemented (04/07)}: the precomputed dipolar tensor (\textbf{V40}) and campaign parallelization with incremental \emph{manifest} and resume support (\code{damping\_sweep} V02). Details and measurements are in Section~\ref{sec:improvements}. The measured V40 speedup is \textbf{35--45$\times$} per run, reducing the full campaign from $\sim$7--8~h to $\sim$15~min on a single core;
 \item \textbf{New field protocols and refinements (V41--V45)}: hysteresis with log-symmetric spacing; pulse with explicit timing ($\Delta t$ + $t_{\mathrm{pulse}}$ + torque equilibrium); step modes \code{step\_pos}/\code{step\_neg}; \code{--t\_sim\_full} flag (run to the end without early stopping); halos also in the comparison figure (V43); a two-line live progress panel (V44); and hysteresis video with a dual progress panel (V45).
-\item \textbf{Layout, terminal updates, and translations (V46--V55)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); full translation of all remaining terminal console prints and confirmations to English (V52); circular direction dial and sign indicator arrow next to the horizontal field bar updates (V53); terminal banner code version and developer metadata addition (V54); and HUD direction dial arrow scaling with the removal of the sign indicator next to the bar (V55).
+\item \textbf{Layout, terminal updates, and translations (V46--V65)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); full translation of all remaining terminal console prints and confirmations to English (V52); circular direction dial and sign indicator arrow next to the horizontal field bar updates (V53); terminal banner code version and developer metadata addition (V54); HUD direction dial arrow scaling with the removal of the sign indicator next to the bar (V55); HUD direction dial arrow scaling minimum length calibration (V56); HUD direction dial redesigned as a bold filled arrow using \code{FancyArrow} (V57); HUD direction dial bold arrow homothetic scaling to preserve aspect ratio (V58); random per-needle damping noise support (V59); full translation of all CLI arguments and help text to English (V60); translation of Section 4 plotting label strings to English (V61); translation of the image suppression warning to English (V62); performance optimizations to the integration loop (V63); alignment of sweep files (V64); and full translation of all sweep scripts to English (V65).
 \end{enumerate}
 
 % ======================================================================
 \section{Research and publication strategy}
-\label{sec:pesquisa}
+\label{sec:research}
 % ======================================================================
 
 \subsection{The gap in the literature}
@@ -209,7 +209,7 @@ The decision criterion was defined \emph{a priori}:
 
 % ======================================================================
 \section{Campaign infrastructure and pilot study}
-\label{sec:campanha}
+\label{sec:campaign}
 % ======================================================================
 
 \subsection{The two scripts}
@@ -222,13 +222,13 @@ Validations performed: area against an exact rectangular loop; $B_c$/$M_r$ again
 
 \subsection{Pilot-study results}
 
-A reduced pilot (array $14\times14 = 196$ needles, 5 $Q$ values, 3 seeds, 3 geometries, shortened cycle) validated the full pipeline and already displays the central signal sought (Figure~\ref{fig:tau} and Table~\ref{tab:piloto}): the exponent $\tau$ \textbf{increases systematically with $Q$} in all three geometries, from $\tau \approx 1.2$--$1.3$ in the \emph{crossover} ($Q \approx 0.87$) to $\tau \approx 1.7$--$1.8$ in the underdamped regime ($Q = 15$). For the two most overdamped $Q$ values, the shortened pilot cycle does not generate enough avalanches for fitting, which is the correct pipeline behavior: it reports unavailability instead of a spurious number.
+A reduced pilot (array $14\times14 = 196$ needles, 5 $Q$ values, 3 seeds, 3 geometries, shortened cycle) validated the full pipeline and already displays the central signal sought (Figure~\ref{fig:tau} and Table~\ref{tab:pilot}): the exponent $\tau$ \textbf{increases systematically with $Q$} in all three geometries, from $\tau \approx 1.2$--$1.3$ in the \emph{crossover} ($Q \approx 0.87$) to $\tau \approx 1.7$--$1.8$ in the underdamped regime ($Q = 15$). For the two most overdamped $Q$ values, the shortened pilot cycle does not generate enough avalanches for fitting, which is the correct pipeline behavior: it reports unavailability instead of a spurious number.
 
 \begin{table}[h]
 \centering
 \small
 \caption{Pilot: avalanche exponent $\tau$ (MLE, avalanches aggregated across 3 seeds) by geometry and quality factor. ``---'' indicates insufficient statistics ($n_{\mathrm{tail}} <$ minimum) in the shortened pilot cycle.}
-\label{tab:piloto}
+\label{tab:pilot}
 \begin{tabular}{@{}lccc@{}}
 \toprule
 $Q$ & square & triangular & honeycomb \\
@@ -260,11 +260,11 @@ Two secondary findings from the pilot are worth recording: (i) loop area and coe
 
 \subsection{Full campaign (ready to run)}
 
-Defined parameters: $30\times30$ lattice (900 needles), 8 log-spaced $Q$ values in $[0.05;\,15]$, 5 seeds, 3 geometries $\Rightarrow$ 120 hysteresis runs + 120 relaxation runs. Cost with V39 code: $\sim$2--2.5~min per run ($\approx 7$--8~h serial campaign). \textbf{With V40 optimization} (precomputed tensor, Section~\ref{sec:melhorias}): $\sim$3.3--3.4~s per run $\Rightarrow$ \textbf{$\sim$15~min serial campaign on a single core}, and only a few minutes with \code{--n\_workers} on the \code{jps@mumax} server, with no GPU required.
+Defined parameters: $30\times30$ lattice (900 needles), 8 log-spaced $Q$ values in $[0.05;\,15]$, 5 seeds, 3 geometries $\Rightarrow$ 120 hysteresis runs + 120 relaxation runs. Cost with V39 code: $\sim$2--2.5~min per run ($\approx 7$--8~h serial campaign). \textbf{With V40 optimization} (precomputed dipolar tensor, Section~\ref{sec:improvements}): $\sim$3.3--3.4~s per run $\Rightarrow$ \textbf{$\sim$15~min serial campaign on a single core}, and only a few minutes with \code{--n\_workers} on the \code{jps@mumax} server, with no GPU required.
 
 % ======================================================================
 \section{Step-by-step roadmap for the proposed studies}
-\label{sec:roteiro}
+\label{sec:roadmap}
 % ======================================================================
 
 This section details, in operational format, the four studies identified as publication candidates, from the central study to the satellites. For each study it specifies the question, simulation steps, analysis, expected result, and editorial destination. All use only already implemented capabilities (V39 + campaign scripts), except where indicated.
@@ -279,7 +279,7 @@ This section details, in operational format, the four studies identified as publ
 \item \textbf{Relaxation campaign}: same combinations with $B = 0$, starting from the same noise, up to the $S$ plateau; domain statistics in the final state (120 runs, $\sim$3~h without V40);
 \item \textbf{Analysis} (\code{damping\_sweep\_analysis.py}): area, $B_c$, and $M_r$ vs.\ $Q$ by geometry; $\tau(Q)$ by MLE with avalanches aggregated across seeds; domain size/number vs.\ $Q$;
 \item \textbf{Robustness} (mandatory before conclusions): convergence in $\Delta t$ at the extremes of $Q$; sizes $N = 20$ and $40$ at $Q \approx 1$; comparison with/without PBC;
-\item \textbf{Decision and writing}: A/B criterion from Section~\ref{sec:pesquisa}; framing as a ``model for \emph{artificial spin ice} / patterned nanomagnets'' in the introduction.
+\item \textbf{Decision and writing}: A/B criterion from Section~\ref{sec:research}; framing as a ``model for \emph{artificial spin ice} / patterned nanomagnets'' in the introduction.
 \end{enumerate}
 
 \textbf{Expected result.} The pilot suggests increasing $\tau$ with $Q$ in the three geometries. If confirmed with full statistics and surviving robustness diagnostics, this is a type-B candidate result. \textbf{Destination:} ACS Materials Au (result A) or an attempt at PRL (result B), with ACS Physical Chemistry Au as backup.
@@ -318,11 +318,11 @@ This section details, in operational format, the four studies identified as publ
 \item Quantify the systematic free-boundary vs.\ periodic deviation.
 \end{enumerate}
 
-\textbf{Destination:} appendix/methods section of the central article, or an independent methodological note. The $N = 40$ point without optimizations is expensive ($\mathcal{O}(K^2)$ with $K = 1600$), making this study the main motivation for the performance optimization proposed in Section~\ref{sec:melhorias}.
+\textbf{Destination:} appendix/methods section of the central article, or an independent methodological note. The $N = 40$ point without optimizations is expensive ($\mathcal{O}(K^2)$ with $K = 1600$), making this study the main motivation for the performance optimization proposed in Section~\ref{sec:improvements}.
 
 % ======================================================================
 \section{Proposed code improvements}
-\label{sec:melhorias}
+\label{sec:improvements}
 % ======================================================================
 
 Analysis of the V39 code identified the following opportunities, ordered by estimated impact. None blocks Study~1, which is already feasible; the performance items make Studies~2--4 substantially cheaper.
@@ -373,7 +373,7 @@ Two relevant optimizations are already implemented and should not be redone: vec
 
 \begin{longtable}{@{}lp{11.5cm}@{}}
 \caption{Version record for \code{compass\_sim}. Versions V1--V19 precede the formal record and were consolidated retroactively; from V20 onward each change generates a new numbered version.}
-\label{tab:versoes} \\
+\label{tab:versions} \\
 \toprule
 \textbf{Version} & \textbf{Main content} \\
 \midrule
@@ -412,7 +412,17 @@ V51 & Legend layout alignment: vertically aligned the top edges of the time and 
 V52 & English translation: fully translated all remaining Portuguese console/terminal logs printed during initialization, physical parameters display, and simulation completion to English. \\
 V53 & Circular direction dial and sign indicator: added a circular direction dial at the top right of the external field box and a sign indicator arrow next to the horizontal field intensity bar at the bottom right. \\
 V54 & Developer metadata in terminal log: added code version and developer name to the simulation initialization banner. \\
-V55 & HUD direction dial arrow scaling: scaled the arrow length within the circular dial proportionally to the normalized field intensity ($[-1, +1]$ relative to maximum field) and removed the bottom-right sign indicator arrow. \emph{(Current version.)} \\
+V55 & HUD direction dial arrow scaling: scaled the arrow length within the circular dial proportionally to the normalized field intensity ($[-1, +1]$ relative to maximum field) and removed the bottom-right sign indicator arrow. \\
+V56 & HUD direction dial arrow scaling minimum length calibration: defined a minimum arrow length ($0.35 R_{\mathrm{dial}}$) for active fields so that the shaft remains longer than the arrowhead at small fields, reaching full radius ($1.0 R_{\mathrm{dial}}$) at maximum field. \\
+V57 & HUD direction dial bold arrow: replaced the thin \code{annotate} arrow in the circular direction dial with a bold, filled \code{FancyArrow} patch (wide rectangular shaft and large triangular head, filled with the field color and dark outline), matching the visual style of a road-sign directional indicator. \\
+V58 & HUD direction dial bold arrow homothetic scaling: scaled the width, head width, and head length proportionally to the field intensity to preserve the arrow's aspect ratio (avoiding stubby rendering) as the field is reduced and inverted. \\
+V59 & Random per-needle damping noise: added \code{--damping\_noise} parameter to introduce random variations in friction/damping for each individual needle, simulating realistic pivot differences. \\
+V60 & Command-line interface translation: fully translated all remaining Portuguese help strings, warning messages, and parameter options in the program parser to English. \\
+V61 & Section 4 plot string translation: translated all remaining Portuguese label, axis, and title strings in the hysteresis and sinusoidal plotting functions to English. \\
+V62 & Visual warnings translation: translated the warning message printed when suppression of summary PNG images is enabled with `--make\_images 0` to English. \\
+V63 & Performance optimizations and translations: optimized the Verlet integration loop by pre-computing integration constants and passing explicit array-library backend references, and translated all remaining Portuguese log descriptions and labels in \code{relax()} to English. \\
+V64 & Alignment of sweep files: corrected the import references in all campaign sweep files (\code{damping\_sweep.py}, \code{damping\_sweepV02.py}, and \code{sweep\_damping\_hysteresis.py}) to import from the latest optimized simulation file (\code{compass.py}) rather than the outdated \code{compass\_sim.py}. \\
+V65 & Translation of sweep scripts: fully translated all comments, help text, parameters, and log string outputs in all campaign sweep files to English. \emph{(Current version.)} \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Satellite scripts (own version record):}} \\
 \code{damping\_sweep} V01 & orchestration of the damping~$\times$~seed~$\times$~geometry campaign. \\
@@ -421,16 +431,16 @@ V55 & HUD direction dial arrow scaling: scaled the arrow length within the circu
 \end{longtable}
 
 \appendix
-\section{Appendix: command-line parameters (V55)}
+\section{Appendix: command-line parameters (V65)}
 % ======================================================================
 
-Complete list of parameters accepted by \code{compass\_sim} in version V55, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
+Complete list of parameters accepted by \code{compass\_sim} in version V65, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
 
 \begingroup
 \small
 \begin{longtable}{@{}llll@{}}
-\caption{Command-line parameters of \code{compass\_sim} V55.}
-\label{tab:parametros} \\
+\caption{Command-line parameters of \code{compass\_sim} V65.}
+\label{tab:parameters} \\
 \toprule
 \textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
 \midrule
@@ -457,6 +467,7 @@ Complete list of parameters accepted by \code{compass\_sim} in version V55, extr
 \code{--steel\_density} & 7850 & kg/m$^3$ & Steel density (used in auto calculations). \\
 \code{--steel\_Bsat} & 2.0 & T & Saturated steel induction ($M_s = B_{\mathrm{sat}}/\mu_0$; used in auto calculations). \\
 \code{--damping} & \code{5e-8} & N$\cdot$m$\cdot$s & Viscous air damping coefficient $b$. \\
+\code{--damping\_noise} & 0.0 & --- & Relative noise amplitude for per-needle damping (V59--V65). \\
 \code{--t\_sim} & 2.0 & s & Total integrated physical simulation time ($t_{\mathrm{sim}}$). \\
 \code{--t\_sim\_full} & 0 & --- & Disables early physical stops, running to the end of \code{t\_sim} (0/1; V42). \\
 \code{--dt\_factor} & 0.05 & --- & Integration step size $\Delta t$ as a fraction of the natural period $T_0$. \\
@@ -498,10 +509,10 @@ Complete list of parameters accepted by \code{compass\_sim} in version V55, extr
 
 % ======================================================================
 \section{Appendix: usage examples}
-\label{app:exemplos}
+\label{app:examples}
 % ======================================================================
 
-Command-line recipes for the most frequent use cases, checked against version V55. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV55.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
+Command-line recipes for the most frequent use cases, checked against version V65. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV65.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
 
 \subsection*{B.1 --- Basic execution (dipolar equilibrium)}
 
@@ -643,24 +654,68 @@ python3 compass.py --N 10 --M 10 --seed 123
 
 \subsection*{B.10 --- Full scientific campaign (satellite scripts)}
 
+The simulation campaign sweep scripts are designed to run programmatic sweeps over multiple values of damping (friction), initial seeds (noise realizations), and lattice geometries to generate statistical datasets for hysteresis loop shape and avalanche scaling analysis. 
+
+These scripts import from the core simulation file (\code{compass.py}) and call the simulator API (\code{relax()}) directly.
+
+\subsubsection*{1. Serial Campaign Execution (\code{damping\_sweep.py})}
+The \code{damping\_sweep.py} script executes a serial sweep across geometries, seeds, and damping coefficients. It performs Stage 1 (hysteresis) followed by Stage 2 (field-free relaxation for domain statistics).
+
 \begin{verbatim}
-# quick environment validation (seconds)
-python3 damping_sweepV02.py --out_dir results --quick_test 1
+# Quick test to validate the pipeline (low resolution, short runtime):
+python3 damping_sweep.py --out_dir results_quick --quick_test 1
 
-# full Study 1 campaign, parallel on 8 cores
-python3 damping_sweepV02.py --out_dir results \
+# Full campaign (sequential sweep, may take several hours on CPU):
+python3 damping_sweep.py --out_dir results_campaign \
     --grid_n 30 --n_seeds 5 --n_dampings 8 \
-    --Q_min 0.05 --Q_max 15.0 \
-    --geometries square,triangular,honeycomb --n_workers 8
-
-# resume interrupted campaign (skip already registered runs)
-python3 damping_sweepV02.py --out_dir results ... --resume 1
-
-# analysis: loop metrics, avalanches, tau(Q), domains
-python3 damping_sweep_analysis.py --sweep_dir results \
-    --out_dir analysis
+    --Q_min 0.05 --Q_max 15.0 --geometries square,triangular,honeycomb
 \end{verbatim}
-Avoid combining \code{--n\_workers} $> 1$ with \code{--use\_gpu 1}, due to GPU contention between processes.
+
+\subsubsection*{2. Parallelized Execution with Resume Capability (\code{damping\_sweepV02.py})}
+The parallelized version \code{damping\_sweepV02.py} parallelizes execution using a Python \code{ProcessPoolExecutor}. To prevent temporary files (\code{hysteresis\_loop.csv}) from colliding between workers, each process runs in its own dynamic scratch directory. A manifest (\code{manifest.csv}) tracks the completion status of each run, enabling resumption if the campaign is interrupted.
+
+\begin{verbatim}
+# Run the campaign parallelized across 8 cores:
+python3 damping_sweepV02.py --out_dir results_parallel \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8
+
+# Resume an interrupted campaign (automatically skips already completed runs):
+python3 damping_sweepV02.py --out_dir results_parallel \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8 --resume 1
+\end{verbatim}
+
+\subsubsection*{3. Dedicated Hysteresis-Only Sweep (\code{sweep\_damping\_hysteresis.py})}
+The script \code{sweep\_damping\_hysteresis.py} is a specialized sweep program dedicated exclusively to hysteresis loop cycles (Stage 1). It provides detailed parameters to control the sweep range:
+
+\begin{verbatim}
+# Run the hysteresis-only sweep campaign (log-spaced dampings):
+python3 sweep_damping_hysteresis.py --out_dir results_hyst \
+    --geometries square triangular honeycomb --seeds 1 2 3 4 5 --n_damping 8
+
+# Dry-run: print the entire planned execution table without running:
+python3 sweep_damping_hysteresis.py --out_dir results_hyst --dry_run
+
+# Single run index debug (executes only the N-th run in the plan):
+python3 sweep_damping_hysteresis.py --out_dir results_hyst --only_index 15
+\end{verbatim}
+
+\subsubsection*{4. Version Archiving and Freezing Script (\code{freeze\_v65.py})}
+To guarantee reproducible results, you can archive a snapshot of the core simulator file (\code{compass.py}) using the freezing scripts. For example, executing \code{freeze\_v65.py} copies the current simulation engine code into a stable copy named \code{compass\_simV65.py}:
+
+\begin{verbatim}
+python3 freeze_v65.py
+\end{verbatim}
+
+\subsubsection*{5. Analysis and Post-Processing (\code{damping\_sweep\_analysis.py})}
+Once a campaign completes, the output directories will contain CSV data logs and JSON metadata for each run, summarized in \code{manifest.csv}. A standard analysis recipe to extract loop metrics, avalanche scaling exponents ($\tau$), and magnetic domain count statistics:
+
+\begin{verbatim}
+# Post-process results and output plots to the analysis folder:
+python3 damping_sweep_analysis.py --sweep_dir results_parallel \
+    --out_dir analysis_plots
+\end{verbatim}
+
+\noindent \textbf{Warning:} Avoid combining parallel execution (\code{--n\_workers} $> 1$) with GPU acceleration (\code{--use\_gpu 1} or \code{--gpu 1}), due to memory contention on the GPU.
 
 % ======================================================================
 \section*{Version history of this report}
@@ -673,7 +728,7 @@ Avoid combining \code{--n\_workers} $> 1$ with \code{--use\_gpu 1}, due to GPU c
 \midrule
 V01 & 04/07/2026 & Initial version. \\
 V02 & 04/07/2026 & Added Appendix~A (command-line parameters of V39). \\
-V03 & 04/07/2026 & Added Sections~\ref{sec:roteiro} (step-by-step roadmap of proposed studies) and \ref{sec:melhorias} (proposed code improvements: performance and visual). \\
+V03 & 04/07/2026 & Added Sections~\ref{sec:roadmap} (step-by-step roadmap of proposed studies) and \ref{sec:improvements} (proposed code improvements: performance and visual). \\
 V04 & 04/07/2026 & Documented implementation of performance improvements 1 and 2 (V40 code: precomputed tensor, 35--45$\times$; \code{damping\_sweep} V02: parallelization, incremental \emph{manifest}, resume), with validations and measurements; updated campaign costs and version record. \\
 V05 & 04/07/2026 & Added Appendix~B (usage examples: GPU, high-resolution video/figures, damping regimes, needle geometry, field modes, domains, PBC, and full campaign). \\
 V06 & 04/07/2026 & Documented code V41: hysteresis with log-symmetric spacing, pulse with explicit timing ($\Delta t$ + $t_{\mathrm{pulse}}$ + torque equilibrium), and step modes \code{step\_pos}/\code{step\_neg}; updated Section~2, version record, and Appendices A and B. \\
@@ -692,6 +747,17 @@ V18 & 05/07/2026 & Documented code V52 (full translation of remaining terminal o
 V19 & 05/07/2026 & Documented code V53 (circular direction dial and sign indicator arrow next to the horizontal field bar updates). \\
 V20 & 05/07/2026 & Documented code V54 (terminal banner code version and developer metadata addition). \\
 V21 & 05/07/2026 & Documented code V55 (HUD direction dial arrow scaling and the removal of the sign indicator next to the bar). \\
+V22 & 05/07/2026 & Documented code V56 (HUD direction dial arrow scaling minimum length calibration). \\
+V23 & 05/07/2026 & Documented code V57 (HUD direction dial redesigned as a bold \code{FancyArrow}: wide shaft, large filled head, dark outline). Translated all remaining Portuguese terms in CLI help strings and the \code{relatorio\_projeto\_V22\_EN.tex} source file (LaTeX labels and cross-references). Fixed a pre-existing math-mode error (\verb|\vec r_i| outside \code{\$..\$}). \\
+V24 & 05/07/2026 & Documented code V58 (HUD direction dial bold arrow homothetic scaling: scaled the width, head width, and head length proportionally to the field intensity to preserve the arrow's aspect ratio during reduction and inversion). \\
+V25 & 05/07/2026 & Documented code V59 (random per-needle damping noise parameter \code{--damping\_noise} to model slightly different friction coefficients at each pivot). \\
+V26 & 05/07/2026 & Documented code V60 (fully translated CLI parameter parser help strings and CLI warning outputs to English). \\
+V27 & 05/07/2026 & Documented code V61 (translated all remaining Portuguese label, axis, and title strings in Section 4 plotting helper functions to English). \\
+V28 & 05/07/2026 & Documented code V62 (translated the warning message in \code{relax()} regarding \code{make\_images=False} to English). \\
+V29 & 05/07/2026 & Documented code V63 (pre-computed constants in integration loop and translated remaining log descriptions and labels in \code{relax()} to English). \\
+V30 & 05/07/2026 & Documented code V64 (aligned and verified all sweep campaign python scripts to import from optimized \code{compass.py} instead of outdated \code{compass\_sim.py}). \\
+V31 & 05/07/2026 & Documented code V65 (fully translated all comments, help text, parameters, and log string outputs in all campaign sweep files to English). \\
+V32 & 05/07/2026 & Documented usage instructions for all campaign sweep and helper python scripts in Appendix B.10. \\
 \bottomrule
 \end{tabular}
 
