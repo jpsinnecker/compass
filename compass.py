@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V66
+compass.py — Simulation of a compass-needle lattice V67
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -112,7 +112,7 @@ COMMAND-LINE PARAMETERS
 │                                                            │
 │  --frame_every int Save one frame every N steps.           │
 │                    Smaller = smoother video, slower run.   │
-│                    Default: 5                              │
+					Default: 5                              │
 │                                                            │
 │  --fps       int   Frames per second of the MP4 video.     │
 │                    Default: 24                             │
@@ -456,8 +456,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                                bx_ext, by_ext,
-                                pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
+                               bx_ext, by_ext,
+                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
     K  = theta_flat.shape[0]
 
     mx = moment * xp.cos(theta_flat)
@@ -579,7 +579,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           halo_mode='order', domain_tol_deg=15.0, make_images=True,
           hyst_spacing='linear', hyst_log_k=5.0,
           field_delay=0.0, t_pulse=None, torque_tol=1e-3,
-          t_sim_full=False, hyst_autoscale=False):
+          t_sim_full=False, hyst_autoscale=False,
+          forc_Br=0.0, forc_t_sat=None, forc_t_rev=None):
     import os
     import time as _time_module
 
@@ -624,27 +625,28 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     n_steps   = max(1, int(np.ceil(t_sim / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
-    _print(f"  Dynamical inertial parameters:")
-    _print(f"    r_nn    = {r_nn*100:.2f} cm")
-    _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighbours)")
-    if B_ext_mag > 0:
-        _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (External Field)")
-    _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
-    _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
-    _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
-    _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
-    if Q > 2:
-        q_desc = "sub-damping(oscilates)"
-    elif Q > 0.5:
-        q_desc = "critically damped"
-    else:
-        q_desc = "overdamped"
-    if damping_noise > 0.0:
-        _print(f"    damping = {damping:.3e} N·m·s/rad (central, with random noise +/- {damping_noise*100:.1f}%)")
-    else:
-        _print(f"    damping = {damping:.3e} N·m·s/rad (uniform)")
-    _print(f"    Q       = {Q:.1f}  ({q_desc})")
-    _print()
+    if show_progress:
+        _print(f"  Dynamical inertial parameters:")
+        _print(f"    r_nn    = {r_nn*100:.2f} cm")
+        _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighbours)")
+        if B_ext_mag > 0:
+            _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (External Field)")
+        _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
+        _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
+        _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
+        _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
+        if Q > 2:
+            q_desc = "sub-damping(oscilates)"
+        elif Q > 0.5:
+            q_desc = "critically damped"
+        else:
+            q_desc = "overdamped"
+        if damping_noise > 0.0:
+            _print(f"    damping = {damping:.3e} N·m·s/rad (central, with random noise +/- {damping_noise*100:.1f}%)")
+        else:
+            _print(f"    damping = {damping:.3e} N·m·s/rad (uniform)")
+        _print(f"    Q       = {Q:.1f}  ({q_desc})")
+        _print()
 
     theta_cur = thetas.copy()
     omega_cur = np.zeros((N, M))
@@ -739,7 +741,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     zorder=25, transform=ax.transData)
 
     field_log = []
-    hysteresis_log = [] if field_mode == 'hysteresis' else None
+    hysteresis_log = [] if field_mode in ('hysteresis', 'forc') else None
     sine_log       = [] if field_mode == 'sine'       else None
 
     def _save_frame(step, th, om, stop_label=None,
@@ -760,7 +762,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         title = f"S = {S:.4f}   w_max = {om_max:.2f} rad/s   B = {b_str}"
 
-        if field_mode == 'hysteresis':
+        if field_mode in ('hysteresis', 'forc'):
             fig, (axL, axR) = plt.subplots(
                 1, 2, figsize=(figsize_inches[0] * 2.05, figsize_inches[1]),
                 facecolor='#1A1A2E',
@@ -920,6 +922,20 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     def field_at(t):
         if field_mode == 'static':
             return Bext_x0, Bext_y0
+
+        elif field_mode == 'forc':
+            T = t_sim if t_sim > 0 else 1.0
+            tsat = forc_t_sat if forc_t_sat is not None else 0.2 * T
+            trev = forc_t_rev if forc_t_rev is not None else 0.5 * T
+            if t <= tsat:
+                B_scalar = B_max
+            elif t <= trev:
+                f = (t - tsat) / (trev - tsat)
+                B_scalar = (1.0 - f) * B_max + f * forc_Br
+            else:
+                f = (t - trev) / (T - trev)
+                B_scalar = (1.0 - f) * forc_Br + f * B_max
+            return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'hysteresis':
             T  = t_sim if t_sim > 0 else 1.0
@@ -1125,24 +1141,24 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _status_now = _time_module.perf_counter()
         if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
             B_status = bx_cur * cos_phi + by_cur * sin_phi
-            if show_progress and _progress_ansi_ok():
-                _backend_tag = "GPU" if _active_gpu else "CPU"
-                _frac_done   = step / n_steps if n_steps > 0 else 1.0
-                _steps_since = step - _perf_last_print_step
-                _dt_wall     = _status_now - _perf_last_print_time
-                _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
-                _print_progress_bar(
-                    _frac_done,
-                    step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
-                    t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
-                    backend=_backend_tag)
-            else:
-                _status_text = (f"  [step {step}/{n_steps}]  t={t_now:.4f}s  "
-                                f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
-                                f"w_max={omega_max:.3f}rad/s")
-                if show_progress:
+            if show_progress:
+                if _progress_ansi_ok():
+                    _backend_tag = "GPU" if _active_gpu else "CPU"
+                    _frac_done   = step / n_steps if n_steps > 0 else 1.0
+                    _steps_since = step - _perf_last_print_step
+                    _dt_wall     = _status_now - _perf_last_print_time
+                    _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
+                    _print_progress_bar(
+                        _frac_done,
+                        step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
+                        t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
+                        backend=_backend_tag)
+                else:
+                    _status_text = (f"  [step {step}/{n_steps}]  t={t_now:.4f}s  "
+                                    f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
+                                    f"w_max={omega_max:.3f}rad/s")
                     _print_progress_bar_finish()
-                _print(_status_text)
+                    _print(_status_text)
             _last_status_print_time = _status_now
 
         if frame_dir is not None and step % frame_every == 0:
@@ -1158,7 +1174,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if _S1_count >= 30:
                 _finish_progress_bar_if_shown()
-                _print(f"\n  S = 1.00 at t={t_now:.4f}s  (step {step}/{n_steps})")
+                if show_progress:
+                    _print(f"\n  S = 1.00 at t={t_now:.4f}s  (step {step}/{n_steps})")
                 _stop_reason = f"S = 1.00 reached at t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
@@ -1172,15 +1189,17 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if _pulse_phase == 'delay' and t_now >= field_delay:
                 _pulse_phase = 'field_on'
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Pulse: initial wait completed: t={t_now:.4f}s  field ON")
+                if show_progress:
+                    _print(f"\n  Pulse: initial wait completed: t={t_now:.4f}s  field ON")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
             if (_pulse_phase == 'field_on' and t_pulse is not None
                     and t_now >= field_delay + t_pulse):
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
-                       f"t={t_now:.4f}s  zero field: stabilizing")
+                if show_progress:
+                    _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
+                           f"t={t_now:.4f}s  zero field: stabilizing")
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
@@ -1192,10 +1211,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if t_now >= field_delay:
                 _step_after_announced = True
                 _finish_progress_bar_if_shown()
-                if field_mode == 'step_pos':
-                    _print(f"\n  Step+: field ON in t={t_now:.4f}s (stay ON)")
-                else:
-                    _print(f"\n  Step-: field OFF in t={t_now:.4f}s (stay zero)")
+                if show_progress:
+                    if field_mode == 'step_pos':
+                        _print(f"\n  Step+: field ON in t={t_now:.4f}s (stay ON)")
+                    else:
+                        _print(f"\n  Step-: field OFF in t={t_now:.4f}s (stay zero)")
                 tau_xp = _torques_xp(theta_xp, *field_at(t_now))
 
         if (field_mode == 'pulse' and _pulse_phase == 'field_on'
@@ -1225,10 +1245,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _pulse_relaxing[0] = True
                 _pulse_phase = 'relaxing'
                 _finish_progress_bar_if_shown()
-                if _trigger_A:
-                    _print(f"\n  Pulse: S>=0.99 at t={t_now:.4f}s  field ZERO, relaxing")
-                else:
-                    _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t={t_now:.4f}s  field ZERO, relaxing")
+                if show_progress:
+                    if _trigger_A:
+                        _print(f"\n  Pulse: S>=0.99 at t={t_now:.4f}s  field ZERO, relaxing")
+                    else:
+                        _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t={t_now:.4f}s  field ZERO, relaxing")
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
@@ -1257,7 +1278,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if _converged_count >= 50:
                 _finish_progress_bar_if_shown()
-                _print(f"\n  Lattice at rest at t={t_now:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
+                if show_progress:
+                    _print(f"\n  Lattice at rest at t={t_now:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
                 _stop_reason = f"lattice at rest at t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
@@ -1280,25 +1302,29 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _perf_steps_per_s = _perf_steps_done / _perf_total_s if _perf_total_s > 0 else 0.0
     _perf_ms_per_step = (_perf_total_s / _perf_steps_done * 1000.0) if _perf_steps_done > 0 else 0.0
     _perf_backend_tag = "GPU" if _active_gpu else "CPU"
-    _print()
-    _print(f"  ── performance ({_perf_backend_tag}) ──────────────────────────")
-    _print(f"  Integration time    : {_perf_total_s:.3f} s  (wall-clock)")
-    _print(f"  Steps executed      : {_perf_steps_done}")
-    _print(f"  Throughput          : {_perf_steps_per_s:.1f} steps/s  "
-           f"({_perf_ms_per_step:.4f} ms/step)")
-    _print(f"  Needles in lattice  : {N*M}  (K = N x M)")
+    if show_progress:
+        _print()
+        _print(f"  ── performance ({_perf_backend_tag}) ──────────────────────────")
+        _print(f"  Integration time    : {_perf_total_s:.3f} s  (wall-clock)")
+        _print(f"  Steps executed      : {_perf_steps_done}")
+        _print(f"  Throughput          : {_perf_steps_per_s:.1f} steps/s  "
+               f"({_perf_ms_per_step:.4f} ms/step)")
+        _print(f"  Needles in lattice  : {N*M}  (K = N x M)")
 
     _stop_flag.set()
     _restore_terminal()
 
     if hysteresis_log:
         import csv
-        csv_path = "hysteresis_loop.csv"
+        csv_path = "forc_curve.csv" if field_mode == 'forc' else "hysteresis_loop.csv"
         with open(csv_path, 'w', newline='') as f:
             w = csv.writer(f)
             w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
             w.writerows(hysteresis_log)
-        _print(f"  Hysteresis data saved: {csv_path}")
+        if field_mode == 'forc':
+            _print(f"  FORC curve data saved: {csv_path}")
+        else:
+            _print(f"  Hysteresis data saved: {csv_path}")
         if make_images:
             _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale)
 
@@ -2106,9 +2132,15 @@ def main():
                            '0 (default) = normal early stops.')
     grp2.add_argument('--field_mode',
                       choices=['static', 'hysteresis', 'sine', 'pulse',
-                               'step_pos', 'step_neg'],
+                               'step_pos', 'step_neg', 'forc'],
                       default='static',
                       help='External field mode')
+    grp2.add_argument('--forc_Br', type=float, default=0.0,
+                      help='Reversal field Br [T] in FORC mode.')
+    grp2.add_argument('--forc_t_sat', type=float, default=None,
+                      help='Saturation time [s] in FORC mode (default: 0.2 * t_sim).')
+    grp2.add_argument('--forc_t_rev', type=float, default=None,
+                      help='Reversal time [s] when field starts rising back in FORC mode (default: 0.5 * t_sim).')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2224,7 +2256,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V66")
+    _print(f"  Version      : V67")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2382,6 +2414,9 @@ def main():
         torque_tol=args.torque_tol,
         t_sim_full=bool(args.t_sim_full),
         hyst_autoscale=bool(args.hyst_autoscale),
+        forc_Br=args.forc_Br,
+        forc_t_sat=args.forc_t_sat,
+        forc_t_rev=args.forc_t_rev,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
