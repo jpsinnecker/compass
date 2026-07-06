@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V67
+compass.py — Simulation of a compass-needle lattice V68
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -362,6 +362,8 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
 
 def _plot_hysteresis(log, hyst_autoscale=False):
     log = np.array(log)
+    is_forc = (log.ndim == 2 and log.shape[1] == 7)
+
     t_arr  = log[:, 0]
     B_arr  = log[:, 1] * 1e3
     M_arr  = log[:, 2]
@@ -370,20 +372,47 @@ def _plot_hysteresis(log, hyst_autoscale=False):
 
     ax1 = axes[0]
     ax1.set_facecolor('#0D1B2A')
-    ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
+    
+    if is_forc:
+        from collections import defaultdict
+        segments = defaultdict(list)
+        for row in log:
+            if row[5]:  # is_up_sweep
+                segments[int(row[6])].append(row)
+        
+        for k_val in sorted(segments.keys()):
+            arr_seg = np.array(segments[k_val])
+            H_seg = arr_seg[:, 1] * 1e3
+            M_seg = arr_seg[:, 2]
+            ax1.plot(H_seg, M_seg, color='#E94560', lw=1.2, alpha=0.85)
+    else:
+        ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
+
     ax1.axhline(0, color='#4A4A6A', lw=0.6, ls='--')
     ax1.axvline(0, color='#4A4A6A', lw=0.6, ls='--')
     ax1.set_xlabel("Field B [mT]",    color='#BDC3C7')
     ax1.set_ylabel("Magnetization M (projection)",  color='#BDC3C7')
-    ax1.set_title("Hysteresis Loop M x B", color='#ECF0F1',
-                  fontfamily='monospace')
+    if is_forc:
+        ax1.set_title("FORC Curves M x B", color='#ECF0F1', fontfamily='monospace')
+    else:
+        ax1.set_title("Hysteresis Loop M x B", color='#ECF0F1', fontfamily='monospace')
     ax1.tick_params(colors='#7F8C8D')
     ax1.grid(True, color='#2C3E50', alpha=0.5)
     for sp in ax1.spines.values():
         sp.set_edgecolor('#2C3E50')
 
     if not hyst_autoscale:
-        B_max = np.max(np.abs(B_arr))
+        if is_forc:
+            up_sweep_rows = [row for row in log if row[5]]
+            if up_sweep_rows:
+                arr_up = np.array(up_sweep_rows)
+                B_arr_for_lim = arr_up[:, 1] * 1e3
+            else:
+                B_arr_for_lim = B_arr
+        else:
+            B_arr_for_lim = B_arr
+            
+        B_max = np.max(np.abs(B_arr_for_lim))
         if B_max < 1e-5:
             B_max = 1.0
         ax1.set_xlim(-1.05 * B_max, 1.05 * B_max)
@@ -408,13 +437,22 @@ def _plot_hysteresis(log, hyst_autoscale=False):
     ax2.legend(lines, ['M (proj.)', 'B (mT)'], facecolor='#1A1A2E',
                edgecolor='#2C3E50', labelcolor='#ECF0F1', fontsize=8)
 
-    fig.suptitle("Magnetic Hysteresis Simulation — Compass Array",
-                 color='#BDC3C7', fontsize=12, fontfamily='monospace')
+    if is_forc:
+        fig.suptitle("First-Order Reversal Curves Simulation — Compass Array",
+                     color='#BDC3C7', fontsize=12, fontfamily='monospace')
+    else:
+        fig.suptitle("Magnetic Hysteresis Simulation — Compass Array",
+                     color='#BDC3C7', fontsize=12, fontfamily='monospace')
+                     
     plt.tight_layout()
-    plt.savefig("hysteresis_loop.png", dpi=130, bbox_inches='tight',
+    out_img = "forc_curves.png" if is_forc else "hysteresis_loop.png"
+    plt.savefig(out_img, dpi=130, bbox_inches='tight',
                 facecolor='#1A1A2E')
     plt.close(fig)
-    _print("  Hysteresis plot saved: hysteresis_loop.png")
+    if is_forc:
+        _print(f"  FORC curves plot saved: {out_img}")
+    else:
+        _print(f"  Hysteresis plot saved: {out_img}")
 
 
 def _plot_sine(log, freq):
@@ -456,8 +494,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                               bx_ext, by_ext,
-                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
+                              bx_ext, by_ext,
+                              pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
     K  = theta_flat.shape[0]
 
     mx = moment * xp.cos(theta_flat)
@@ -580,13 +618,22 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           hyst_spacing='linear', hyst_log_k=5.0,
           field_delay=0.0, t_pulse=None, torque_tol=1e-3,
           t_sim_full=False, hyst_autoscale=False,
-          forc_Br=0.0, forc_t_sat=None, forc_t_rev=None):
+          forc_Br_min=None, forc_n_curves=30,
+          forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None):
     import os
     import time as _time_module
 
     N, M = thetas.shape
     Bext_x, Bext_y = ext_field
     n_frames = 0
+    if field_mode == 'forc':
+        # Calculate t_sim automatically based on FORC cycles parameters
+        tsat = forc_t_sat if forc_t_sat is not None else 0.05
+        t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
+        t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
+        T_cycle = tsat + t_down + t_up
+        n_curves = forc_n_curves if forc_n_curves is not None else 30
+        t_sim = n_curves * T_cycle
 
     _active_gpu = use_gpu and _GPU_AVAILABLE
     _active_xp  = cp if _active_gpu else np
@@ -839,27 +886,63 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         axR.axvline(0.0, color='#2C3E50', lw=1.0, zorder=1)
 
         if hysteresis_log:
-            arr = np.array(hysteresis_log)
-            H_mT = arr[:, 1] * 1e3
-            Mv   = arr[:, 2]
-            if hyst_autoscale:
-                H_min, H_max = np.min(H_mT), np.max(H_mT)
-                M_min, M_max = np.min(Mv), np.max(Mv)
-                H_span = H_max - H_min
-                M_span = M_max - M_min
+            if field_mode == 'forc':
+                from collections import defaultdict
+                segments = defaultdict(list)
+                for row in hysteresis_log:
+                    if row[5]:  # is_up_sweep
+                        segments[int(row[6])].append(row)
                 
-                H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
-                M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
-                
-                axR.set_xlim(H_min - H_margin, H_max + H_margin)
-                axR.set_ylim(M_min - M_margin, M_max + M_margin)
+                up_sweep_rows = [row for row in hysteresis_log if row[5]]
+                if up_sweep_rows:
+                    arr_up = np.array(up_sweep_rows)
+                    H_mT_all = arr_up[:, 1] * 1e3
+                    Mv_all   = arr_up[:, 2]
+                else:
+                    H_mT_all = np.array([0.0])
+                    Mv_all   = np.array([0.0])
+
+                if hyst_autoscale:
+                    H_min, H_max = np.min(H_mT_all), np.max(H_mT_all)
+                    M_min, M_max = np.min(Mv_all), np.max(Mv_all)
+                    H_span = H_max - H_min
+                    M_span = M_max - M_min
+                    H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
+                    M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
+                    axR.set_xlim(H_min - H_margin, H_max + H_margin)
+                    axR.set_ylim(M_min - M_margin, M_max + M_margin)
+                else:
+                    axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
+                    axR.set_ylim(-1.15, 1.15)
+
+                for k_val in sorted(segments.keys()):
+                    arr_seg = np.array(segments[k_val])
+                    H_seg = arr_seg[:, 1] * 1e3
+                    M_seg = arr_seg[:, 2]
+                    axR.plot(H_seg, M_seg, color='#F1C40F', lw=1.6, zorder=3)
+
+                last_row = hysteresis_log[-1]
+                H_last = last_row[1] * 1e3
+                Mv_last = last_row[2]
+                axR.plot([H_last], [Mv_last], 'o', color='#E74C3C', ms=7, zorder=4)
             else:
-                axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
-                axR.set_ylim(-1.15, 1.15)
-                
-            axR.plot(H_mT, Mv, color='#F1C40F', lw=1.6, zorder=3)
-            axR.plot([H_mT[-1]], [Mv[-1]], 'o', color='#E74C3C',
-                     ms=7, zorder=4)
+                arr = np.array(hysteresis_log)
+                H_mT = arr[:, 1] * 1e3
+                Mv   = arr[:, 2]
+                if hyst_autoscale:
+                    H_min, H_max = np.min(H_mT), np.max(H_mT)
+                    M_min, M_max = np.min(Mv), np.max(Mv)
+                    H_span = H_max - H_min
+                    M_span = M_max - M_min
+                    H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
+                    M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
+                    axR.set_xlim(H_min - H_margin, H_max + H_margin)
+                    axR.set_ylim(M_min - M_margin, M_max + M_margin)
+                else:
+                    axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
+                    axR.set_ylim(-1.15, 1.15)
+                axR.plot(H_mT, Mv, color='#F1C40F', lw=1.6, zorder=3)
+                axR.plot([H_mT[-1]], [Mv[-1]], 'o', color='#E74C3C', ms=7, zorder=4)
         else:
             axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
             axR.set_ylim(-1.15, 1.15)
@@ -924,17 +1007,30 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return Bext_x0, Bext_y0
 
         elif field_mode == 'forc':
-            T = t_sim if t_sim > 0 else 1.0
-            tsat = forc_t_sat if forc_t_sat is not None else 0.2 * T
-            trev = forc_t_rev if forc_t_rev is not None else 0.5 * T
-            if t <= tsat:
-                B_scalar = B_max
-            elif t <= trev:
-                f = (t - tsat) / (trev - tsat)
-                B_scalar = (1.0 - f) * B_max + f * forc_Br
+            tsat = forc_t_sat if forc_t_sat is not None else 0.05
+            t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
+            t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
+            T_cycle = tsat + t_down + t_up
+            n_curves = forc_n_curves if forc_n_curves is not None else 30
+            Br_min = forc_Br_min if forc_Br_min is not None else -B_max
+
+            k = int(t / T_cycle)
+            k = min(max(0, k), n_curves - 1)
+            t_local = t - k * T_cycle
+
+            if n_curves > 1:
+                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
             else:
-                f = (t - trev) / (T - trev)
-                B_scalar = (1.0 - f) * forc_Br + f * B_max
+                Br_curr = Br_min
+
+            if t_local <= tsat:
+                B_scalar = B_max
+            elif t_local <= tsat + t_down:
+                f = (t_local - tsat) / t_down
+                B_scalar = (1.0 - f) * B_max + f * Br_curr
+            else:
+                f = (t_local - tsat - t_down) / t_up
+                B_scalar = (1.0 - f) * Br_curr + f * B_max
             return B_scalar * cos_phi, B_scalar * sin_phi
 
         elif field_mode == 'hysteresis':
@@ -1114,7 +1210,25 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         M_proj   = mx_mean * cos_phi + my_mean * sin_phi
         B_scalar = bx_cur * cos_phi + by_cur * sin_phi
-        entry    = (t_now, B_scalar, M_proj, S_now)
+        if field_mode == 'forc':
+            tsat = forc_t_sat if forc_t_sat is not None else 0.05
+            t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
+            t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
+            T_cycle = tsat + t_down + t_up
+            n_curves = forc_n_curves if forc_n_curves is not None else 30
+            Br_min = forc_Br_min if forc_Br_min is not None else -B_max
+            k = int(t_now / T_cycle)
+            k = min(max(0, k), n_curves - 1)
+            if n_curves > 1:
+                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
+            else:
+                Br_curr = Br_min
+            t_local = t_now - k * T_cycle
+            is_up_sweep = (t_local > tsat + t_down)
+            entry = (t_now, B_scalar, M_proj, S_now, Br_curr, is_up_sweep, k)
+        else:
+            entry = (t_now, B_scalar, M_proj, S_now)
+
         field_log.append(entry)
         if hysteresis_log is not None:
             hysteresis_log.append(entry)
@@ -1319,8 +1433,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         csv_path = "forc_curve.csv" if field_mode == 'forc' else "hysteresis_loop.csv"
         with open(csv_path, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
-            w.writerows(hysteresis_log)
+            if field_mode == 'forc':
+                w.writerow(['t_s', 'B_T', 'M_proj', 'S', 'B_r'])
+                w.writerows([row[:5] for row in hysteresis_log if row[5]])
+            else:
+                w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
+                w.writerows(hysteresis_log)
         if field_mode == 'forc':
             _print(f"  FORC curve data saved: {csv_path}")
         else:
@@ -1362,7 +1480,7 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
         return False
 
     input_pattern = os.path.join(frame_dir, "frame_%05d.png")
-    vf = 'pad=ceil(iw/2)*2:ceil(ih/2)*2'
+    vf = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
 
     strategies = []
     if use_gpu and _GPU_AVAILABLE:
@@ -1390,11 +1508,12 @@ def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
             'ffmpeg', '-y',
             '-framerate', str(fps),
             '-i', input_pattern,
-        ] + codec_args + [
             '-vf', vf,
+        ] + codec_args + [
             '-f', 'mp4',
             output_path,
         ]
+
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -2135,12 +2254,16 @@ def main():
                                'step_pos', 'step_neg', 'forc'],
                       default='static',
                       help='External field mode')
-    grp2.add_argument('--forc_Br', type=float, default=0.0,
-                      help='Reversal field Br [T] in FORC mode.')
+    grp2.add_argument('--forc_n_curves', type=int, default=30,
+                      help='Number of first-order reversal curves (FORCs) to simulate (default: 30).')
+    grp2.add_argument('--forc_Br_min', type=float, default=None,
+                      help='Minimum reversal field Br_min [T] (default: -B_ext_mag).')
     grp2.add_argument('--forc_t_sat', type=float, default=None,
-                      help='Saturation time [s] in FORC mode (default: 0.2 * t_sim).')
-    grp2.add_argument('--forc_t_rev', type=float, default=None,
-                      help='Reversal time [s] when field starts rising back in FORC mode (default: 0.5 * t_sim).')
+                      help='Saturation hold time [s] per cycle (default: 0.05 s).')
+    grp2.add_argument('--forc_t_ramp_down', type=float, default=None,
+                      help='Time to ramp down from saturation to reversal field [s] per cycle (default: 0.10 s).')
+    grp2.add_argument('--forc_t_ramp_up', type=float, default=None,
+                      help='Time to sweep back from reversal field to saturation [s] per cycle (default: 0.20 s).')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2256,7 +2379,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V67")
+    _print(f"  Version      : V68")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2414,9 +2537,11 @@ def main():
         torque_tol=args.torque_tol,
         t_sim_full=bool(args.t_sim_full),
         hyst_autoscale=bool(args.hyst_autoscale),
-        forc_Br=args.forc_Br,
+        forc_Br_min=args.forc_Br_min,
+        forc_n_curves=args.forc_n_curves,
         forc_t_sat=args.forc_t_sat,
-        forc_t_rev=args.forc_t_rev,
+        forc_t_ramp_down=args.forc_t_ramp_down,
+        forc_t_ramp_up=args.forc_t_ramp_up,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
@@ -2427,9 +2552,12 @@ def main():
     else:
         csv_path = "compass_field_log.csv"
 
-    if args.csv_order == 'B':
+    if args.field_mode == 'forc':
+        header = ['t_s', 'B_applied_T', 'M_proj', 'S', 'B_r']
+        rows   = [row[:5] for row in field_log if row[5]]
+    elif args.csv_order == 'B':
         header = ['B_applied_T', 'M_proj', 'S', 't_s']
-        rows   = [(B, Mp, S, t) for (t, B, Mp, S) in field_log]
+        rows   = [(row_el[1], row_el[2], row_el[3], row_el[0]) for row_el in field_log]
     else:
         header = ['t_s', 'B_applied_T', 'M_proj', 'S']
         rows   = field_log
@@ -2438,7 +2566,7 @@ def main():
         w = _csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
-    _print(f"  CSV saved: {csv_path}  ({len(field_log)} points)")
+    _print(f"  CSV saved: {csv_path}  ({len(rows)} points)")
 
     if args.make_images:
         title_eq = (f"Equilibrium — {args.geometry} {args.N}×{args.M}"
@@ -2481,7 +2609,7 @@ def main():
         _nd1, _ns1 = draw_halos_batch(axes[1], xs, ys, thetas_eq,
                                       needle_len, r_halo=r_halo,
                                       halo_mode=args.halo_mode,
-                                      domain_tol_deg=args.domain_tol)
+                                      domain_tol_deg=domain_tol_deg)
         if args.halo_mode == 'domains':
             axes[0].set_title(
                 f"Initial State — {_ns0} main domains "
