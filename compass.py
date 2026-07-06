@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V62
+compass.py — Simulation of a compass-needle lattice V63
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -457,11 +457,7 @@ def _plot_sine(log, freq):
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
                                bx_ext, by_ext,
-                               pbc=False, Lx=None, Ly=None, n_images=1):
-    if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
-        xp = cp
-    else:
-        xp = np
+                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
     K  = theta_flat.shape[0]
 
     mx = moment * xp.cos(theta_flat)
@@ -560,11 +556,7 @@ def precompute_dipolar_tensor(x_flat, y_flat, cutoff,
     return Axx, Axy, Ayy
 
 
-def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext):
-    if _GPU_AVAILABLE and hasattr(theta_flat, 'get'):
-        xp = cp
-    else:
-        xp = np
+def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext, xp=np):
     Axx, Axy, Ayy = tensor
     mx = moment * xp.cos(theta_flat)
     my = moment * xp.sin(theta_flat)
@@ -734,7 +726,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 zorder=25, transform=ax.transData)
 
         ax.text(px + pad * 0.2, py_top - 0.065 * yspan,
-                f"/ {t_sim:.4f} s  (tempo físico)",
+                f"/ {t_sim:.4f} s  (physical time)",
                 color='#5555AA', fontsize=6,
                 fontfamily='monospace', va='top', ha='left',
                 zorder=25, transform=ax.transData)
@@ -1003,10 +995,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     def _torques_xp(theta_flat_xp, bx_ext, by_ext):
         if _dipolar_tensor is not None:
             return compute_torques_from_tensor(
-                theta_flat_xp, _dipolar_tensor, moment, bx_ext, by_ext)
+                theta_flat_xp, _dipolar_tensor, moment, bx_ext, by_ext, xp=_active_xp)
         return compute_torques_vectorized(
             theta_flat_xp, x_flat_xp, y_flat_xp, moment, cutoff,
-            bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
+            bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images, xp=_active_xp)
 
     def _torques(th, bx_ext, by_ext):
         theta_flat_xp = _local_to_backend(th.ravel())
@@ -1035,7 +1027,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _S1_count         = 0
     _allow_S1_stop     = (field_mode == 'static') and (not t_sim_full)
     _allow_rest_stop   = (field_mode == 'static') and (not t_sim_full)
-    _stop_reason       = "tempo total atingido"
+    _stop_reason       = "total time reached"
     _pulse_phase   = "delay" if (field_mode == 'pulse' and field_delay > 0) \
                      else "field_on"
     _S99_count        = 0
@@ -1043,6 +1035,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     _tau_ref = inertia * omega0 * omega0
     _step_after_announced = False
     _S_WINDOW_SIZE    = max(40, int(2.0 / dt_factor))
+
+    # Pre-computed integration parameters to optimize simulation step speed
+    _dt_sq_half = 0.5 * (dt ** 2)
+    _inv_inertia = 1.0 / inertia
+    _b_half = damping_xp * dt * (0.5 * _inv_inertia)
+    _coeff_omega = (1.0 - _b_half) / (1.0 + _b_half)
+    _coeff_tau = dt * (0.5 * _inv_inertia) / (1.0 + _b_half)
 
     for step in range(1, n_steps + 1):
 
@@ -1061,16 +1060,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         bx_new, by_new = field_at(t_now)
 
-        accel_xp  = (tau_xp - damping_xp * omega_xp) / inertia
-        theta_new_xp = theta_xp + omega_xp * dt + 0.5 * accel_xp * dt**2
+        accel_xp  = (tau_xp - damping_xp * omega_xp) * _inv_inertia
+        theta_new_xp = theta_xp + omega_xp * dt + accel_xp * _dt_sq_half
         theta_new_xp = (theta_new_xp + _active_xp.pi) % (2.0 * _active_xp.pi) - _active_xp.pi
 
         tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
 
-        b_half    = damping_xp * dt / (2.0 * inertia)
-        omega_new_xp = (omega_xp * (1.0 - b_half)
-                        + dt * (tau_xp + tau_new_xp) / (2.0 * inertia)) \
-                       / (1.0 + b_half)
+        omega_new_xp = omega_xp * _coeff_omega + (tau_xp + tau_new_xp) * _coeff_tau
 
         theta_xp = theta_new_xp
         omega_xp = omega_new_xp
@@ -1162,14 +1158,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if _S1_count >= 30:
                 _finish_progress_bar_if_shown()
-                _print(f"\n  S = 1.00 em t={t_now:.4f}s  (passo {step}/{n_steps})")
-                _stop_reason = f"S = 1.00 atingido em t = {t_now:.4f} s"
+                _print(f"\n  S = 1.00 at t={t_now:.4f}s  (step {step}/{n_steps})")
+                _stop_reason = f"S = 1.00 reached at t = {t_now:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="★ S = 1.00  alinhamento total")
+                                stop_label="★ S = 1.00  complete alignment")
                 break
 
         if field_mode == 'pulse':
@@ -2209,7 +2205,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V62")
+    _print(f"  Version      : V63")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
