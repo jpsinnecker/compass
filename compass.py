@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V63
+compass.py — Simulation of a compass-needle lattice V65
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -2205,7 +2205,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V63")
+    _print(f"  Version      : V65")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
