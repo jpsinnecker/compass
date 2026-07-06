@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V61
+compass.py — Simulation of a compass-needle lattice V62
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -659,8 +659,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     hist      = [(theta_cur.copy(), omega_cur.copy())]
 
     if not make_images and frame_dir is not None:
-        _print(f"  Aviso: make_images=False -> ignorando frame_dir='{frame_dir}' "
-               f"(nenhum PNG sera gerado)")
+        _print(f"  Warning: make_images=False -> ignoring frame_dir='{frame_dir}' "
+               f"(no PNG frames will be generated)")
         frame_dir = None
 
     if frame_dir is not None:
@@ -1846,7 +1846,7 @@ def draw_halos_batch(ax, xs, ys, thetas, needle_len, r_halo=None,
     return _n_domains_found, _n_significant
 
 
-def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
+def plot_state(thetas, xs, ys, title="Array of compass", show_order=True,
                needle_len=0.42, needle_width=0.10, r_halo=None,
                B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
                B_signed=None, figsize_inches=None,
@@ -1893,23 +1893,23 @@ def plot_state(thetas, xs, ys, title="Rede de bussolas", show_order=True,
                               B_ext_max=B_ext_max, B_signed=B_signed)
 
     patch_n = mpatches.Patch(facecolor='#FFFFFF', edgecolor='#555',
-                              label='Polo Norte (branco)')
+                              label='North Pole (white)')
     patch_s = mpatches.Patch(facecolor='#2E6DB4', edgecolor='#555',
-                              label='Polo Sul (azul)')
+                              label='South Pole (blue)')
     handles = [patch_n, patch_s]
     if show_order and halo_mode == 'domains':
         if _n_significant < _n_domains_found:
-            _dom_label = (f'Dominios: {_n_significant} principais '
-                          f'(+{_n_domains_found - _n_significant} pequenos, cinza)  '
+            _dom_label = (f'Domains: {_n_significant} main '
+                          f'(+{_n_domains_found - _n_significant} small, grey)  '
                           f'tol={domain_tol_deg:.0f}°')
         else:
-            _dom_label = f'Dominios magneticos: {_n_domains_found}  (tol={domain_tol_deg:.0f}°)'
+            _dom_label = f'Magnetic Domains: {_n_domains_found}  (tol={domain_tol_deg:.0f}°)'
         patch_dom = mpatches.Patch(facecolor='none', edgecolor='none',
                                    label=_dom_label)
         handles.append(patch_dom)
     if B_ext > 0:
         patch_b = mpatches.Patch(facecolor='#FFD700', edgecolor='#555',
-                                  label=f'Campo ext.  {_fmt_B(B_ext)}  '
+                                  label=f'Ext. Field.  {_fmt_B(B_ext)}  '
                                         f'φ={phi_ext_deg:.1f}°')
         handles.append(patch_b)
     ax.legend(handles=handles, loc='lower left',
@@ -1946,7 +1946,7 @@ def animate_relaxation(thetas_hist, xs, ys,
         draw_compass_batch(ax, xs, ys, thetas,
                            length=needle_len, width=needle_width)
         draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len)
-        ax.set_title(f"Relaxação dipolar — passo {frame * 20}",
+        ax.set_title(f"Dipolar relaxation — step {frame * 20}",
                      color='#ECF0F1', fontsize=11, fontfamily='monospace')
         return []
 
@@ -2209,7 +2209,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V61")
+    _print(f"  Version      : V62")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
