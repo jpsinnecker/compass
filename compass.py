@@ -640,7 +640,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           t_sim_full=False, hyst_autoscale=False,
           forc_Br_min=None, forc_n_curves=30,
           forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
-          forc_sweep='both',
+          forc_sweep='both', forc_rate=None,
           demag='off', demag_freq=2.0, demag_cycles=20):
     import os
     import time as _time_module
@@ -648,14 +648,48 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     N, M = thetas.shape
     Bext_x, Bext_y = ext_field
     n_frames = 0
+    forc_cycle_starts = None
+    forc_t_down_list = None
+    forc_t_up_list = None
+    forc_Br_curr_list = None
+
     if field_mode == 'forc':
         # Calculate t_sim automatically based on FORC cycles parameters
         tsat = forc_t_sat if forc_t_sat is not None else 0.05
-        t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
-        t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
-        T_cycle = tsat + t_down + t_up
+        t_down_def = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
+        t_up_def = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
         n_curves = forc_n_curves if forc_n_curves is not None else 30
-        t_sim = n_curves * T_cycle
+        
+        B_max = np.sqrt(Bext_x**2 + Bext_y**2)
+        Br_min = forc_Br_min if forc_Br_min is not None else -B_max
+        
+        forc_cycle_starts = [0.0] * (n_curves + 1)
+        forc_t_down_list = [0.0] * n_curves
+        forc_t_up_list = [0.0] * n_curves
+        forc_Br_curr_list = [0.0] * n_curves
+        
+        for k in range(n_curves):
+            if n_curves > 1:
+                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
+            else:
+                Br_curr = Br_min
+            forc_Br_curr_list[k] = Br_curr
+            
+            if forc_rate is not None and forc_rate > 0.0:
+                span = B_max - Br_curr
+                t_down_k = span / forc_rate if forc_t_ramp_down is None else t_down_def
+                t_up_k = span / forc_rate
+            else:
+                t_down_k = t_down_def
+                t_up_k = t_up_def
+                
+            forc_t_down_list[k] = t_down_k
+            forc_t_up_list[k] = t_up_k
+            
+            T_cycle_k = tsat + t_down_k + t_up_k
+            forc_cycle_starts[k+1] = forc_cycle_starts[k] + T_cycle_k
+            
+        t_sim = forc_cycle_starts[n_curves]
 
     _active_gpu = use_gpu and _GPU_AVAILABLE
     _active_xp  = cp if _active_gpu else np
@@ -1070,29 +1104,23 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             return Bext_x0, Bext_y0
 
         elif field_mode == 'forc':
+            import bisect
+            k = bisect.bisect_right(forc_cycle_starts, t) - 1
+            k = min(max(0, k), len(forc_t_down_list) - 1)
+            
+            t_local = t - forc_cycle_starts[k]
             tsat = forc_t_sat if forc_t_sat is not None else 0.05
-            t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
-            t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
-            T_cycle = tsat + t_down + t_up
-            n_curves = forc_n_curves if forc_n_curves is not None else 30
-            Br_min = forc_Br_min if forc_Br_min is not None else -B_max
-
-            k = int(t / T_cycle)
-            k = min(max(0, k), n_curves - 1)
-            t_local = t - k * T_cycle
-
-            if n_curves > 1:
-                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
-            else:
-                Br_curr = Br_min
-
+            t_down_k = forc_t_down_list[k]
+            t_up_k = forc_t_up_list[k]
+            Br_curr = forc_Br_curr_list[k]
+            
             if t_local <= tsat:
                 B_scalar = B_max
-            elif t_local <= tsat + t_down:
-                f = (t_local - tsat) / t_down
+            elif t_local <= tsat + t_down_k:
+                f = (t_local - tsat) / t_down_k if t_down_k > 0.0 else 1.0
                 B_scalar = (1.0 - f) * B_max + f * Br_curr
             else:
-                f = (t_local - tsat - t_down) / t_up
+                f = (t_local - tsat - t_down_k) / t_up_k if t_up_k > 0.0 else 1.0
                 B_scalar = (1.0 - f) * Br_curr + f * B_max
             return B_scalar * cos_phi, B_scalar * sin_phi
 
@@ -1278,22 +1306,16 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             M_proj   = mx_mean * cos_phi + my_mean * sin_phi
             B_scalar = bx_cur * cos_phi + by_cur * sin_phi
             if field_mode == 'forc':
+                import bisect
+                k = bisect.bisect_right(forc_cycle_starts, t_phys) - 1
+                k = min(max(0, k), len(forc_t_down_list) - 1)
+                t_local = t_phys - forc_cycle_starts[k]
                 tsat = forc_t_sat if forc_t_sat is not None else 0.05
-                t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
-                t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
-                T_cycle = tsat + t_down + t_up
-                n_curves = forc_n_curves if forc_n_curves is not None else 30
-                Br_min = forc_Br_min if forc_Br_min is not None else -B_max
-                k = int(t_phys / T_cycle)
-                k = min(max(0, k), n_curves - 1)
-                if n_curves > 1:
-                    Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
-                else:
-                    Br_curr = Br_min
-                t_local = t_phys - k * T_cycle
+                t_down_k = forc_t_down_list[k]
+                Br_curr = forc_Br_curr_list[k]
                 if t_local <= tsat:
                     sweep_type = 'sat'
-                elif t_local <= tsat + t_down:
+                elif t_local <= tsat + t_down_k:
                     sweep_type = 'down'
                 else:
                     sweep_type = 'up'
@@ -2345,6 +2367,11 @@ def main():
                       help='Time to sweep back from reversal field to saturation [s] per cycle (default: 0.20 s).')
     grp2.add_argument('--forc_sweep', choices=['both', 'up', 'down'], default='both',
                       help="FORC curves to trace: 'both' (default), 'up' (increasing field), 'down' (decreasing field).")
+    grp2.add_argument('--forc_rate', type=float, default=None,
+                      help='Target constant sweep rate R [T/s] for FORC curves. '
+                           'If specified, dynamically scales ramp-up/down times '
+                           'proportionally to the sweep depth (Method B from FORC.md) '
+                           'to maintain a constant field rate (default: None, use fixed times).')
     grp2.add_argument('--demag', choices=['on', 'off'], default='off',
                       help='Enable or disable a demagnetization procedure before the simulation (default: off).')
     grp2.add_argument('--demag_freq', type=float, default=2.0,
@@ -2466,7 +2493,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V70")
+    _print(f"  Version      : V71")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2630,6 +2657,7 @@ def main():
         forc_t_ramp_down=args.forc_t_ramp_down,
         forc_t_ramp_up=args.forc_t_ramp_up,
         forc_sweep=args.forc_sweep,
+        forc_rate=args.forc_rate,
         demag=args.demag,
         demag_freq=args.demag_freq,
         demag_cycles=args.demag_cycles,
