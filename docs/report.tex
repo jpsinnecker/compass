@@ -1,7 +1,7 @@
 % ======================================================================
-% Development Report for the compass_sim Project — V23
-% Generated on 05/07/2026. Covered history: 15/06/2026 to 05/07/2026.
-% Compile with: pdflatex relatorio_projeto_V22_EN.tex (twice for references)
+% Development Report for the compass_sim Project — V34
+% Generated on 06/07/2026. Covered history: 15/06/2026 to 06/07/2026.
+% Compile with: pdflatex project_report.tex (twice for references)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -25,19 +25,30 @@
 
 \newcommand{\code}[1]{\texttt{#1}}
 
+% Automatic time calculation macros
+\newcount\hh
+\newcount\mm
+\hh=\time
+\divide\hh by 60
+\mm=\hh
+\multiply\mm by 60
+\mm=-\mm
+\advance\mm by \time
+\newcommand{\hhmm}{\ifnum\hh<10 0\fi\number\hh:\ifnum\mm<10 0\fi\number\mm}
+
 \title{\textbf{Simulation of dipolar magnetic-needle arrays:\\
 development report for the \code{compass\_sim} project}\\[1ex]
-\large Report version V23}
+\large Report version V47}
 \author{J.~P.~Sinnecker}
-\date{July 5, 2026\\[0.5ex]
-\small Covered period: 15/06/2026 -- 05/07/2026}
+\date{\today, \hhmm\\[0.5ex]
+\small Covered period: 15/06/2026 -- 07/07/2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
 \noindent
-This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V56), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
+This report documents the full development of the \code{compass\_sim} project: a Python simulator for two-dimensional arrays of magnetic compass needles interacting through complete dipolar coupling, with inertial Newtonian dynamics in SI units. The project began as a pedagogical demonstration of the analogy between compass arrays and magnetic materials, including hysteresis and domain formation, and evolved over six development sessions into a research instrument with publication potential. The report records the project decisions, problems encountered and solutions adopted, the code-version history (V20--V77), the research and publication strategy built around a gap identified in the literature, and the results of the pilot campaign on ``damping~$\times$~hysteresis/avalanches''. The pilot already shows the central signal sought: a systematic increase of the avalanche exponent $\tau$ with the quality factor $Q$.
 \end{abstract}
 
 \tableofcontents
@@ -88,7 +99,7 @@ is the small-oscillation frequency in the reference dipolar field between neares
 \begin{equation}
 Q = \frac{\omega_0 I}{b},
 \end{equation}
-with $Q \gg 1$ underdamped (oscillatory) and $Q \ll 1$ overdamped (monotonic relaxation). This is the central control parameter of the scientific study.
+with $Q \gg 1$ underdamped (oscillatory) and $Q \ll 1$ overdamped (monotonic relaxation). This is the central control parameter of the scientific study. The transition between these regimes occurs at the critical quality factor $Q_c = 0.5$. To prevent oscillations entirely, the damping coefficient must satisfy $b \ge b_c = 2 I \omega_0 = 2 \sqrt{I \cdot m \cdot B_{\mathrm{eff}}}$, where $B_{\mathrm{eff}} = \max(B_{\mathrm{ref}}, B_{\mathrm{ext}})$ is the dominant magnetic field acting on the needles.
 
 \paragraph{Real physical parameters.}
 A structuring decision was to use SI units and derive the parameters from the real needle geometry rather than arbitrary constants:
@@ -99,8 +110,8 @@ A structuring decision was to use SI units and derive the parameters from the re
 \end{itemize}
 Both automatic calculations can be overridden by explicit user parameters.
 
-\paragraph{Simulator capabilities (current state, V56).}
-The simulator supports three lattice geometries (square, triangular, honeycomb); \textbf{six} external-field modes: static; pulse with explicit timing (delay $\Delta t$ $\to$ field for $t_{\mathrm{pulse}}$ $\to$ zero field until equilibrium, with the legacy saturation/plateau criterion if $t_{\mathrm{pulse}}$ is not given); five-segment hysteresis ($0 \to +B \to 0 \to -B \to 0 \to +B$) with linear or log-symmetric spacing; sinusoidal field; and step modes \code{step\_pos} ($B{=}0$ for $\Delta t$, then field kept on) and \code{step\_neg} (field from $t{=}0$, removed at $\Delta t$). It also supports periodic boundary conditions with lattice images; real-time monitoring of the alignment order parameter $S \in [0,1]$; a real-equilibrium criterion (small angular velocity \emph{and} small mean torque) for pulse/step modes; optional GPU backend through CuPy; MP4 video export, summary images, and CSV time series $(t, B, M, S)$; magnetic-domain visualization through halo coloring; a precomputed dipolar tensor (V40); and performance instrumentation.
+\paragraph{Simulator capabilities (current state, V71).}
+The simulator supports three lattice geometries (square, triangular, honeycomb); \textbf{seven} external-field modes: static; First-Order Reversal Curve (FORC) mode with sat/reversal field parameter control and a constant sweep rate option; pulse with explicit timing (delay $\Delta t$ $\to$ field for $t_{\mathrm{pulse}}$ $\to$ zero field until equilibrium, with the legacy saturation/plateau criterion if $t_{\mathrm{pulse}}$ is not given); five-segment hysteresis ($0 \to +B \to 0 \to -B \to 0 \to +B$) with linear or log-symmetric spacing; sinusoidal field; and step modes \code{step\_pos} ($B{=}0$ for $\Delta t$, then field kept on) and \code{step\_neg} (field from $t{=}0$, removed at $\Delta t$). Additionally, a sinusoidal decaying demagnetization procedure (\code{--demag on}) can be enabled before any field mode. It also supports periodic boundary conditions with lattice images; real-time monitoring of the alignment order parameter $S \in [0,1]$; a real-equilibrium criterion (small angular velocity \emph{and} small mean torque) for pulse/step modes; optional GPU backend through CuPy; MP4 video export, summary images, and CSV time series $(t, B, M, S)$; magnetic-domain visualization through halo coloring; a precomputed dipolar tensor (V40); and performance instrumentation.
 
 % ======================================================================
 \section{Development chronology}
@@ -173,7 +184,16 @@ With the instrument mature, the focus shifted to science:
 \item \textbf{Campaign infrastructure}: the scripts \code{damping\_sweep.py} (orchestration of damping~$\times$~\emph{seed}~$\times$~geometry sweeps, calling the simulator programmatically) and \code{damping\_sweep\_analysis.py} (full statistical analysis), both validated end to end (Section~\ref{sec:campaign});
 \item \textbf{Performance optimizations implemented (04/07)}: the precomputed dipolar tensor (\textbf{V40}) and campaign parallelization with incremental \emph{manifest} and resume support (\code{damping\_sweep} V02). Details and measurements are in Section~\ref{sec:improvements}. The measured V40 speedup is \textbf{35--45$\times$} per run, reducing the full campaign from $\sim$7--8~h to $\sim$15~min on a single core;
 \item \textbf{New field protocols and refinements (V41--V45)}: hysteresis with log-symmetric spacing; pulse with explicit timing ($\Delta t$ + $t_{\mathrm{pulse}}$ + torque equilibrium); step modes \code{step\_pos}/\code{step\_neg}; \code{--t\_sim\_full} flag (run to the end without early stopping); halos also in the comparison figure (V43); a two-line live progress panel (V44); and hysteresis video with a dual progress panel (V45).
-\item \textbf{Layout, terminal updates, and translations (V46--V65)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); full translation of all remaining terminal console prints and confirmations to English (V52); circular direction dial and sign indicator arrow next to the horizontal field bar updates (V53); terminal banner code version and developer metadata addition (V54); HUD direction dial arrow scaling with the removal of the sign indicator next to the bar (V55); HUD direction dial arrow scaling minimum length calibration (V56); HUD direction dial redesigned as a bold filled arrow using \code{FancyArrow} (V57); HUD direction dial bold arrow homothetic scaling to preserve aspect ratio (V58); random per-needle damping noise support (V59); full translation of all CLI arguments and help text to English (V60); translation of Section 4 plotting label strings to English (V61); translation of the image suppression warning to English (V62); performance optimizations to the integration loop (V63); alignment of sweep files (V64); and full translation of all sweep scripts to English (V65).
+\item \textbf{Layout, terminal updates, and translations (V46--V66)}: docstring alignment (V46); autoscale parameter \code{--hyst\_autoscale} (V47); bugfixes and autoscale options (V48); HUD-needle overlap resolution and signed field bar updates (V49); progress bar English translation alongside a three-line console print layout (V50); HUD legend layout alignment alongside a constant-length field arrow position update (V51); full translation of all remaining terminal console prints and confirmations to English (V52); circular direction dial and sign indicator arrow next to the horizontal field bar updates (V53); terminal banner code version and developer metadata addition (V54); HUD direction dial arrow scaling with the removal of the sign indicator next to the bar (V55); HUD direction dial arrow scaling minimum length calibration (V56); HUD direction dial redesigned as a bold filled arrow using \code{FancyArrow} (V57); HUD direction dial bold arrow homothetic scaling to preserve aspect ratio (V58); random per-needle damping noise support (V59); full translation of all CLI arguments and help text to English (V60); translation of Section 4 plotting label strings to English (V61); translation of the image suppression warning to English (V62); performance optimizations to the integration loop (V63); alignment of sweep files (V64); full translation of all sweep scripts to English (V65); and redesign of the HUD external field intensity bar to grow bidirectionally from center for positive/negative fields and zero at zero field (V66).
+\item \textbf{FORC protocol implementation (V67--V69)}: introduction of the First-Order Reversal Curve (FORC) field mode (\code{forc}) with saturation/reversal field parameter control (\code{--forc\_Br}, \code{--forc\_t\_sat}, \code{--forc\_t\_rev}), real-time dual-panel video monitoring of the minor reversal loop, and automated export to \code{forc\_curve.csv}. Added \code{--forc\_sweep} choices to filter branch tracking.
+\item \textbf{Sinusoidal Demagnetization (V70)}: initial implementation of a pre-treatment sinusoidal alternating field demagnetization (AFD) procedure (\code{--demag on}), sweeping the field from $+B_{\mathrm{ext}}$ to zero, decaying 30\% per cycle, at a configurable frequency \code{--demag\_freq} (later replaced in V72 by an isotropic biaxial rotational protocol);
+\item \textbf{Constant Sweep Rate FORC (V71)}: introduced the \code{--forc\_rate} parameter to dynamically scale cycle durations (ramp-up and ramp-down times) proportionally to curve depth (Method B from \code{FORC.md}), keeping the sweep rate $dB/dt \equiv R$ constant across curves and avoiding the variable sweep rate trap;
+\item \textbf{Biaxial Rotational Demagnetization (V72)}: replaced the uniaxial sinusoidal decaying field (AFD) with a biaxial rotational demagnetization protocol (Method A from \code{compass\_sim\_protocol\_notes.md}), where the field rotates in the $xy$-plane while decaying linearly to zero, providing an isotropic randomized demagnetized state ($S \to 0$);
+\item \textbf{Hysteresis Autoscale Default (V73)}: changed the default value of the \code{--hyst\_autoscale} parameter from 0 to 1 (True) to enable automatic scaling of the MxH axes by default;
+\item \textbf{Simulated Thermal Annealing Demagnetization (V74)}: implemented Method B (linear sweep with decaying simulated thermal annealing white noise torque) as an alternative pre-treatment demagnetization protocol, and introduced the temperature scaling parameter \code{--demag\_temp};
+\item \textbf{Multi-Stage Progress Bar (V75)}: divided the command-line progress bar output into two sequential phases (Demagnetization and Simulation/Measurement) with phase-specific labels, percentages, step counts, and local physical timers;
+\item \textbf{Demagnetization Resting Delay (V76)}: introduced the \code{--demag\_delay} parameter to specify a resting pause (in seconds) under zero external field between the end of demagnetization and the start of the primary simulation phase, dividing the progress bar into three sequential steps (Demagnetizing, Resting, and Measurement);
+\item \textbf{Total Wall-Clock Execution Time (V77)}: introduced high-precision wall-clock timing monitoring of the entire execution from script invocation to final output, printing the final elapsed execution time as ``Completed in XXXX.XX sec'' with two decimal digits.
 \end{enumerate}
 
 % ======================================================================
@@ -185,7 +205,7 @@ With the instrument mature, the focus shifted to science:
 
 \noindent The review covered three fronts. \textbf{(i)}~Classical compass-needle arrays: the founding work (square $22\times22$ lattice, Phys.\ Rev.\ B \textbf{58}, 9238, 1998~\cite{prb1998}) uses equilibrium Monte Carlo with a random field mimicking thermal noise, not Newtonian dynamics. \textbf{(ii)}~Classical dipoles in honeycomb/kagome/triangular lattices (2012--2025): Luttinger--Tisza methods, energy minimization, spin waves, and Monte Carlo with \emph{parallel tempering}, all focused on ground states and thermal \emph{equilibrium} transitions. \textbf{(iii)}~\emph{Artificial spin ice}~\cite{nisoli2013}: real temporal dynamics is studied, but through discrete macrospins (Ising-like) or experimental data (MOKE/MFM), almost never with continuous angular dynamics and explicit mechanical inertia.
 
-The question of how damping controls hysteresis and avalanches is active and publishable in adjacent fields. It is established that underdamped and overdamped regimes form different universality classes in short-range or mean-field systems~\cite{dahmen2011}, but this has not been answered for complete dipolar coupling (long-range, anisotropic) with real spatial geometry. This is the gap occupied by the project.
+The question of how damping controls hysteresis and avalanches is active and publishable in adjacent fields. It is established that underdamped and overdamped systems belong to different universality classes in short-range or mean-field systems~\cite{dahmen2011}, but this has not been answered for complete dipolar coupling (long-range, anisotropic) with real spatial geometry. This is the gap occupied by the project.
 
 \subsection{Study design and decision criterion}
 
@@ -367,8 +387,363 @@ Two relevant optimizations are already implemented and should not be redone: vec
 \item Satellite studies from the original roadmap, according to capacity: domain-formation kinetics by geometry; memory of the ``director'' after a pulse; effect of PBC on domain scale.
 \end{enumerate}
 
+\appendix
+\section{Appendix: command-line parameters (v77)}
 % ======================================================================
-\section{Version record}
+
+Complete list of parameters accepted by \code{compass\_sim} in version V77, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
+
+\begingroup
+\small
+\begin{longtable}{@{}lllp{9.2cm}@{}}
+\caption{Command-line parameters of \code{compass\_sim} V77.}
+\label{tab:parameters} \\
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
+\multicolumn{4}{@{}l}{\textbf{Lattice geometry:}} \\
+\code{--geometry} & \code{square} & --- & Lattice type (\code{square}, \code{triangular}, or \code{honeycomb}). \\
+\code{--N} & 8 & --- & Number of needle rows ($N$). \\
+\code{--M} & 8 & --- & Number of needle columns ($M$). \\
+\code{--R} & 0.025 & m & Radius of the circumscribed circle ($R$); spacing $2R = \SI{5.0}{cm}$. \\
+\code{--needle\_frac} & 0.80 & --- & Needle length as a fraction of the diameter $2R$ (clamp to $0.0$--$0.8$). \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Physics and simulation:}} \\
+\code{--moment} & auto & A$\cdot$m$^2$ & Magnetic dipole moment $m$ of each needle. \\
+\code{--inertia} & auto & kg$\cdot$m$^2$ & Moment of inertia $I$ of each needle. \\
+\code{--needle\_thickness} & \code{4e-4} & m & Thickness of the steel sheet (\SI{0.4}{mm}; used in auto calculations). \\
+\code{--steel\_density} & 7850 & kg/m$^3$ & Steel density (used in auto calculations). \\
+\code{--steel\_Bsat} & 2.0 & T & Saturated steel induction ($M_s = B_{\mathrm{sat}}/\mu_0$; used in auto calculations). \\
+\code{--damping} & \code{5e-8} & N$\cdot$m$\cdot$s & Viscous air damping coefficient $b$. \\
+\code{--damping\_noise} & 0.0 & --- & Relative noise amplitude for per-needle damping (V59--V71). \\
+\code{--t\_sim} & 2.0 & s & Total integrated physical simulation time ($t_{\mathrm{sim}}$). \\
+\code{--t\_sim\_full} & 0 & --- & Disables early physical stops, running to the end of \code{t\_sim} (0/1; V42). \\
+\code{--dt\_factor} & 0.05 & --- & Integration step size $\Delta t$ as a fraction of the natural period $T_0$. \\
+\code{--noise} & 1.5 & rad & Initial random noise amplitude in needle orientation. \\
+\code{--seed} & 42 & --- & Random number generator seed. \\
+\code{--pbc} & 0 & --- & Periodic boundary conditions (0 = off, 1 = on). \\
+\code{--pbc\_images} & 1 & --- & Number of image shells summed in PBC. \\
+\code{--gpu} & 0 & --- & Use CuPy/GPU acceleration (0 = off, 1 = on). \\
+\code{--progress\_bar} & 1 & --- & Show interactive progress bar on terminal console (0 = off, 1 = on). \\
+\code{--halo\_mode} & \code{order} & --- & Halo coloring mode (\code{order} = local alignment, \code{domains} = domain clusters). \\
+\code{--domain\_tol} & 15.0 & degrees & Angular tolerance for grouping domain neighbors (V38). \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Uniform external field (SI):}} \\
+\code{--B\_ext} & 0.0 & T & Field magnitude ($B_{\mathrm{ext}}$). \\
+\code{--phi\_ext} & 0.0 & degrees & Field direction angle ($\varphi_{\mathrm{ext}}$). \\
+\code{--ext\_Bx} & --- & T & Cartesian x component of the external field (overrides B/phi). \\
+\code{--ext\_By} & --- & T & Cartesian y component of the external field (overrides B/phi). \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Field protocols:}} \\
+\code{--field\_mode} & \code{static} & --- & External field mode (\code{static}, \code{hysteresis}, \code{sine}, \code{pulse}, \code{step\_pos}, \code{step\_neg}, \code{forc}). \\
+\code{--forc\_n\_curves} & 30 & --- & Number of reversal curves in the FORC suite (default: 30; V67). \\
+\code{--forc\_Br\_min} & auto & T & Minimum reversal field $B_{r,\mathrm{min}}$ (default: $-B_{\mathrm{ext}}$; V67). \\
+\code{--forc\_t\_sat} & 0.05 & s & Saturation hold time per cycle (V67). \\
+\code{--forc\_t\_ramp\_down} & 0.10 & s & Ramp down time to reversal field per cycle (V67). \\
+\code{--forc\_t\_ramp\_up} & 0.20 & s & Ramp up sweep time back to saturation per cycle (V67). \\
+\code{--forc\_sweep} & \code{both} & --- & FORC sweep branches to log and plot (\code{both}, \code{up}, \code{down}; V69). \\
+\code{--forc\_rate} & --- & T/s & Target constant sweep rate for FORC curves (V71). \\
+\code{--hyst\_spacing} & \code{linear} & --- & Field spacing for hysteresis sweep (\code{linear} or \code{log}; V41). \\
+\code{--hyst\_log\_k} & 5.0 & --- & Spacing concentration parameter for log sweep (V41). \\
+\code{--field\_delay} & 0.0 & s & Time delay before turning field on/off in pulse and step modes (V41). \\
+\code{--t\_pulse} & --- & s & Explicit duration of the field pulse in pulse mode (V41). \\
+\code{--torque\_tol} & \code{1e-3} & --- & Relative tolerance torque criterion for equilibrium detection (V41). \\
+\code{--field\_freq} & 1.0 & Hz & Frequency of the sinusoidal external field. \\
+\code{--demag} & \code{off} & --- & Demagnetization protocol (\code{off}, \code{on}/\code{rotational}, \code{anneal}; V70--V74). \\
+\code{--demag\_freq} & 2.0 & Hz & Demagnetization sweep frequency / annealing rotation rate (V70--V74). \\
+\code{--demag\_cycles} & 20 & --- & Number of decay cycles for demagnetization (V70--V74). \\
+\code{--demag\_temp} & 1.0 & --- & Noise temperature factor for simulated annealing (Method B) (V74). \\
+\code{--demag\_delay} & 0.0 & s & Wait/resting time under zero field between demagnetization and simulation (V76). \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Output parameters:}} \\
+\code{--video} & --- & --- & MP4 video filename base (e.g. \code{--video sim} $\to$ \code{sim0000.mp4}). \\
+\code{--frame\_every} & 5 & --- & Save frame image every $N$ integration steps. \\
+\code{--make\_images} & 1 & --- & Generate PNG images in current directory (0/1; V39). \\
+\code{--fps} & 24 & --- & Frames per second in output video. \\
+\code{--dpi} & 120 & --- & Resolution in DPI for output images and video. \\
+\code{--keep\_frames} & --- & --- & Keep PNG frames folder after assembling the video. \\
+\code{--hyst\_autoscale} & 1 & --- & Enables automatic scaling of the axes for the MxH hysteresis curve. \\
+\code{--csv\_order} & \code{t} & --- & Column order in the exported CSV (\code{t} = $t$-first, \code{B} = $B$-first). \\
+\end{longtable}
+\endgroup
+
+% ======================================================================
+\section{Appendix: usage examples}
+\label{app:examples}
+% ======================================================================
+
+Command-line recipes for the most frequent use cases, checked against version V77. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV77.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
+
+\subsection*{B.1 --- Basic execution (dipolar equilibrium)}
+
+To display the complete list of available command-line parameters and options, run:
+\begin{verbatim}
+python3 compass.py --help
+\end{verbatim}
+
+Square $8\times8$ array with all defaults (steel needle with automatically computed moment and inertia, no external field):
+\begin{verbatim}
+python3 compass.py --N 8 --M 8 --geometry square
+\end{verbatim}
+Generates summary images (initial state, equilibrium, comparison, order parameter) and \code{compass\_field\_log.csv} in the current directory. For the other lattices: \code{--geometry triangular} or \code{--geometry honeycomb}.
+
+\subsection*{B.2 --- GPU on and off}
+
+CPU is the default (\code{--gpu 0}). With V40 optimization, the CPU already handles medium arrays in seconds; GPU is useful for large arrays:
+\begin{verbatim}
+# CPU (default) -- medium array
+python3 compass.py --N 30 --M 30 --t_sim 5.0
+
+# GPU (CuPy/RTX 3090) -- large array; requires cupy installed
+python3 compass.py --N 60 --M 60 --t_sim 5.0 --gpu 1
+\end{verbatim}
+With \code{--gpu 1}, video encoding also uses the NVENC hardware encoder when available. If CuPy is not functional, the program warns and automatically falls back to CPU.
+
+\subsection*{B.3 --- Video and figures in good resolution}
+
+For arrays above $15\times15$, use \code{--dpi} 150--200. Smaller \code{--frame\_every} = smoother animation (more frames). Use \code{--keep\_frames} to retain the folder of individual frame PNGs:
+\begin{verbatim}
+python3 compass.py --N 20 --M 20 --t_sim 4.0 \
+    --video demo --dpi 180 --fps 30 --frame_every 3 --keep_frames
+\end{verbatim}
+The video receives automatic numbering (\code{demo0000.mp4}, \code{demo0001.mp4}, \dots). For static high-resolution figures only (no video), omit \code{--video} and use \code{--dpi 200}.
+
+\subsection*{B.4 --- Fast sweeps: no images, no bar}
+
+In campaigns with many executions, turn off all image generation (data CSVs are kept) and the progress bar. Run with uniform-length time series (disabling early stops) and order the CSV columns by field ($B$ first):
+\begin{verbatim}
+python3 compass.py --N 8 --M 8 --t_sim 1.0 \
+    --make_images 0 --progress_bar 0 --t_sim_full 1 --csv_order B
+\end{verbatim}
+Speedup of $\sim 3\times$ in small arrays, where rendering dominates time.
+
+\subsection*{B.5 --- Damping control (dynamic regimes)}
+
+The regime is characterized by the quality factor $Q$, printed in the header of each run along with the classification (under-/overdamped). The exact $Q$ depends on the dominant field (dipolar or external); the values below, with all other parameters at default, illustrate the three regimes. To avoid oscillations completely, the damping coefficient $b$ must exceed the critical damping limit $b_c = 2 I \omega_0 = 2\sqrt{I \cdot m \cdot B_{\mathrm{eff}}}$, where $B_{\mathrm{eff}} = \max(B_{\mathrm{ref}}, B_{\mathrm{ext}})$ is the dominant magnetic field (printed in the header as \code{B\_eff}). For a default needle lattice under zero external field, this critical threshold is $b_c \approx 7.0 \times 10^{-6} \, \text{N}\cdot\text{m}\cdot\text{s/rad}$, whereas under a strong external field like $10 \, \text{mT}$, the threshold is $b_c \approx 3.7 \times 10^{-5} \, \text{N}\cdot\text{m}\cdot\text{s/rad}$. Additionally, per-needle random damping noise can be modeled with \code{--damping\_noise}:
+\begin{verbatim}
+# underdamped (Q >> 1): visibly oscillates before stabilizing
+python3 compass.py --N 10 --M 10 --damping 5e-8 --video sub
+
+# intermediate (Q ~ 1): crossover
+python3 compass.py --N 10 --M 10 --damping 1e-6 --video middle
+
+# overdamped (Q << 1): monotonic relaxation, no oscillation
+python3 compass.py --N 10 --M 10 --damping 5e-5 --video over
+
+# underdamped with random per-needle damping noise (up to 20% variation)
+python3 compass.py --N 10 --M 10 --damping 5e-8 --damping_noise 0.2
+\end{verbatim}
+Check the printed $Q$ in the header and adjust \code{--damping} until the desired regime is reached. \code{--damping 0} disables dissipation (perpetual oscillation).
+
+\subsection*{B.6 --- Needle size and spacing}
+
+The radius $R$ of the circumscribed circle defines lattice spacing ($r_{nn} = 2R$); \code{--needle\_frac} defines needle length as a fraction of $2R$; sheet thickness affects automatic inertia and moment calculations. You can also customize steel density and saturation induction, or override calculations with explicit moment and inertia values:
+\begin{verbatim}
+# needles with 1 cm radius, occupying half the available diameter
+python3 compass.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
+
+# thinner sheet (0.2 mm): lighter needle -> oscillates faster
+python3 compass.py --N 12 --M 12 --needle_thickness 2e-4
+
+# custom steel material parameters (density and saturation)
+python3 compass.py --N 12 --M 12 --steel_density 7800 --steel_Bsat 1.8
+
+# override automatic calculations with explicit values
+python3 compass.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
+\end{verbatim}
+
+\subsection*{B.7 --- External field: the six modes}
+
+One example per mode, covering the full range of \code{--field\_mode}. The amplitude is \code{--B\_ext} and the direction is \code{--phi\_ext}.
+
+\medskip\noindent\textbf{(1) static} --- constant (or zero) field throughout the simulation. It can be defined in polar coordinates or using independent Cartesian components:
+\begin{verbatim}
+# defined by field intensity and angle (45 degrees)
+python3 compass.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
+
+# equivalent field using Cartesian components (Bx = By = 0.707 mT)
+python3 compass.py --N 10 --M 10 --ext_Bx 0.000707 --ext_By 0.000707
+\end{verbatim}
+
+\noindent\textbf{(2) hysteresis} --- five-ramp cycle ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$). The video (V45) shows needles and the $M\times H$ curve traced in real time, side by side. Spacing can be \code{linear} (default) or \code{log} ($\sim$15$\times$ finer sampling in the coercivity region). Automatic axis scaling for the curve can be enabled via \code{--hyst\_autoscale}:
+\begin{verbatim}
+# linear, with dual-panel video (needles + M x H curve)
+python3 compass.py --N 20 --M 20 --field_mode hysteresis \
+    --B_ext 0.002 --t_sim 10.0 --video hist --dpi 160
+
+# log-symmetric spacing (fine near B=0) with autoscaled M x H axes
+python3 compass.py --N 20 --M 20 --field_mode hysteresis \
+    --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0 \
+    --hyst_autoscale 1
+\end{verbatim}
+
+\noindent\textbf{(3) sine} --- sinusoidal field $B(t) = B_{\max}\sin(2\pi f t)$; \code{--t\_sim} should cover several periods:
+\begin{verbatim}
+python3 compass.py --N 15 --M 15 --field_mode sine \
+    --B_ext 0.002 --field_freq 0.5 --t_sim 8.0
+\end{verbatim}
+
+\noindent\textbf{(4) pulse} --- wait \code{field\_delay}, apply for \code{t\_pulse}, set to zero, and stabilize (equilibrium by $\omega$ and torque). If \code{--t\_pulse} is omitted, the legacy criterion is used (field until $S \geq 0.99$ or plateau). The torque tolerance for early termination can be adjusted via \code{--torque\_tol}:
+\begin{verbatim}
+# timed pulse: wait 0.2 s -> field 0.3 s -> zero and stabilize (tight torque tol)
+python3 compass.py --N 15 --M 15 --field_mode pulse \
+    --field_delay 0.2 --t_pulse 0.3 --B_ext 0.005 --t_sim 6.0 \
+    --torque_tol 1e-4
+
+# legacy (without t_pulse): field until saturation, then relaxation
+python3 compass.py --N 15 --M 15 --field_mode pulse \
+    --B_ext 0.005 --t_sim 6.0
+\end{verbatim}
+
+\noindent\textbf{(5) step\_pos} --- $B{=}0$ for \code{field\_delay}, then field switched on and held until the end:
+\begin{verbatim}
+python3 compass.py --N 15 --M 15 --field_mode step_pos \
+    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+\end{verbatim}
+
+\noindent\textbf{(6) step\_neg} --- field from $t{=}0$, removed at \code{field\_delay}, then kept at zero until the end:
+\begin{verbatim}
+python3 compass.py --N 15 --M 15 --field_mode step_neg \
+    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
+\end{verbatim}
+
+\noindent\textbf{(7) forc} --- First-Order Reversal Curve (FORC) suite. The system simulates a complete family of first-order reversal curves \cite{pike1999, roberts2000, ruta2017}. Each cycle saturates the array at $+B_{\max}$, ramps down to a reversal field $B_{r, k}$ (spaced evenly from $+B_{\max}$ to the minimum reversal field \code{--forc\_Br\_min}), and sweeps back to $+B_{\max}$. The sweep is repeated for a total of \code{--forc\_n\_curves} cycles. By default, timing is automatically calculated so that each cycle has a fixed duration, which yields a total time $t_{\mathrm{sim}} = N_{\mathrm{curves}} \cdot (t_{\mathrm{sat}} + t_{\mathrm{ramp\_down}} + t_{\mathrm{ramp\_up}})$. However, this causes the field sweep rate to vary from cycle to cycle depending on the reversal depth. If a target sweep rate is specified via \code{--forc\_rate} $R$ [T/s] (V71), the simulator dynamically scales the ramp-up (and ramp-down, unless overridden by an explicit \code{--forc\_t\_ramp\_down}) durations for each cycle $k$ as $t_{\mathrm{ramp\_up}, k} = (B_{\max} - B_{r, k})/R$. This maintains a constant sweep rate $dB/dt \equiv R$ across all loops, adjusting the total $t_{\mathrm{sim}}$ dynamically to the sum of these cycle durations. The parameter \code{--forc\_sweep} (\code{both}, \code{up}, or \code{down}; V69) controls which sweep branches (decreasing, increasing, or both) are logged and plotted. The entire suite of curves is logged to \code{forc\_curve.csv} containing the reversal field $B_r$ as a fifth column:
+\begin{verbatim}
+# Run a family of 30 FORC curves, tracing both branches, sweeping Br down to -5 mT
+python3 compass.py --N 20 --M 20 --field_mode forc \
+    --ext_Bx 0.005 --forc_Br_min -0.005 --forc_n_curves 30 --forc_sweep both
+\end{verbatim}
+
+\medskip\noindent\textbf{Demagnetization procedure (V74)} --- Before any field mode is executed, an optional pre-treatment phase can be enabled (\code{--demag}) with two different physical algorithms (Method A and Method B from \code{compass\_sim\_protocol\_notes.md}):
+\begin{itemize}
+\item \textbf{Method A: Biaxial Rotational Demagnetization} (\code{--demag rotational} or \code{on}) --- The external field vector rotates continuously in the $xy$-plane while its peak magnitude decays linearly to zero:
+\begin{align*}
+B_x(t) &= B_{\max} \cdot \left(1.0 - \frac{t}{t_{\text{demag}}}\right) \cdot \cos(2\pi \cdot f_{\text{demag}} \cdot t) \\
+B_y(t) &= B_{\max} \cdot \left(1.0 - \frac{t}{t_{\text{demag}}}\right) \cdot \sin(2\pi \cdot f_{\text{demag}} \cdot t)
+\end{align*}
+where $t_{\text{demag}} = \code{--demag\_cycles}/\code{--demag\_freq}$. This forces all needles through a complete angular sweep in the plane, erasing any directional bias and providing a truer isotropic randomized demagnetized state ($S \to 0$).
+\item \textbf{Method B: Linear Sweep with Simulated Thermal Annealing} (\code{--demag anneal}) --- The external field decays linearly along the primary direction ($\phi$) without rotation, but we introduce a temporary random thermal white noise torque $\tau_i^{\text{thermal}}(t) = \sigma(t) \cdot \eta_i(t)$ acting on each needle. The noise standard deviation decays linearly to zero starting from an initial intensity scaled by the temperature parameter \code{--demag\_temp} ($T$) and the reference torque scale $\tau_{\text{ref}} = I \omega_0^2$:
+$$\sigma(t) = T \cdot \tau_{\text{ref}} \cdot \left(1.0 - \frac{t}{t_{\text{demag}}}\right)$$
+Ramping down this artificial thermal noise alongside the field allows the needle configurations to escape shallow local energy minima and settle into an isotropic global ground state.
+\end{itemize}
+\begin{verbatim}
+# Run a static field simulation after demagnetizing the sample for 20 cycles
+python3 compass.py --N 10 --M 10 --B_ext 0.005 --demag on --t_sim 1.0
+\end{verbatim}
+During the demagnetization pre-treatment and optional resting phases, the physical integration is carried out to prepare the initial configuration of the needles. Data logging in the output CSV files starts recording exactly at $t_{\mathrm{phys}} = 0.0$ when the primary field mode begins, while video recording (if enabled) captures the entire sequence starting from demagnetization (labelled as ``demagnetizing'' and ``resting'' under zero field on the overlay cyan clock).
+
+\medskip\noindent\textbf{Tips for accelerating demagnetization execution speed:} \\
+The total number of integration steps during the demagnetization phase is given by:
+$$\text{Steps}_{\text{demag}} = \frac{t_{\text{demag}}}{dt} = \frac{\code{--demag\_cycles}}{\code{--demag\_freq} \cdot \code{--dt\_factor} \cdot T_0}$$
+Because $T_0$ (the natural oscillation period of the needles) is very short under typical magnetic fields, the demagnetization phase can require thousands of steps and become slow on the CPU for larger grids. To optimize performance, the following settings are recommended:
+\begin{itemize}
+\item \textbf{Reduce decay cycles}: Change \code{--demag\_cycles} from the default $20$ to $5$ or $10$. This provides ample relaxation while yielding a direct $2\times$ to $4\times$ speedup.
+\item \textbf{Increase demagnetization frequency}: Increase \code{--demag\_freq} from $2.0\text{ Hz}$ to $5.0\text{ Hz}$ or $10.0\text{ Hz}$ to reduce the overall demagnetization duration.
+\item \textbf{Increase integration time step}: Add \code{--dt\_factor 0.10} to increase the time step factor from the default $0.05$ to $0.10$, executing half the number of integration steps.
+\item \textbf{Use GPU acceleration}: For grids larger than $20 \times 20$, always append \code{--gpu 1} to leverage parallel GPU calculations via CuPy, accelerating step throughput by $10--20\times$.
+\end{itemize}
+
+\noindent In \code{hysteresis}, the $M(B)$ loop is exported to \code{hysteresis\_loop.csv}; in \code{forc}, to \code{forc\_curve.csv}; in \code{sine}, to \code{sine\_field.csv}. In pulse/step modes, \code{--torque\_tol} controls the equilibrium criterion and \code{--t\_sim\_full 1} disables early stopping (Appendix~A).
+
+\subsection*{B.8 --- Magnetic-domain visualization}
+
+Demonstration scenario producing clear, well-separated domains (square lattice with low initial noise and long relaxation):
+\begin{verbatim}
+python3 compass.py --N 24 --M 24 --R 0.01 --noise 0.6 \
+    --t_sim 8.0 --damping 3e-6 \
+    --halo_mode domains --domain_tol 35 --video domains --dpi 160
+\end{verbatim}
+Each connected region of needles with similar orientation (within \code{--domain\_tol} degrees) receives a color; small domains appear in gray. Smaller tolerances, for example the default $15^\circ$, fragment more; larger tolerances aggregate more. From V43 onward, halos (domain or order) appear in \emph{all} figures: \code{compass\_initial}, \code{compass\_equilibrium}, video frames, and also \code{compass\_comparison}, whose panels show the domain count for each state in the title.
+
+\subsection*{B.9 --- Periodic boundary conditions and reproducibility}
+
+\begin{verbatim}
+# array treated as an infinite periodic structure (1 replica per side)
+python3 compass.py --N 16 --M 16 --pbc 1 --pbc_images 1
+
+# reproducibility (fixed seed) with custom (tighter) integration step factor
+python3 compass.py --N 10 --M 10 --seed 123 --dt_factor 0.01
+\end{verbatim}
+
+\subsection*{B.10 --- Full scientific campaign (satellite scripts)}
+
+The simulation campaign sweep scripts are designed to run programmatic sweeps over multiple values of damping (friction), initial seeds (noise realizations), and lattice geometries to generate statistical datasets for hysteresis loop shape and avalanche scaling analysis. 
+
+These scripts import from the core simulation file (\code{compass.py}) and call the simulator API (\code{relax()}) directly. Both \code{damping\_sweep.py} and \code{damping\_sweepV02.py} have been adapted to accept all major simulation parameters of \code{compass.py}, including geometry options (\code{--needle\_frac}, \code{--needle\_thickness}, \code{--steel\_density}, \code{--steel\_Bsat}, \code{--moment}, \code{--inertia}), integration parameters (\code{--dt\_factor}, \code{--noise}), domain clustering parameters (\code{--domain\_tol}), and per-needle random damping noise (\code{--damping\_noise}).
+
+\subsubsection*{1. Serial Campaign Execution (\code{damping\_sweep.py})}
+The \code{damping\_sweep.py} script executes a serial sweep across geometries, seeds, and damping coefficients. It performs Stage 1 (hysteresis) followed by Stage 2 (field-free relaxation for domain statistics).
+
+\begin{verbatim}
+# Quick test to validate the pipeline (low resolution, short runtime):
+python3 damping_sweep.py --out_dir results_quick --quick_test 1
+
+# Full campaign with damping noise and custom integration time steps:
+python3 damping_sweep.py --out_dir results_campaign \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 \
+    --Q_min 0.05 --Q_max 15.0 --geometries square,triangular,honeycomb \
+    --damping_noise 0.3 --dt_factor 0.05
+\end{verbatim}
+
+\subsubsection*{2. Parallelized Execution with Resume Capability (\code{damping\_sweepV02.py})}
+The parallelized version \code{damping\_sweepV02.py} parallelizes execution using a Python \code{ProcessPoolExecutor}. To prevent temporary files (\code{hysteresis\_loop.csv}) from colliding between workers, each process runs in its own dynamic scratch directory. A manifest (\code{manifest.csv}) tracks the completion status of each run, enabling resumption if the campaign is interrupted.
+
+\begin{verbatim}
+# Run the campaign parallelized across 8 cores:
+python3 damping_sweepV02.py --out_dir results_parallel \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8 \
+    --damping_noise 0.3 --dt_factor 0.05
+
+# Resume an interrupted campaign (automatically skips already completed runs):
+python3 damping_sweepV02.py --out_dir results_parallel \
+    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8 --resume 1
+\end{verbatim}
+
+\subsubsection*{3. Dedicated Hysteresis-Only Sweep (\code{sweep\_damping\_hysteresis.py})}
+The script \code{sweep\_damping\_hysteresis.py} is a specialized sweep program dedicated exclusively to hysteresis loop cycles (Stage 1). It provides detailed parameters to control the sweep range:
+
+\begin{verbatim}
+# Run the hysteresis-only sweep campaign (log-spaced dampings):
+python3 sweep_damping_hysteresis.py --out_dir results_hyst \
+    --geometries square triangular honeycomb --seeds 1 2 3 4 5 --n_damping 8
+
+# Dry-run: print the entire planned execution table without running:
+python3 sweep_damping_hysteresis.py --out_dir results_hyst --dry_run
+
+# Single run index debug (executes only the N-th run in the plan):
+python3 sweep_damping_hysteresis.py --out_dir results_hyst --only_index 15
+\end{verbatim}
+
+\subsubsection*{4. Version Archiving and Freezing Script (\code{freeze\_v77.py})}
+To guarantee reproducible results, you can archive a snapshot of the core simulator file (\code{compass.py}) using the freezing scripts. For example, executing \code{freeze\_v77.py} copies the current simulation engine code into a stable copy named \code{compass\_simV77.py}:
+
+\begin{verbatim}
+python3 freeze_v77.py
+\end{verbatim}
+
+\subsubsection*{5. Analysis and Post-Processing (\code{damping\_sweep\_analysis.py})}
+Once a campaign completes, the output directories will contain CSV data logs and JSON metadata for each run, summarized in \code{manifest.csv}. A standard analysis recipe to extract loop metrics, avalanche scaling exponents ($\tau$), and magnetic domain count statistics:
+
+\begin{verbatim}
+# Post-process results and output plots to the analysis folder:
+python3 damping_sweep_analysis.py --sweep_dir results_parallel \
+    --out_dir analysis_plots
+\end{verbatim}
+
+\noindent \textbf{Warning:} Avoid combining parallel execution (\code{--n\_workers} $> 1$) with GPU acceleration (\code{--use\_gpu 1} or \code{--gpu 1}), due to memory contention on the GPU.
+
+% ======================================================================
+\section{Appendix: version record of the simulator code}
+\label{sec:version_record}
 % ======================================================================
 
 \begin{longtable}{@{}lp{11.5cm}@{}}
@@ -421,8 +796,20 @@ V60 & Command-line interface translation: fully translated all remaining Portugu
 V61 & Section 4 plot string translation: translated all remaining Portuguese label, axis, and title strings in the hysteresis and sinusoidal plotting functions to English. \\
 V62 & Visual warnings translation: translated the warning message printed when suppression of summary PNG images is enabled with `--make\_images 0` to English. \\
 V63 & Performance optimizations and translations: optimized the Verlet integration loop by pre-computing integration constants and passing explicit array-library backend references, and translated all remaining Portuguese log descriptions and labels in \code{relax()} to English. \\
-V64 & Alignment of sweep files: corrected the import references in all campaign sweep files (\code{damping\_sweep.py}, \code{damping\_sweepV02.py}, and \code{sweep\_damping\_hysteresis.py}) to import from the latest optimized simulation file (\code{compass.py}) rather than the outdated \code{compass\_sim.py}. \\
-V65 & Translation of sweep scripts: fully translated all comments, help text, parameters, and log string outputs in all campaign sweep files to English. \emph{(Current version.)} \\
+V64 & Alignment of sweep files: corrected the import references in all campaign sweep files (\code{damping\_sweep.py}, \code{damping\_sweepV02.py}, and \code{sweep\_damping\_\allowbreak hysteresis.py}) to import from the latest optimized simulation file (\code{compass.py}) rather than the outdated \code{compass\_sim.py}. \\
+V65 & Translation of sweep scripts: fully translated all comments, help text, parameters, and log string outputs in all campaign sweep files to English. \\
+V66 & HUD external field intensity bar update: redesigned the horizontal field bar to grow bidirectionally from center (left for negative fields, right for positive fields, zero at zero field, with a central red zero-reference line). \\
+V67 & FORC protocol implementation: introduction of the First-Order Reversal Curve (FORC) field mode (\code{forc}) with saturation/reversal field parameter control (\code{--forc\_Br}, \code{--forc\_t\_sat}, \code{--forc\_t\_rev}), real-time dual-panel video monitoring of the minor reversal loop, and automated export to \code{forc\_curve.csv}. \\
+V68 & FORC sweep branches optimization: improved the FORC sweep logic to only log/export up-sweep (reverse sweep) branches, and resolved connecting line artifacts in plot rendering by segmenting curves by cycle. \\
+V69 & FORC sweep direction selection: added \code{--forc\_sweep} parameter (\code{both}, \code{up}, or \code{down}) to control which branches are tracked, saved, and plotted. Fixed dual-panel MP4 video assembly for even-dimension encoding. \\
+V70 & Sinusoidal demagnetization: added \code{--demag} parameter (\code{on}, \code{off}) and associated settings (\code{--demag\_freq}, \code{--demag\_cycles}) to execute a decaying sinusoidal alternating field demagnetization (AFD) pre-treatment phase before any primary field mode. \\
+V71 & Constant sweep rate FORC: introduced the \code{--forc\_rate} parameter to dynamically scale cycle durations (ramp-up and ramp-down times) proportionally to curve depth (Method B from \code{FORC.md}), maintaining a constant sweep rate $dB/dt \equiv R$ across the FORC campaign. \\
+V72 & Biaxial rotational demagnetization: replaced the uniaxial sinusoidal decaying field (AFD) with biaxial rotational demagnetization (Method A from \code{compass\_sim\_protocol\_notes.md}), where the field rotates in the $xy$-plane while decaying linearly to zero. \\
+V73 & Hysteresis autoscale default: changed the default value of \code{--hyst\_autoscale} from 0 to 1 (True) to enable automatic axes scaling by default. \\
+V74 & Simulated thermal annealing demagnetization: implemented Method B (linear sweep with decaying simulated thermal annealing white noise torque) as an alternative demagnetization protocol, and added \code{--demag\_temp} parameter. \\
+V75 & Multi-stage progress bar: split command-line progress bar into two sequential phases (Demagnetization and Simulation), showing phase-specific progress percentage, steps, and time. \\
+V76 & Demagnetization resting delay: introduced \code{--demag\_delay} parameter to pause under zero field between demagnetization and the main simulation phase, partitioning progress reporting into three steps. \\
+V77 & Total wall-clock execution time: tracked script lifetime wall-clock duration and printed it at the end of execution as ``Completed in XXXX.XX sec''. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Satellite scripts (own version record):}} \\
 \code{damping\_sweep} V01 & orchestration of the damping~$\times$~seed~$\times$~geometry campaign. \\
@@ -430,302 +817,26 @@ V65 & Translation of sweep scripts: fully translated all comments, help text, pa
 \code{damping\_sweep\_analysis.py} & loop metrics, avalanche detection, MLE power-law fitting, plots. \\
 \end{longtable}
 
-\appendix
-\section{Appendix: command-line parameters (V65)}
+% ======================================================================
+\section*{Version history of this report}
+\addcontentsline{toc}{section}{Version history of this report}
 % ======================================================================
 
-Complete list of parameters accepted by \code{compass\_sim} in version V65, extracted directly from the program interface. Parameters marked ``auto'' are calculated from the real physical geometry when omitted and overridden when explicitly supplied.
-
-\begingroup
-\small
-\begin{longtable}{@{}llll@{}}
-\caption{Command-line parameters of \code{compass\_sim} V65.}
-\label{tab:parameters} \\
+\begin{longtable}{@{}llp{11.5cm}@{}}
+\caption{Version history of this report.}
+\label{tab:report_versions} \\
 \toprule
-\textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
+\textbf{Version} & \textbf{Date} & \textbf{Changes} \\
 \midrule
 \endfirsthead
 \toprule
-\textbf{Parameter} & \textbf{Default} & \textbf{Unit} & \textbf{Description} \\
+\textbf{Version} & \textbf{Date} & \textbf{Changes} \\
 \midrule
 \endhead
 \bottomrule
 \endfoot
 \bottomrule
 \endlastfoot
-\multicolumn{4}{@{}l}{\textbf{Lattice geometry:}} \\
-\code{--geometry} & \code{square} & --- & Lattice type (\code{square}, \code{triangular}, or \code{honeycomb}). \\
-\code{--N} & 8 & --- & Number of needle rows ($N$). \\
-\code{--M} & 8 & --- & Number of needle columns ($M$). \\
-\code{--R} & 0.025 & m & Radius of the circumscribed circle ($R$); spacing $2R = \SI{5.0}{cm}$. \\
-\code{--needle\_frac} & 0.80 & --- & Needle length as a fraction of the diameter $2R$ (clamp to $0.0$--$0.8$). \\
-\midrule
-\multicolumn{4}{@{}l}{\textbf{Physics and simulation:}} \\
-\code{--moment} & auto & A$\cdot$m$^2$ & Magnetic dipole moment $m$ of each needle. \\
-\code{--inertia} & auto & kg$\cdot$m$^2$ & Moment of inertia $I$ of each needle. \\
-\code{--needle\_thickness} & \code{4e-4} & m & Thickness of the steel sheet (\SI{0.4}{mm}; used in auto calculations). \\
-\code{--steel\_density} & 7850 & kg/m$^3$ & Steel density (used in auto calculations). \\
-\code{--steel\_Bsat} & 2.0 & T & Saturated steel induction ($M_s = B_{\mathrm{sat}}/\mu_0$; used in auto calculations). \\
-\code{--damping} & \code{5e-8} & N$\cdot$m$\cdot$s & Viscous air damping coefficient $b$. \\
-\code{--damping\_noise} & 0.0 & --- & Relative noise amplitude for per-needle damping (V59--V65). \\
-\code{--t\_sim} & 2.0 & s & Total integrated physical simulation time ($t_{\mathrm{sim}}$). \\
-\code{--t\_sim\_full} & 0 & --- & Disables early physical stops, running to the end of \code{t\_sim} (0/1; V42). \\
-\code{--dt\_factor} & 0.05 & --- & Integration step size $\Delta t$ as a fraction of the natural period $T_0$. \\
-\code{--noise} & 1.5 & rad & Initial random noise amplitude in needle orientation. \\
-\code{--seed} & 42 & --- & Random number generator seed. \\
-\code{--pbc} & 0 & --- & Periodic boundary conditions (0 = off, 1 = on). \\
-\code{--pbc\_images} & 1 & --- & Number of image shells summed in PBC. \\
-\code{--gpu} & 0 & --- & Use CuPy/GPU acceleration (0 = off, 1 = on). \\
-\code{--progress\_bar} & 1 & --- & Show interactive progress bar on terminal console (0 = off, 1 = on). \\
-\code{--halo\_mode} & \code{order} & --- & Halo coloring mode (\code{order} = local alignment, \code{domains} = domain clusters). \\
-\code{--domain\_tol} & 15.0 & degrees & Angular tolerance for grouping domain neighbors (V38). \\
-\midrule
-\multicolumn{4}{@{}l}{\textbf{Uniform external field (SI):}} \\
-\code{--B\_ext} & 0.0 & T & Field magnitude ($B_{\mathrm{ext}}$). \\
-\code{--phi\_ext} & 0.0 & degrees & Field direction angle ($\varphi_{\mathrm{ext}}$). \\
-\code{--ext\_Bx} & --- & T & Cartesian x component of the external field (overrides B/phi). \\
-\code{--ext\_By} & --- & T & Cartesian y component of the external field (overrides B/phi). \\
-\midrule
-\multicolumn{4}{@{}l}{\textbf{Field protocols:}} \\
-\code{--field\_mode} & \code{static} & --- & External field mode (\code{static}, \code{hysteresis}, \code{sine}, \code{pulse}, \code{step\_pos}, \code{step\_neg}). \\
-\code{--hyst\_spacing} & \code{linear} & --- & Field spacing for hysteresis sweep (\code{linear} or \code{log}; V41). \\
-\code{--hyst\_log\_k} & 5.0 & --- & Spacing concentration parameter for log sweep (V41). \\
-\code{--field\_delay} & 0.0 & s & Time delay before turning field on/off in pulse and step modes (V41). \\
-\code{--t\_pulse} & --- & s & Explicit duration of the field pulse in pulse mode (V41). \\
-\code{--torque\_tol} & \code{1e-3} & --- & Relative tolerance torque criterion for equilibrium detection (V41). \\
-\code{--field\_freq} & 1.0 & Hz & Frequency of the sinusoidal external field. \\
-\midrule
-\multicolumn{4}{@{}l}{\textbf{Output parameters:}} \\
-\code{--video} & --- & --- & MP4 video filename base (e.g. \code{--video sim} $\to$ \code{sim0000.mp4}). \\
-\code{--frame\_every} & 5 & --- & Save frame image every $N$ integration steps. \\
-\code{--make\_images} & 1 & --- & Generate PNG images in current directory (0/1; V39). \\
-\code{--fps} & 24 & --- & Frames per second in output video. \\
-\code{--dpi} & 120 & --- & Resolution in DPI for output images and video. \\
-\code{--keep\_frames} & --- & --- & Keep PNG frames folder after assembling the video. \\
-\code{--hyst\_autoscale} & 0 & --- & Enables automatic scaling of the axes for the MxH hysteresis curve. \\
-\code{--csv\_order} & \code{t} & --- & Column order in the exported CSV (\code{t} = $t$-first, \code{B} = $B$-first). \\
-\end{longtable}
-\endgroup
-
-% ======================================================================
-\section{Appendix: usage examples}
-\label{app:examples}
-% ======================================================================
-
-Command-line recipes for the most frequent use cases, checked against version V65. Commands use \code{compass.py} as the executable name, a copy of the current simulator version (\code{compass\_simV65.py}) kept under this stable name for daily use, so the examples can be copied and pasted directly. A final backslash indicates shell line continuation.
-
-\subsection*{B.1 --- Basic execution (dipolar equilibrium)}
-
-Square $8\times8$ array with all defaults (steel needle with automatically computed moment and inertia, no external field):
-\begin{verbatim}
-python3 compass.py --N 8 --M 8 --geometry square
-\end{verbatim}
-Generates summary images (initial state, equilibrium, comparison, order parameter) and \code{compass\_field\_log.csv} in the current directory. For the other lattices: \code{--geometry triangular} or \code{--geometry honeycomb}.
-
-\subsection*{B.2 --- GPU on and off}
-
-CPU is the default (\code{--gpu 0}). With V40 optimization, the CPU already handles medium arrays in seconds; GPU is useful for large arrays:
-\begin{verbatim}
-# CPU (default) -- medium array
-python3 compass.py --N 30 --M 30 --t_sim 5.0
-
-# GPU (CuPy/RTX 3090) -- large array; requires cupy installed
-python3 compass.py --N 60 --M 60 --t_sim 5.0 --gpu 1
-\end{verbatim}
-With \code{--gpu 1}, video encoding also uses the NVENC hardware encoder when available. If CuPy is not functional, the program warns and automatically falls back to CPU.
-
-\subsection*{B.3 --- Video and figures in good resolution}
-
-For arrays above $15\times15$, use \code{--dpi} 150--200. Smaller \code{--frame\_every} = smoother animation (more frames):
-\begin{verbatim}
-python3 compass.py --N 20 --M 20 --t_sim 4.0 \
-    --video demo --dpi 180 --fps 30 --frame_every 3
-\end{verbatim}
-The video receives automatic numbering (\code{demo0000.mp4}, \code{demo0001.mp4}, \dots). To keep individual frame PNGs after assembling the video, add \code{--keep\_frames}. For static high-resolution figures only (no video), omit \code{--video} and use \code{--dpi 200}.
-
-\subsection*{B.4 --- Fast sweeps: no images, no bar}
-
-In campaigns with many executions, turn off all image generation (data CSVs are kept) and the progress bar:
-\begin{verbatim}
-python3 compass.py --N 8 --M 8 --t_sim 1.0 \
-    --make_images 0 --progress_bar 0
-\end{verbatim}
-Speedup of $\sim 3\times$ in small arrays, where rendering dominates time. For \emph{uniform}-length time series across runs (no early stops by $S{=}1.00$, rest, or equilibrium), add \code{--t\_sim\_full 1} (V42).
-
-\subsection*{B.5 --- Damping control (dynamic regimes)}
-
-The regime is characterized by the quality factor $Q$, printed in the header of each run along with the classification (under-/overdamped). The exact $Q$ depends on the dominant field (dipolar or external); the values below, with all other parameters at default, illustrate the three regimes:
-\begin{verbatim}
-# underdamped (Q >> 1): visibly oscillates before stabilizing
-python3 compass.py --N 10 --M 10 --damping 5e-8 --video sub
-
-# intermediate (Q ~ 1): crossover
-python3 compass.py --N 10 --M 10 --damping 1e-6 --video middle
-
-# overdamped (Q << 1): monotonic relaxation, no oscillation
-python3 compass.py --N 10 --M 10 --damping 5e-5 --video over
-\end{verbatim}
-Check the printed $Q$ in the header and adjust \code{--damping} until the desired regime is reached. \code{--damping 0} disables dissipation (perpetual oscillation).
-
-\subsection*{B.6 --- Needle size and spacing}
-
-The radius $R$ of the circumscribed circle defines lattice spacing ($r_{nn} = 2R$); \code{--needle\_frac} defines needle length as a fraction of $2R$; sheet thickness affects automatic inertia and moment calculations:
-\begin{verbatim}
-# needles with 1 cm radius, occupying half the available diameter
-python3 compass.py --N 12 --M 12 --R 0.01 --needle_frac 0.5
-
-# thinner sheet (0.2 mm): lighter needle -> oscillates faster
-python3 compass.py --N 12 --M 12 --needle_thickness 2e-4
-
-# override automatic calculations with explicit values
-python3 compass.py --N 12 --M 12 --moment 0.05 --inertia 1e-9
-\end{verbatim}
-
-\subsection*{B.7 --- External field: the six modes}
-
-One example per mode, covering the full range of \code{--field\_mode}. The amplitude is \code{--B\_ext} and the direction is \code{--phi\_ext}.
-
-\medskip\noindent\textbf{(1) static} --- constant (or zero) field throughout the simulation:
-\begin{verbatim}
-python3 compass.py --N 10 --M 10 --B_ext 1e-3 --phi_ext 45
-\end{verbatim}
-
-\noindent\textbf{(2) hysteresis} --- five-ramp cycle ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$). The video (V45) shows needles and the $M\times H$ curve traced in real time, side by side. Spacing can be \code{linear} (default) or \code{log} ($\sim$15$\times$ finer sampling in the coercivity region):
-\begin{verbatim}
-# linear, with dual-panel video (needles + M x H curve)
-python3 compass.py --N 20 --M 20 --field_mode hysteresis \
-    --B_ext 0.002 --t_sim 10.0 --video hist --dpi 160
-
-# log-symmetric spacing (fine near B=0)
-python3 compass.py --N 20 --M 20 --field_mode hysteresis \
-    --hyst_spacing log --hyst_log_k 5 --B_ext 0.002 --t_sim 10.0
-\end{verbatim}
-
-\noindent\textbf{(3) sine} --- sinusoidal field $B(t) = B_{\max}\sin(2\pi f t)$; \code{--t\_sim} should cover several periods:
-\begin{verbatim}
-python3 compass.py --N 15 --M 15 --field_mode sine \
-    --B_ext 0.002 --field_freq 0.5 --t_sim 8.0
-\end{verbatim}
-
-\noindent\textbf{(4) pulse} --- wait \code{field\_delay}, apply for \code{t\_pulse}, set to zero, and stabilize (equilibrium by $\omega$ and torque). If \code{--t\_pulse} is omitted, the legacy criterion is used (field until $S \geq 0.99$ or plateau):
-\begin{verbatim}
-# timed: wait 0.2 s -> field 0.3 s -> zero and stabilize
-python3 compass.py --N 15 --M 15 --field_mode pulse \
-    --field_delay 0.2 --t_pulse 0.3 --B_ext 0.005 --t_sim 6.0
-
-# legacy (without t_pulse): field until saturation, then relaxation
-python3 compass.py --N 15 --M 15 --field_mode pulse \
-    --B_ext 0.005 --t_sim 6.0
-\end{verbatim}
-
-\noindent\textbf{(5) step\_pos} --- $B{=}0$ for \code{field\_delay}, then field switched on and held until the end:
-\begin{verbatim}
-python3 compass.py --N 15 --M 15 --field_mode step_pos \
-    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
-\end{verbatim}
-
-\noindent\textbf{(6) step\_neg} --- field from $t{=}0$, removed at \code{field\_delay}, then kept at zero until the end:
-\begin{verbatim}
-python3 compass.py --N 15 --M 15 --field_mode step_neg \
-    --field_delay 0.3 --B_ext 0.003 --t_sim 3.0
-\end{verbatim}
-
-\noindent In \code{hysteresis}, the $M(B)$ loop is exported to \code{hysteresis\_loop.csv}; in \code{sine}, to \code{sine\_field.csv}. In pulse/step modes, \code{--torque\_tol} controls the equilibrium criterion and \code{--t\_sim\_full 1} disables early stopping (Appendix~A).
-
-\subsection*{B.8 --- Magnetic-domain visualization}
-
-Demonstration scenario producing clear, well-separated domains (square lattice with low initial noise and long relaxation):
-\begin{verbatim}
-python3 compass.py --N 24 --M 24 --R 0.01 --noise 0.6 \
-    --t_sim 8.0 --damping 3e-6 \
-    --halo_mode domains --domain_tol 35 --video domains --dpi 160
-\end{verbatim}
-Each connected region of needles with similar orientation (within \code{--domain\_tol} degrees) receives a color; small domains appear in gray. Smaller tolerances, for example the default $15^\circ$, fragment more; larger tolerances aggregate more. From V43 onward, halos (domain or order) appear in \emph{all} figures: \code{compass\_initial}, \code{compass\_equilibrium}, video frames, and also \code{compass\_comparison}, whose panels show the domain count for each state in the title.
-
-\subsection*{B.9 --- Periodic boundary conditions and reproducibility}
-
-\begin{verbatim}
-# array treated as an infinite periodic structure (1 replica per side)
-python3 compass.py --N 16 --M 16 --pbc 1 --pbc_images 1
-
-# exact reproducibility: fix the initial-noise seed
-python3 compass.py --N 10 --M 10 --seed 123
-\end{verbatim}
-
-\subsection*{B.10 --- Full scientific campaign (satellite scripts)}
-
-The simulation campaign sweep scripts are designed to run programmatic sweeps over multiple values of damping (friction), initial seeds (noise realizations), and lattice geometries to generate statistical datasets for hysteresis loop shape and avalanche scaling analysis. 
-
-These scripts import from the core simulation file (\code{compass.py}) and call the simulator API (\code{relax()}) directly.
-
-\subsubsection*{1. Serial Campaign Execution (\code{damping\_sweep.py})}
-The \code{damping\_sweep.py} script executes a serial sweep across geometries, seeds, and damping coefficients. It performs Stage 1 (hysteresis) followed by Stage 2 (field-free relaxation for domain statistics).
-
-\begin{verbatim}
-# Quick test to validate the pipeline (low resolution, short runtime):
-python3 damping_sweep.py --out_dir results_quick --quick_test 1
-
-# Full campaign (sequential sweep, may take several hours on CPU):
-python3 damping_sweep.py --out_dir results_campaign \
-    --grid_n 30 --n_seeds 5 --n_dampings 8 \
-    --Q_min 0.05 --Q_max 15.0 --geometries square,triangular,honeycomb
-\end{verbatim}
-
-\subsubsection*{2. Parallelized Execution with Resume Capability (\code{damping\_sweepV02.py})}
-The parallelized version \code{damping\_sweepV02.py} parallelizes execution using a Python \code{ProcessPoolExecutor}. To prevent temporary files (\code{hysteresis\_loop.csv}) from colliding between workers, each process runs in its own dynamic scratch directory. A manifest (\code{manifest.csv}) tracks the completion status of each run, enabling resumption if the campaign is interrupted.
-
-\begin{verbatim}
-# Run the campaign parallelized across 8 cores:
-python3 damping_sweepV02.py --out_dir results_parallel \
-    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8
-
-# Resume an interrupted campaign (automatically skips already completed runs):
-python3 damping_sweepV02.py --out_dir results_parallel \
-    --grid_n 30 --n_seeds 5 --n_dampings 8 --n_workers 8 --resume 1
-\end{verbatim}
-
-\subsubsection*{3. Dedicated Hysteresis-Only Sweep (\code{sweep\_damping\_hysteresis.py})}
-The script \code{sweep\_damping\_hysteresis.py} is a specialized sweep program dedicated exclusively to hysteresis loop cycles (Stage 1). It provides detailed parameters to control the sweep range:
-
-\begin{verbatim}
-# Run the hysteresis-only sweep campaign (log-spaced dampings):
-python3 sweep_damping_hysteresis.py --out_dir results_hyst \
-    --geometries square triangular honeycomb --seeds 1 2 3 4 5 --n_damping 8
-
-# Dry-run: print the entire planned execution table without running:
-python3 sweep_damping_hysteresis.py --out_dir results_hyst --dry_run
-
-# Single run index debug (executes only the N-th run in the plan):
-python3 sweep_damping_hysteresis.py --out_dir results_hyst --only_index 15
-\end{verbatim}
-
-\subsubsection*{4. Version Archiving and Freezing Script (\code{freeze\_v65.py})}
-To guarantee reproducible results, you can archive a snapshot of the core simulator file (\code{compass.py}) using the freezing scripts. For example, executing \code{freeze\_v65.py} copies the current simulation engine code into a stable copy named \code{compass\_simV65.py}:
-
-\begin{verbatim}
-python3 freeze_v65.py
-\end{verbatim}
-
-\subsubsection*{5. Analysis and Post-Processing (\code{damping\_sweep\_analysis.py})}
-Once a campaign completes, the output directories will contain CSV data logs and JSON metadata for each run, summarized in \code{manifest.csv}. A standard analysis recipe to extract loop metrics, avalanche scaling exponents ($\tau$), and magnetic domain count statistics:
-
-\begin{verbatim}
-# Post-process results and output plots to the analysis folder:
-python3 damping_sweep_analysis.py --sweep_dir results_parallel \
-    --out_dir analysis_plots
-\end{verbatim}
-
-\noindent \textbf{Warning:} Avoid combining parallel execution (\code{--n\_workers} $> 1$) with GPU acceleration (\code{--use\_gpu 1} or \code{--gpu 1}), due to memory contention on the GPU.
-
-% ======================================================================
-\section*{Version history of this report}
-\addcontentsline{toc}{section}{Version history of this report}
-% ======================================================================
-
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Version} & \textbf{Date} & \textbf{Changes} \\
-\midrule
 V01 & 04/07/2026 & Initial version. \\
 V02 & 04/07/2026 & Added Appendix~A (command-line parameters of V39). \\
 V03 & 04/07/2026 & Added Sections~\ref{sec:roadmap} (step-by-step roadmap of proposed studies) and \ref{sec:improvements} (proposed code improvements: performance and visual). \\
@@ -758,8 +869,22 @@ V29 & 05/07/2026 & Documented code V63 (pre-computed constants in integration lo
 V30 & 05/07/2026 & Documented code V64 (aligned and verified all sweep campaign python scripts to import from optimized \code{compass.py} instead of outdated \code{compass\_sim.py}). \\
 V31 & 05/07/2026 & Documented code V65 (fully translated all comments, help text, parameters, and log string outputs in all campaign sweep files to English). \\
 V32 & 05/07/2026 & Documented usage instructions for all campaign sweep and helper python scripts in Appendix B.10. \\
-\bottomrule
-\end{tabular}
+V33 & 06/07/2026 & Documented code V66 (HUD external field intensity bar redesigned to grow bidirectionally: left for negative fields, right for positive fields, zero at zero field). \\
+V34 & 06/07/2026 & Documented extension of \code{damping\_sweep} and \code{damping\_\allowbreak sweepV02} to support and propagate all physics parameters (\code{--needle\_frac}, \code{--needle\_\allowbreak thickness}, \code{--steel\_density}, \code{--steel\_Bsat}, \code{--moment}, \code{--inertia}), integration parameters (\code{--dt\_factor}, \code{--noise}), domain clustering parameters (\code{--domain\_tol}), and damping noise (\code{--damping\_\allowbreak noise}). \\
+V35 & 06/07/2026 & Documented the implementation of the multi-cycle First-Order Reversal Curve (FORC) suite and parameters (\code{--forc\_\allowbreak n\_curves}, \code{--forc\_Br\_min}, \code{--forc\_t\_sat}, \code{--forc\_t\_ramp\_down}, \code{--forc\_t\_ramp\_up}) in \code{compass.py} V67; updated the parameters table, data logging structures, and usage recipes. \\
+V36 & 06/07/2026 & Documented V68 improvements (logging up-sweeps only, removing cycle connection artifacts from the FORC plot). \\
+V37 & 06/07/2026 & Documented V69 improvements (new parameter \code{--forc\_sweep} with choices \code{both}/\code{up}/\code{down}, and video dimension divisible-by-2 bug fix). \\
+V38 & 06/07/2026 & Documented V70 demagnetization procedure (\code{--demag}, \code{--demag\_freq}, \code{--demag\_cycles}), updating parameter lists, capability descriptions, and usage recipes. \\
+V39 & 07/07/2026 & Documented V71 constant sweep rate FORC implementation (new parameter \code{--forc\_rate} and dynamic sweep cycle timeline precomputation). \\
+V40 & 07/07/2026 & Documented V72 biaxial rotational demagnetization protocol, updating descriptions, formulas, and parameters. \\
+V41 & 07/07/2026 & Documented V73 default value change for \code{--hyst\_autoscale} (now enabled by default). \\
+V42 & 07/07/2026 & Documented V74 simulated thermal annealing demagnetization protocol, adding new parameter descriptions, formulas, and usage directions. \\
+V43 & 07/07/2026 & Documented V75 multi-stage progress bar implementation. \\
+V44 & 07/07/2026 & Documented demagnetization execution speed optimization guidelines in Appendix B.7. \\
+V45 & 07/07/2026 & Documented critical damping criteria and analytical formulas with default needle numerical examples. \\
+V46 & 07/07/2026 & Documented V76 demagnetization resting delay parameter and its three-stage progress bar support. \\
+V47 & 07/07/2026 & Documented V77 total execution time profiling feature. \\
+\end{longtable}
 
 % ======================================================================
 \begin{thebibliography}{9}
@@ -777,14 +902,29 @@ frustration},
 Reviews of Modern Physics \textbf{85}, 1473 (2013).
 
 \bibitem{prb1998}
-Square lattice of interacting magnetized needles: thermodynamic
-properties through random field and Monte Carlo,
+E.~Olive, P.~Molho,
+\emph{Thermodynamic study of a lattice of compass needles in dipolar interaction},
 Physical Review B \textbf{58}, 9238 (1998).
 
 \bibitem{clauset2009}
 A.~Clauset, C.~R. Shalizi, M.~E.~J. Newman,
 \emph{Power-law distributions in empirical data},
 SIAM Review \textbf{51}, 661 (2009).
+
+\bibitem{ruta2017}
+S.~Ruta, O.~Hovorka, P.-W. Huang, K.~Wang, G.~Ju, R.~Chantrell,
+\emph{First order reversal curves and intrinsic parameter determination for magnetic materials; limitations of hysteron-based approaches in correlated systems},
+Scientific Reports \textbf{7}, 45218 (2017).
+
+\bibitem{pike1999}
+C.~R. Pike, A.~P. Roberts, K.~L. Verosub,
+\emph{Characterizing interactions in fine magnetic particle systems using first order reversal curves},
+Journal of Applied Physics \textbf{85}, 6660 (1999).
+
+\bibitem{roberts2000}
+A.~P. Roberts, C.~R. Pike, K.~L. Verosub,
+\emph{First-order reversal curve diagrams: A new tool for characterizing the magnetic properties of natural samples},
+Journal of Geophysical Research \textbf{105}, 28461 (2000).
 
 \end{thebibliography}
 
