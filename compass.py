@@ -641,7 +641,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           forc_Br_min=None, forc_n_curves=30,
           forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
           forc_sweep='both', forc_rate=None,
-          demag='off', demag_freq=2.0, demag_cycles=20, demag_temp=1.0):
+          demag='off', demag_freq=2.0, demag_cycles=20, demag_temp=1.0, demag_delay=0.0):
     import os
     import time as _time_module
 
@@ -728,11 +728,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     if demag in ('on', 'rotational', 'anneal'):
         t_demag = demag_cycles / demag_freq
         n_steps_demag = int(np.ceil(t_demag / dt))
+        t_demag_delay = demag_delay
+        n_steps_demag_delay = int(np.ceil(t_demag_delay / dt))
     else:
         t_demag = 0.0
         n_steps_demag = 0
+        t_demag_delay = 0.0
+        n_steps_demag_delay = 0
 
-    t_sim_total = t_sim + t_demag
+    t_sim_total = t_sim + t_demag + t_demag_delay
     n_steps   = max(1, int(np.ceil(t_sim_total / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
@@ -747,7 +751,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
         if demag in ('on', 'rotational', 'anneal'):
             _print(f"    t_demag = {t_demag:.3f} s  ({n_steps_demag} steps)")
-            _print(f"    t_sim   = {t_sim:.3f} s  (measurement, {n_steps - n_steps_demag} steps)")
+            if demag_delay > 0.0:
+                _print(f"    t_delay = {t_demag_delay:.3f} s  ({n_steps_demag_delay} steps)")
+            _print(f"    t_sim   = {t_sim:.3f} s  (measurement, {n_steps - n_steps_demag - n_steps_demag_delay} steps)")
             _print(f"    t_total = {t_sim_total:.3f} s  -> {n_steps} steps total")
         else:
             _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
@@ -784,7 +790,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     def _draw_clock(ax, t_phys, needle_len, stop_label=None):
         if t_phys < 0 and stop_label is None:
-            stop_label = "⚡ demagnetizing"
+            if t_phys < -t_demag_delay:
+                stop_label = "⚡ demagnetizing"
+            else:
+                stop_label = "⏳ resting"
 
         xlim  = ax.get_xlim()
         ylim  = ax.get_ylim()
@@ -808,7 +817,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             transform=ax.transData))
 
         if t_phys < 0:
-            frac = min((t_phys + t_demag) / t_demag, 1.0) if t_demag > 0 else 0.0
+            t_pre = t_demag + t_demag_delay
+            frac = min((t_phys + t_pre) / t_pre, 1.0) if t_pre > 0 else 0.0
         else:
             frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
 
@@ -1104,7 +1114,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             envelope = B_max * (1.0 - t_full / t_demag)
             return envelope * cos_phi, envelope * sin_phi
 
-        t = t_full - t_demag
+        if demag in ('on', 'rotational', 'anneal') and t_full < (t_demag + t_demag_delay):
+            return 0.0, 0.0
+
+        t = t_full - t_demag - t_demag_delay
         if field_mode == 'static':
             return Bext_x0, Bext_y0
 
@@ -1257,7 +1270,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     for step in range(1, n_steps + 1):
 
         t_now = step * dt
-        t_phys = t_now - t_demag
+        t_phys = t_now - t_demag - t_demag_delay
 
         if _stop_flag.is_set():
             _finish_progress_bar_if_shown()
@@ -1345,15 +1358,22 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 sine_log.append(entry)
 
         is_demag_phase = (n_steps_demag > 0) and (step <= n_steps_demag)
+        is_delay_phase = (n_steps_demag_delay > 0) and (not is_demag_phase) and (step <= n_steps_demag + n_steps_demag_delay)
         if is_demag_phase:
             phase_step = step
             phase_n_steps = n_steps_demag
             phase_frac = step / n_steps_demag
             phase_time = t_now
             phase_label = "Demagnetizing"
-        else:
+        elif is_delay_phase:
             phase_step = step - n_steps_demag
-            phase_n_steps = n_steps - n_steps_demag
+            phase_n_steps = n_steps_demag_delay
+            phase_frac = phase_step / phase_n_steps if phase_n_steps > 0 else 1.0
+            phase_time = t_now - t_demag
+            phase_label = "Resting"
+        else:
+            phase_step = step - n_steps_demag - n_steps_demag_delay
+            phase_n_steps = n_steps - n_steps_demag - n_steps_demag_delay
             phase_frac = phase_step / phase_n_steps if phase_n_steps > 0 else 1.0
             phase_time = t_phys
             if field_mode == 'hysteresis':
@@ -1367,7 +1387,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         if show_progress:
             _perf_now = _time_module.perf_counter()
-            is_phase_end = (is_demag_phase and step == n_steps_demag) or (not is_demag_phase and step == n_steps)
+            is_phase_end = (is_demag_phase and step == n_steps_demag) or \
+                           (is_delay_phase and step == (n_steps_demag + n_steps_demag_delay)) or \
+                           (not is_demag_phase and not is_delay_phase and step == n_steps)
             if (_perf_now - _perf_last_print_time) >= 0.15 or is_phase_end:
                 _steps_since = phase_step - _perf_last_print_step
                 _dt_wall     = _perf_now - _perf_last_print_time
@@ -1384,8 +1406,19 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
             if is_demag_phase and step == n_steps_demag:
                 _print_progress_bar_finish()
+                if n_steps_demag_delay > 0:
+                    _print(f"  Demagnetization complete. Resting for {demag_delay:.3f} s...")
+                else:
+                    _sim_desc = "hysteresis sweep" if field_mode == 'hysteresis' else ("FORC campaign" if field_mode == 'forc' else "relaxation")
+                    _print(f"  Demagnetization complete. Starting {_sim_desc}...")
+                _perf_last_print_step = 0
+                _perf_last_print_time = _time_module.perf_counter()
+                _last_status_print_time = _perf_last_print_time
+
+            elif is_delay_phase and step == (n_steps_demag + n_steps_demag_delay):
+                _print_progress_bar_finish()
                 _sim_desc = "hysteresis sweep" if field_mode == 'hysteresis' else ("FORC campaign" if field_mode == 'forc' else "relaxation")
-                _print(f"  Demagnetization complete. Starting {_sim_desc}...")
+                _print(f"  Rest completed. Starting {_sim_desc}...")
                 _perf_last_print_step = 0
                 _perf_last_print_time = _time_module.perf_counter()
                 _last_status_print_time = _perf_last_print_time
@@ -2423,6 +2456,8 @@ def main():
                       help='Number of decay cycles for the demagnetization procedure (default: 20).')
     grp2.add_argument('--demag_temp', type=float, default=1.0,
                       help='Initial temperature/noise amplitude factor for simulated thermal annealing demagnetization (default: 1.0).')
+    grp2.add_argument('--demag_delay', type=float, default=0.0,
+                      help='Wait time in seconds between the end of the demagnetization and the beginning of the primary simulation (default: 0.0).')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2538,7 +2573,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V75")
+    _print(f"  Version      : V76")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2707,6 +2742,7 @@ def main():
         demag_freq=args.demag_freq,
         demag_cycles=args.demag_cycles,
         demag_temp=args.demag_temp,
+        demag_delay=args.demag_delay,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
