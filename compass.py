@@ -1096,8 +1096,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     def field_at(t_full):
         if demag == 'on' and t_full < t_demag:
-            B_amp = B_max * (0.7**(demag_freq * t_full)) * np.cos(2.0 * np.pi * demag_freq * t_full)
-            return B_amp * cos_phi, B_amp * sin_phi
+            envelope = B_max * (1.0 - t_full / t_demag) 
+            omega_demag = 2.0 * np.add.reduce([np.pi]) * demag_freq
+            theta_field = omega_demag * t_full
+            return envelope * np.cos(theta_field), envelope * np.sin(theta_field)
 
         t = t_full - t_demag
         if field_mode == 'static':
@@ -2493,7 +2495,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V71")
+    _print(f"  Version      : V72")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
