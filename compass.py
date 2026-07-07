@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V70
+compass.py — Simulation of a compass-needle lattice V74
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -227,14 +227,14 @@ _PROGRESS_REGION = {'open': False, 'ansi': None}
 
 def _print_progress_bar(frac, bar_width=40, step=0, n_steps=0, steps_per_s=0,
                         t_now=0.0, B_status=0.0, S_now=0.0, omega_max=0.0,
-                        backend="CPU"):
+                        backend="CPU", label="Integrating"):
     import sys
     frac = max(0.0, min(1.0, frac))
     n_filled = int(round(frac * bar_width))
     bar = '#' * n_filled + ' ' * (bar_width - n_filled)
     pct = frac * 100.0
     
-    line1 = f"Integrating [{backend}] [{bar}]"
+    line1 = f"{label} [{backend}] [{bar}]"
     line2 = f"{pct:5.1f}%  step {step}/{n_steps}  ({steps_per_s:.0f} steps/s)  t={t_now:.4f}s"
     line3 = f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  w_max={omega_max:.3f}rad/s"
 
@@ -1344,22 +1344,51 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if sine_log is not None:
                 sine_log.append(entry)
 
+        is_demag_phase = (n_steps_demag > 0) and (step <= n_steps_demag)
+        if is_demag_phase:
+            phase_step = step
+            phase_n_steps = n_steps_demag
+            phase_frac = step / n_steps_demag
+            phase_time = t_now
+            phase_label = "Demagnetizing"
+        else:
+            phase_step = step - n_steps_demag
+            phase_n_steps = n_steps - n_steps_demag
+            phase_frac = phase_step / phase_n_steps if phase_n_steps > 0 else 1.0
+            phase_time = t_phys
+            if field_mode == 'hysteresis':
+                phase_label = "Hysteresis"
+            elif field_mode == 'forc':
+                phase_label = "FORC sweep"
+            elif field_mode == 'static':
+                phase_label = "Relaxing"
+            else:
+                phase_label = "Integrating"
+
         if show_progress:
             _perf_now = _time_module.perf_counter()
-            if (_perf_now - _perf_last_print_time) >= 0.15 or step == n_steps:
-                _steps_since = step - _perf_last_print_step
+            is_phase_end = (is_demag_phase and step == n_steps_demag) or (not is_demag_phase and step == n_steps)
+            if (_perf_now - _perf_last_print_time) >= 0.15 or is_phase_end:
+                _steps_since = phase_step - _perf_last_print_step
                 _dt_wall     = _perf_now - _perf_last_print_time
                 _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
                 _backend_tag = "GPU" if _active_gpu else "CPU"
-                _frac_done   = step / n_steps if n_steps > 0 else 1.0
                 B_status = bx_cur * cos_phi + by_cur * sin_phi
                 _print_progress_bar(
-                    _frac_done,
-                    step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
-                    t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
-                    backend=_backend_tag)
-                _perf_last_print_step = step
+                    phase_frac,
+                    step=phase_step, n_steps=phase_n_steps, steps_per_s=_steps_per_s,
+                    t_now=phase_time, B_status=B_status, S_now=S_now, omega_max=omega_max,
+                    backend=_backend_tag, label=phase_label)
+                _perf_last_print_step = phase_step
                 _perf_last_print_time = _perf_now
+
+            if is_demag_phase and step == n_steps_demag:
+                _print_progress_bar_finish()
+                _sim_desc = "hysteresis sweep" if field_mode == 'hysteresis' else ("FORC campaign" if field_mode == 'forc' else "relaxation")
+                _print(f"  Demagnetization complete. Starting {_sim_desc}...")
+                _perf_last_print_step = 0
+                _perf_last_print_time = _time_module.perf_counter()
+                _last_status_print_time = _perf_last_print_time
 
         _status_now = _time_module.perf_counter()
         if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
@@ -1367,17 +1396,16 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if show_progress:
                 if _progress_ansi_ok():
                     _backend_tag = "GPU" if _active_gpu else "CPU"
-                    _frac_done   = step / n_steps if n_steps > 0 else 1.0
-                    _steps_since = step - _perf_last_print_step
+                    _steps_since = phase_step - _perf_last_print_step
                     _dt_wall     = _status_now - _perf_last_print_time
                     _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
                     _print_progress_bar(
-                        _frac_done,
-                        step=step, n_steps=n_steps, steps_per_s=_steps_per_s,
-                        t_now=t_now, B_status=B_status, S_now=S_now, omega_max=omega_max,
-                        backend=_backend_tag)
+                        phase_frac,
+                        step=phase_step, n_steps=phase_n_steps, steps_per_s=_steps_per_s,
+                        t_now=phase_time, B_status=B_status, S_now=S_now, omega_max=omega_max,
+                        backend=_backend_tag, label=phase_label)
                 else:
-                    _status_text = (f"  [step {step}/{n_steps}]  t={t_now:.4f}s  "
+                    _status_text = (f"  [{phase_label} step {phase_step}/{phase_n_steps}]  t={phase_time:.4f}s  "
                                     f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
                                     f"w_max={omega_max:.3f}rad/s")
                     _print_progress_bar_finish()
@@ -2510,7 +2538,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V74")
+    _print(f"  Version      : V75")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
