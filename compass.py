@@ -637,7 +637,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           halo_mode='order', domain_tol_deg=15.0, make_images=True,
           hyst_spacing='linear', hyst_log_k=5.0,
           field_delay=0.0, t_pulse=None, torque_tol=1e-3,
-          t_sim_full=False, hyst_autoscale=False,
+          t_sim_full=False, hyst_autoscale=True,
           forc_Br_min=None, forc_n_curves=30,
           forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
           forc_sweep='both', forc_rate=None,
@@ -2437,7 +2437,7 @@ def main():
                       help='Frame resolution in DPI.')
     grp4.add_argument('--keep_frames', action='store_true',
                       help='Keep the temporary folder of PNG frames')
-    grp4.add_argument('--hyst_autoscale', type=int, choices=[0, 1], default=0,
+    grp4.add_argument('--hyst_autoscale', type=int, choices=[0, 1], default=1,
                       help='Enables automatic scaling (autoscale) of the axes for the MxH hysteresis curve.')
     grp4.add_argument('--csv_order', choices=['t', 'B'], default='t',
                       help='Column order in the exported CSV file.')
@@ -2495,7 +2495,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V72")
+    _print(f"  Version      : V73")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
