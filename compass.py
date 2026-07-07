@@ -641,7 +641,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           forc_Br_min=None, forc_n_curves=30,
           forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
           forc_sweep='both', forc_rate=None,
-          demag='off', demag_freq=2.0, demag_cycles=20):
+          demag='off', demag_freq=2.0, demag_cycles=20, demag_temp=1.0):
     import os
     import time as _time_module
 
@@ -725,7 +725,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     omega0    = np.sqrt(moment * B_eff / inertia)
     T0        = 2.0 * np.pi / omega0
     dt        = dt_factor * T0
-    if demag == 'on':
+    if demag in ('on', 'rotational', 'anneal'):
         t_demag = demag_cycles / demag_freq
         n_steps_demag = int(np.ceil(t_demag / dt))
     else:
@@ -745,7 +745,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
         _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
         _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
-        if demag == 'on':
+        if demag in ('on', 'rotational', 'anneal'):
             _print(f"    t_demag = {t_demag:.3f} s  ({n_steps_demag} steps)")
             _print(f"    t_sim   = {t_sim:.3f} s  (measurement, {n_steps - n_steps_demag} steps)")
             _print(f"    t_total = {t_sim_total:.3f} s  -> {n_steps} steps total")
@@ -1095,11 +1095,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     sin_phi = np.sin(phi_rad)
 
     def field_at(t_full):
-        if demag == 'on' and t_full < t_demag:
+        if demag in ('on', 'rotational') and t_full < t_demag:
             envelope = B_max * (1.0 - t_full / t_demag) 
             omega_demag = 2.0 * np.add.reduce([np.pi]) * demag_freq
             theta_field = omega_demag * t_full
             return envelope * np.cos(theta_field), envelope * np.sin(theta_field)
+        elif demag == 'anneal' and t_full < t_demag:
+            envelope = B_max * (1.0 - t_full / t_demag)
+            return envelope * cos_phi, envelope * sin_phi
 
         t = t_full - t_demag
         if field_mode == 'static':
@@ -1224,10 +1227,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if show_progress:
             _print_progress_bar_finish()
 
+    _tau_ref = inertia * omega0 * omega0
     bx_cur, by_cur    = field_at(0.0)
     theta_xp          = _local_to_backend(theta_cur.ravel())
     omega_xp           = _active_xp.zeros(N * M)
     tau_xp             = _torques_xp(theta_xp, bx_cur, by_cur)
+    if demag == 'anneal' and t_demag > 0.0:
+        noise_std = demag_temp * _tau_ref
+        tau_xp += noise_std * _active_xp.random.randn(*theta_xp.shape)
     _converged_count  = 0
     _S1_count         = 0
     _allow_S1_stop     = (field_mode == 'static') and (not t_sim_full)
@@ -1237,7 +1244,6 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                      else "field_on"
     _S99_count        = 0
     _S_window         = []
-    _tau_ref = inertia * omega0 * omega0
     _step_after_announced = False
     _S_WINDOW_SIZE    = max(40, int(2.0 / dt_factor))
 
@@ -1274,11 +1280,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
         tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
 
-        omega_new_xp = omega_xp * _coeff_omega + (tau_xp + tau_new_xp) * _coeff_tau
+        if demag == 'anneal' and (t_now + dt) < t_demag:
+            next_t = t_now + dt
+            noise_std = demag_temp * _tau_ref * (1.0 - next_t / t_demag)
+            tau_thermal_next = noise_std * _active_xp.random.randn(*theta_xp.shape)
+        else:
+            tau_thermal_next = 0.0
+
+        omega_new_xp = omega_xp * _coeff_omega + (tau_xp + tau_new_xp + tau_thermal_next) * _coeff_tau
 
         theta_xp = theta_new_xp
         omega_xp = omega_new_xp
-        tau_xp   = tau_new_xp
+        tau_xp   = tau_new_xp + tau_thermal_next
         bx_cur    = bx_new
         by_cur    = by_new
 
@@ -2374,12 +2387,14 @@ def main():
                            'If specified, dynamically scales ramp-up/down times '
                            'proportionally to the sweep depth (Method B from FORC.md) '
                            'to maintain a constant field rate (default: None, use fixed times).')
-    grp2.add_argument('--demag', choices=['on', 'off'], default='off',
-                      help='Enable or disable a demagnetization procedure before the simulation (default: off).')
+    grp2.add_argument('--demag', choices=['off', 'on', 'rotational', 'anneal'], default='off',
+                      help="Enable or disable a demagnetization procedure: 'off' (default), 'on'/'rotational' (Method A: Biaxial Rotational), or 'anneal' (Method B: Simulated Annealing).")
     grp2.add_argument('--demag_freq', type=float, default=2.0,
-                      help='Frequency of the demagnetization sinusoidal sweep [Hz] (default: 2.0).')
+                      help='Frequency of the demagnetization sinusoidal sweep/annealing field rotation [Hz] (default: 2.0).')
     grp2.add_argument('--demag_cycles', type=int, default=20,
                       help='Number of decay cycles for the demagnetization procedure (default: 20).')
+    grp2.add_argument('--demag_temp', type=float, default=1.0,
+                      help='Initial temperature/noise amplitude factor for simulated thermal annealing demagnetization (default: 1.0).')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2495,7 +2510,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V73")
+    _print(f"  Version      : V74")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2663,6 +2678,7 @@ def main():
         demag=args.demag,
         demag_freq=args.demag_freq,
         demag_cycles=args.demag_cycles,
+        demag_temp=args.demag_temp,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
