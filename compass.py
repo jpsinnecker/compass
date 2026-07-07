@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V68
+compass.py — Simulation of a compass-needle lattice V69
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -360,13 +360,22 @@ def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
 # 4. INERTIAL DYNAMICS (Newton's second law for rotation — no pivot friction)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _plot_hysteresis(log, hyst_autoscale=False):
-    log = np.array(log)
-    is_forc = (log.ndim == 2 and log.shape[1] == 7)
+def _plot_hysteresis(log, hyst_autoscale=False, forc_sweep='both'):
+    is_forc = False
+    if isinstance(log, list) and len(log) > 0 and len(log[0]) == 7:
+        is_forc = True
+    elif isinstance(log, np.ndarray) and log.ndim == 2 and log.shape[1] == 7:
+        is_forc = True
 
-    t_arr  = log[:, 0]
-    B_arr  = log[:, 1] * 1e3
-    M_arr  = log[:, 2]
+    if is_forc:
+        t_arr = np.array([row[0] for row in log], dtype=float)
+        B_arr = np.array([row[1] for row in log], dtype=float) * 1e3
+        M_arr = np.array([row[2] for row in log], dtype=float)
+    else:
+        log_arr = np.array(log, dtype=float)
+        t_arr  = log_arr[:, 0]
+        B_arr  = log_arr[:, 1] * 1e3
+        M_arr  = log_arr[:, 2]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor='#1A1A2E')
 
@@ -377,13 +386,18 @@ def _plot_hysteresis(log, hyst_autoscale=False):
         from collections import defaultdict
         segments = defaultdict(list)
         for row in log:
-            if row[5]:  # is_up_sweep
-                segments[int(row[6])].append(row)
+            if forc_sweep == 'up' and row[5] != 'up':
+                continue
+            if forc_sweep == 'down' and row[5] != 'down':
+                continue
+            if forc_sweep == 'both' and row[5] not in ('up', 'down'):
+                continue
+            segments[int(row[6])].append(row)
         
         for k_val in sorted(segments.keys()):
             arr_seg = np.array(segments[k_val])
-            H_seg = arr_seg[:, 1] * 1e3
-            M_seg = arr_seg[:, 2]
+            H_seg = arr_seg[:, 1].astype(float) * 1e3
+            M_seg = arr_seg[:, 2].astype(float)
             ax1.plot(H_seg, M_seg, color='#E94560', lw=1.2, alpha=0.85)
     else:
         ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
@@ -403,10 +417,16 @@ def _plot_hysteresis(log, hyst_autoscale=False):
 
     if not hyst_autoscale:
         if is_forc:
-            up_sweep_rows = [row for row in log if row[5]]
-            if up_sweep_rows:
-                arr_up = np.array(up_sweep_rows)
-                B_arr_for_lim = arr_up[:, 1] * 1e3
+            if forc_sweep == 'up':
+                filtered_rows = [row for row in log if row[5] == 'up']
+            elif forc_sweep == 'down':
+                filtered_rows = [row for row in log if row[5] == 'down']
+            else:
+                filtered_rows = [row for row in log if row[5] in ('up', 'down')]
+            
+            if filtered_rows:
+                arr_up = np.array(filtered_rows)
+                B_arr_for_lim = arr_up[:, 1].astype(float) * 1e3
             else:
                 B_arr_for_lim = B_arr
         else:
@@ -494,8 +514,8 @@ def _plot_sine(log, freq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                              bx_ext, by_ext,
-                              pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
+                               bx_ext, by_ext,
+                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
     K  = theta_flat.shape[0]
 
     mx = moment * xp.cos(theta_flat)
@@ -619,7 +639,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           field_delay=0.0, t_pulse=None, torque_tol=1e-3,
           t_sim_full=False, hyst_autoscale=False,
           forc_Br_min=None, forc_n_curves=30,
-          forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None):
+          forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
+          forc_sweep='both'):
     import os
     import time as _time_module
 
@@ -890,14 +911,25 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 from collections import defaultdict
                 segments = defaultdict(list)
                 for row in hysteresis_log:
-                    if row[5]:  # is_up_sweep
-                        segments[int(row[6])].append(row)
+                    if forc_sweep == 'up' and row[5] != 'up':
+                        continue
+                    if forc_sweep == 'down' and row[5] != 'down':
+                        continue
+                    if forc_sweep == 'both' and row[5] not in ('up', 'down'):
+                        continue
+                    segments[int(row[6])].append(row)
                 
-                up_sweep_rows = [row for row in hysteresis_log if row[5]]
-                if up_sweep_rows:
-                    arr_up = np.array(up_sweep_rows)
-                    H_mT_all = arr_up[:, 1] * 1e3
-                    Mv_all   = arr_up[:, 2]
+                if forc_sweep == 'up':
+                    filtered_rows = [row for row in hysteresis_log if row[5] == 'up']
+                elif forc_sweep == 'down':
+                    filtered_rows = [row for row in hysteresis_log if row[5] == 'down']
+                else:
+                    filtered_rows = [row for row in hysteresis_log if row[5] in ('up', 'down')]
+                
+                if filtered_rows:
+                    arr_up = np.array(filtered_rows)
+                    H_mT_all = arr_up[:, 1].astype(float) * 1e3
+                    Mv_all   = arr_up[:, 2].astype(float)
                 else:
                     H_mT_all = np.array([0.0])
                     Mv_all   = np.array([0.0])
@@ -917,14 +949,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
                 for k_val in sorted(segments.keys()):
                     arr_seg = np.array(segments[k_val])
-                    H_seg = arr_seg[:, 1] * 1e3
-                    M_seg = arr_seg[:, 2]
+                    H_seg = arr_seg[:, 1].astype(float) * 1e3
+                    M_seg = arr_seg[:, 2].astype(float)
                     axR.plot(H_seg, M_seg, color='#F1C40F', lw=1.6, zorder=3)
 
                 last_row = hysteresis_log[-1]
-                H_last = last_row[1] * 1e3
-                Mv_last = last_row[2]
-                axR.plot([H_last], [Mv_last], 'o', color='#E74C3C', ms=7, zorder=4)
+                if (forc_sweep == 'both' and last_row[5] in ('up', 'down')) or (forc_sweep == last_row[5]):
+                    H_last = last_row[1] * 1e3
+                    Mv_last = last_row[2]
+                    axR.plot([H_last], [Mv_last], 'o', color='#E74C3C', ms=7, zorder=4)
             else:
                 arr = np.array(hysteresis_log)
                 H_mT = arr[:, 1] * 1e3
@@ -1224,8 +1257,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             else:
                 Br_curr = Br_min
             t_local = t_now - k * T_cycle
-            is_up_sweep = (t_local > tsat + t_down)
-            entry = (t_now, B_scalar, M_proj, S_now, Br_curr, is_up_sweep, k)
+            if t_local <= tsat:
+                sweep_type = 'sat'
+            elif t_local <= tsat + t_down:
+                sweep_type = 'down'
+            else:
+                sweep_type = 'up'
+            entry = (t_now, B_scalar, M_proj, S_now, Br_curr, sweep_type, k)
         else:
             entry = (t_now, B_scalar, M_proj, S_now)
 
@@ -1435,7 +1473,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             w = csv.writer(f)
             if field_mode == 'forc':
                 w.writerow(['t_s', 'B_T', 'M_proj', 'S', 'B_r'])
-                w.writerows([row[:5] for row in hysteresis_log if row[5]])
+                if forc_sweep == 'up':
+                    w.writerows([row[:5] for row in hysteresis_log if row[5] == 'up'])
+                elif forc_sweep == 'down':
+                    w.writerows([row[:5] for row in hysteresis_log if row[5] == 'down'])
+                else: # both
+                    w.writerows([row[:5] for row in hysteresis_log if row[5] in ('up', 'down')])
             else:
                 w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
                 w.writerows(hysteresis_log)
@@ -1444,7 +1487,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         else:
             _print(f"  Hysteresis data saved: {csv_path}")
         if make_images:
-            _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale)
+            _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale, forc_sweep=forc_sweep)
 
     if sine_log:
         import csv
@@ -2264,6 +2307,8 @@ def main():
                       help='Time to ramp down from saturation to reversal field [s] per cycle (default: 0.10 s).')
     grp2.add_argument('--forc_t_ramp_up', type=float, default=None,
                       help='Time to sweep back from reversal field to saturation [s] per cycle (default: 0.20 s).')
+    grp2.add_argument('--forc_sweep', choices=['both', 'up', 'down'], default='both',
+                      help="FORC curves to trace: 'both' (default), 'up' (increasing field), 'down' (decreasing field).")
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2379,7 +2424,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V68")
+    _print(f"  Version      : V69")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2542,6 +2587,7 @@ def main():
         forc_t_sat=args.forc_t_sat,
         forc_t_ramp_down=args.forc_t_ramp_down,
         forc_t_ramp_up=args.forc_t_ramp_up,
+        forc_sweep=args.forc_sweep,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
@@ -2554,7 +2600,12 @@ def main():
 
     if args.field_mode == 'forc':
         header = ['t_s', 'B_applied_T', 'M_proj', 'S', 'B_r']
-        rows   = [row[:5] for row in field_log if row[5]]
+        if args.forc_sweep == 'up':
+            rows = [row[:5] for row in field_log if row[5] == 'up']
+        elif args.forc_sweep == 'down':
+            rows = [row[:5] for row in field_log if row[5] == 'down']
+        else: # both
+            rows = [row[:5] for row in field_log if row[5] in ('up', 'down')]
     elif args.csv_order == 'B':
         header = ['B_applied_T', 'M_proj', 'S', 't_s']
         rows   = [(row_el[1], row_el[2], row_el[3], row_el[0]) for row_el in field_log]
@@ -2609,7 +2660,7 @@ def main():
         _nd1, _ns1 = draw_halos_batch(axes[1], xs, ys, thetas_eq,
                                       needle_len, r_halo=r_halo,
                                       halo_mode=args.halo_mode,
-                                      domain_tol_deg=domain_tol_deg)
+                                      domain_tol_deg=args.domain_tol)
         if args.halo_mode == 'domains':
             axes[0].set_title(
                 f"Initial State — {_ns0} main domains "
