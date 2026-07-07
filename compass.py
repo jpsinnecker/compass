@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V69
+compass.py — Simulation of a compass-needle lattice V70
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -640,7 +640,8 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
           t_sim_full=False, hyst_autoscale=False,
           forc_Br_min=None, forc_n_curves=30,
           forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
-          forc_sweep='both'):
+          forc_sweep='both',
+          demag='off', demag_freq=2.0, demag_cycles=20):
     import os
     import time as _time_module
 
@@ -690,7 +691,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     omega0    = np.sqrt(moment * B_eff / inertia)
     T0        = 2.0 * np.pi / omega0
     dt        = dt_factor * T0
-    n_steps   = max(1, int(np.ceil(t_sim / dt)))
+    if demag == 'on':
+        t_demag = demag_cycles / demag_freq
+        n_steps_demag = int(np.ceil(t_demag / dt))
+    else:
+        t_demag = 0.0
+        n_steps_demag = 0
+
+    t_sim_total = t_sim + t_demag
+    n_steps   = max(1, int(np.ceil(t_sim_total / dt)))
     Q         = omega0 * inertia / damping if damping > 0 else np.inf
 
     if show_progress:
@@ -702,7 +711,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
         _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
         _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
-        _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
+        if demag == 'on':
+            _print(f"    t_demag = {t_demag:.3f} s  ({n_steps_demag} steps)")
+            _print(f"    t_sim   = {t_sim:.3f} s  (measurement, {n_steps - n_steps_demag} steps)")
+            _print(f"    t_total = {t_sim_total:.3f} s  -> {n_steps} steps total")
+        else:
+            _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
         if Q > 2:
             q_desc = "sub-damping(oscilates)"
         elif Q > 0.5:
@@ -735,6 +749,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         return            f"B={B*1e6:.1f} µT"
 
     def _draw_clock(ax, t_phys, needle_len, stop_label=None):
+        if t_phys < 0 and stop_label is None:
+            stop_label = "⚡ demagnetizing"
+
         xlim  = ax.get_xlim()
         ylim  = ax.get_ylim()
         xspan = xlim[1] - xlim[0]
@@ -756,7 +773,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             linewidth=0.8, alpha=0.82, zorder=19,
             transform=ax.transData))
 
-        frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
+        if t_phys < 0:
+            frac = min((t_phys + t_demag) / t_demag, 1.0) if t_demag > 0 else 0.0
+        else:
+            frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
 
         ax.add_patch(plt.Rectangle(
             (px, bar_y), bar_w, bar_h,
@@ -764,11 +784,15 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             zorder=20, transform=ax.transData))
 
         if frac > 0:
-            r_col = min(2.0 * frac, 1.0)
-            g_col = min(2.0 * (1.0 - frac), 1.0)
+            if t_phys < 0:
+                face_color = (0.1, 0.6, 0.9)
+            else:
+                r_col = min(2.0 * frac, 1.0)
+                g_col = min(2.0 * (1.0 - frac), 1.0)
+                face_color = (r_col, g_col, 0.15)
             ax.add_patch(plt.Rectangle(
                 (px, bar_y), bar_w * frac, bar_h,
-                facecolor=(r_col, g_col, 0.15), edgecolor='none',
+                facecolor=face_color, edgecolor='none',
                 zorder=21, transform=ax.transData))
 
         ax.add_patch(plt.Rectangle(
@@ -813,9 +837,10 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     sine_log       = [] if field_mode == 'sine'       else None
 
     def _save_frame(step, th, om, stop_label=None,
-                    B_ext_inst=None, phi_ext_inst=None):
+                    B_ext_inst=None, phi_ext_inst=None, t_phys=None):
         nonlocal n_frames
-        t_phys   = step * dt
+        if t_phys is None:
+            t_phys   = step * dt
         S        = np.abs(np.mean(np.exp(1j * th)))
         om_max   = np.max(np.abs(om))
 
@@ -1035,7 +1060,12 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     cos_phi = np.cos(phi_rad)
     sin_phi = np.sin(phi_rad)
 
-    def field_at(t):
+    def field_at(t_full):
+        if demag == 'on' and t_full < t_demag:
+            B_amp = B_max * (0.7**(demag_freq * t_full)) * np.cos(2.0 * np.pi * demag_freq * t_full)
+            return B_amp * cos_phi, B_amp * sin_phi
+
+        t = t_full - t_demag
         if field_mode == 'static':
             return Bext_x0, Bext_y0
 
@@ -1191,15 +1221,18 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     for step in range(1, n_steps + 1):
 
         t_now = step * dt
+        t_phys = t_now - t_demag
 
         if _stop_flag.is_set():
             _finish_progress_bar_if_shown()
-            _print(f"\n  Stopped (Ctrl+I) at t={t_now:.4f}s  (step {step}/{n_steps})")
+            _t_str = f"t_phys={t_phys:.4f}s" if t_phys >= 0 else f"t_demag={t_now:.4f}s"
+            _print(f"\n  Stopped (Ctrl+I) at {_t_str}  (step {step}/{n_steps})")
             _stop_reason = "interrupted by user (Ctrl+I)"
             if frame_dir is not None:
                 theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                 omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                _save_frame(step, theta_cur, omega_cur,
+                _step_frame = step - n_steps_demag if t_phys >= 0 else 0
+                _save_frame(_step_frame, theta_cur, omega_cur,
                             stop_label="■ interrupted (Ctrl+I)")
             break
 
@@ -1229,7 +1262,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         mx_mean   = float(mx_mean_xp)
         my_mean   = float(my_mean_xp)
 
-        _need_cpu_sync = (callback is not None) or (step % 20 == 0) or \
+        _need_cpu_sync = (callback is not None) or (t_phys >= 0 and step % 20 == 0) or \
                          (frame_dir is not None and step % frame_every == 0)
         if _need_cpu_sync:
             theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
@@ -1238,40 +1271,41 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if callback:
             callback(step, theta_cur.copy(), omega_cur.copy())
 
-        if step % 20 == 0:
-            hist.append((theta_cur.copy(), omega_cur.copy()))
+        if t_phys >= 0:
+            if step % 20 == 0:
+                hist.append((theta_cur.copy(), omega_cur.copy()))
 
-        M_proj   = mx_mean * cos_phi + my_mean * sin_phi
-        B_scalar = bx_cur * cos_phi + by_cur * sin_phi
-        if field_mode == 'forc':
-            tsat = forc_t_sat if forc_t_sat is not None else 0.05
-            t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
-            t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
-            T_cycle = tsat + t_down + t_up
-            n_curves = forc_n_curves if forc_n_curves is not None else 30
-            Br_min = forc_Br_min if forc_Br_min is not None else -B_max
-            k = int(t_now / T_cycle)
-            k = min(max(0, k), n_curves - 1)
-            if n_curves > 1:
-                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
+            M_proj   = mx_mean * cos_phi + my_mean * sin_phi
+            B_scalar = bx_cur * cos_phi + by_cur * sin_phi
+            if field_mode == 'forc':
+                tsat = forc_t_sat if forc_t_sat is not None else 0.05
+                t_down = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
+                t_up = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
+                T_cycle = tsat + t_down + t_up
+                n_curves = forc_n_curves if forc_n_curves is not None else 30
+                Br_min = forc_Br_min if forc_Br_min is not None else -B_max
+                k = int(t_phys / T_cycle)
+                k = min(max(0, k), n_curves - 1)
+                if n_curves > 1:
+                    Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
+                else:
+                    Br_curr = Br_min
+                t_local = t_phys - k * T_cycle
+                if t_local <= tsat:
+                    sweep_type = 'sat'
+                elif t_local <= tsat + t_down:
+                    sweep_type = 'down'
+                else:
+                    sweep_type = 'up'
+                entry = (t_phys, B_scalar, M_proj, S_now, Br_curr, sweep_type, k)
             else:
-                Br_curr = Br_min
-            t_local = t_now - k * T_cycle
-            if t_local <= tsat:
-                sweep_type = 'sat'
-            elif t_local <= tsat + t_down:
-                sweep_type = 'down'
-            else:
-                sweep_type = 'up'
-            entry = (t_now, B_scalar, M_proj, S_now, Br_curr, sweep_type, k)
-        else:
-            entry = (t_now, B_scalar, M_proj, S_now)
+                entry = (t_phys, B_scalar, M_proj, S_now)
 
-        field_log.append(entry)
-        if hysteresis_log is not None:
-            hysteresis_log.append(entry)
-        if sine_log is not None:
-            sine_log.append(entry)
+            field_log.append(entry)
+            if hysteresis_log is not None:
+                hysteresis_log.append(entry)
+            if sine_log is not None:
+                sine_log.append(entry)
 
         if show_progress:
             _perf_now = _time_module.perf_counter()
@@ -1316,59 +1350,61 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
         if frame_dir is not None and step % frame_every == 0:
             B_signed = bx_cur * cos_phi + by_cur * sin_phi
             _save_frame(step, theta_cur, omega_cur,
-                        B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg)
+                        B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg, t_phys=t_phys)
 
-        if _allow_S1_stop:
-            if S_now >= 0.9999:
-                _S1_count += 1
-            else:
-                _S1_count = 0
+        if t_phys >= 0:
 
-            if _S1_count >= 30:
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    _print(f"\n  S = 1.00 at t={t_now:.4f}s  (step {step}/{n_steps})")
-                _stop_reason = f"S = 1.00 reached at t = {t_now:.4f} s"
-                _stop_flag.set()
-                if frame_dir is not None:
-                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                    _save_frame(step, theta_cur, omega_cur,
-                                stop_label="★ S = 1.00  complete alignment")
-                break
+            if _allow_S1_stop:
+                if S_now >= 0.9999:
+                    _S1_count += 1
+                else:
+                    _S1_count = 0
 
-        if field_mode == 'pulse':
-            if _pulse_phase == 'delay' and t_now >= field_delay:
-                _pulse_phase = 'field_on'
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    _print(f"\n  Pulse: initial wait completed: t={t_now:.4f}s  field ON")
-                tau_xp = _torques_xp(theta_xp, *field_at(t_now))
-            if (_pulse_phase == 'field_on' and t_pulse is not None
-                    and t_now >= field_delay + t_pulse):
-                _pulse_relaxing[0] = True
-                _pulse_phase = 'relaxing'
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
-                           f"t={t_now:.4f}s  zero field: stabilizing")
-                tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
-                if frame_dir is not None:
-                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                    _save_frame(step, theta_cur, omega_cur,
-                                stop_label="zero field - stabilizing",
-                                B_ext_inst=0.0)
-        elif field_mode in ('step_pos', 'step_neg') and not _step_after_announced:
-            if t_now >= field_delay:
-                _step_after_announced = True
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    if field_mode == 'step_pos':
-                        _print(f"\n  Step+: field ON in t={t_now:.4f}s (stay ON)")
-                    else:
-                        _print(f"\n  Step-: field OFF in t={t_now:.4f}s (stay zero)")
-                tau_xp = _torques_xp(theta_xp, *field_at(t_now))
+                if _S1_count >= 30:
+                    _finish_progress_bar_if_shown()
+                    if show_progress:
+                        _print(f"\n  S = 1.00 at t_phys={t_phys:.4f}s  (step {step}/{n_steps})")
+                    _stop_reason = f"S = 1.00 reached at t_phys = {t_phys:.4f} s"
+                    _stop_flag.set()
+                    if frame_dir is not None:
+                        theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                        omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
+                        _save_frame(step, theta_cur, omega_cur,
+                                    stop_label="★ S = 1.00  complete alignment", t_phys=t_phys)
+                    break
+
+            if field_mode == 'pulse':
+                if _pulse_phase == 'delay' and t_phys >= field_delay:
+                    _pulse_phase = 'field_on'
+                    _finish_progress_bar_if_shown()
+                    if show_progress:
+                        _print(f"\n  Pulse: initial wait completed: t_phys={t_phys:.4f}s  field ON")
+                    tau_xp = _torques_xp(theta_xp, *field_at(t_now))
+                if (_pulse_phase == 'field_on' and t_pulse is not None
+                        and t_phys >= field_delay + t_pulse):
+                    _pulse_relaxing[0] = True
+                    _pulse_phase = 'relaxing'
+                    _finish_progress_bar_if_shown()
+                    if show_progress:
+                        _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
+                               f"t_phys={t_phys:.4f}s  zero field: stabilizing")
+                    tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
+                    if frame_dir is not None:
+                        theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
+                        omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
+                        _save_frame(step, theta_cur, omega_cur,
+                                    stop_label="zero field - stabilizing",
+                                    B_ext_inst=0.0, t_phys=t_phys)
+            elif field_mode in ('step_pos', 'step_neg') and not _step_after_announced:
+                if t_phys >= field_delay:
+                    _step_after_announced = True
+                    _finish_progress_bar_if_shown()
+                    if show_progress:
+                        if field_mode == 'step_pos':
+                            _print(f"\n  Step+: field ON in t_phys={t_phys:.4f}s (stay ON)")
+                        else:
+                            _print(f"\n  Step-: field OFF in t_phys={t_phys:.4f}s (stay zero)")
+                    tau_xp = _torques_xp(theta_xp, *field_at(t_now))
 
         if (field_mode == 'pulse' and _pulse_phase == 'field_on'
                 and t_pulse is None):
@@ -1399,21 +1435,21 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 _finish_progress_bar_if_shown()
                 if show_progress:
                     if _trigger_A:
-                        _print(f"\n  Pulse: S>=0.99 at t={t_now:.4f}s  field ZERO, relaxing")
+                        _print(f"\n  Pulse: S>=0.99 at t_phys={t_phys:.4f}s  field ZERO, relaxing")
                     else:
-                        _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t={t_now:.4f}s  field ZERO, relaxing")
+                        _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t_phys={t_phys:.4f}s  field ZERO, relaxing")
                 tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
                                 stop_label="Field Zero - relaxing",
-                                B_ext_inst=0.0)
+                                B_ext_inst=0.0, t_phys=t_phys)
 
         # ── condition 2: lattice in equilibrium ─────────────────────────────────
-        _in_step_final = (field_mode in ('step_pos', 'step_neg')
-                          and t_now >= field_delay)
-        _rest_stop_active = (not t_sim_full) and (_allow_rest_stop or (
+        _in_step_final = (t_phys >= 0) and (field_mode in ('step_pos', 'step_neg')
+                          and t_phys >= field_delay)
+        _rest_stop_active = (t_phys >= 0) and (not t_sim_full) and (_allow_rest_stop or (
             field_mode == 'pulse' and _pulse_phase == 'relaxing') or
             _in_step_final)
         if _rest_stop_active:
@@ -1431,14 +1467,14 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             if _converged_count >= 50:
                 _finish_progress_bar_if_shown()
                 if show_progress:
-                    _print(f"\n  Lattice at rest at t={t_now:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
-                _stop_reason = f"lattice at rest at t = {t_now:.4f} s"
+                    _print(f"\n  Lattice at rest at t_phys={t_phys:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
+                _stop_reason = f"lattice at rest at t_phys = {t_phys:.4f} s"
                 _stop_flag.set()
                 if frame_dir is not None:
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="● lattice at rest")
+                                stop_label="● lattice at rest", t_phys=t_phys)
                 break
 
     _finish_progress_bar_if_shown()
@@ -2309,6 +2345,12 @@ def main():
                       help='Time to sweep back from reversal field to saturation [s] per cycle (default: 0.20 s).')
     grp2.add_argument('--forc_sweep', choices=['both', 'up', 'down'], default='both',
                       help="FORC curves to trace: 'both' (default), 'up' (increasing field), 'down' (decreasing field).")
+    grp2.add_argument('--demag', choices=['on', 'off'], default='off',
+                      help='Enable or disable a demagnetization procedure before the simulation (default: off).')
+    grp2.add_argument('--demag_freq', type=float, default=2.0,
+                      help='Frequency of the demagnetization sinusoidal sweep [Hz] (default: 2.0).')
+    grp2.add_argument('--demag_cycles', type=int, default=20,
+                      help='Number of decay cycles for the demagnetization procedure (default: 20).')
     grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
                       default='linear',
                       help='Hysteresis ramp spacing')
@@ -2424,7 +2466,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V69")
+    _print(f"  Version      : V70")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2588,6 +2630,9 @@ def main():
         forc_t_ramp_down=args.forc_t_ramp_down,
         forc_t_ramp_up=args.forc_t_ramp_up,
         forc_sweep=args.forc_sweep,
+        demag=args.demag,
+        demag_freq=args.demag_freq,
+        demag_cycles=args.demag_cycles,
     )
     frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
     _print(f"Integration completed - {stop_reason}{frames_str}")
