@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V74
+compass.py — Simulation of a compass-needle lattice V77
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -2337,6 +2337,8 @@ def plot_order_parameter(thetas_hist, outpath, dt=None):
 
 def main():
     """Command-line entry point of the simulation."""
+    import time as _time
+    _start_wall_time = _time.perf_counter()
     parser = argparse.ArgumentParser(
         description="Simulation of a compass-needle array — 2D dipolar field",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -2573,7 +2575,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V76")
+    _print(f"  Version      : V77")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2860,7 +2862,8 @@ def main():
         elif not ok:
             _print(f"  PNG frames kept at: {frame_dir}/")
 
-    _print("\nCompleted.")
+    _elapsed_wall_time = _time.perf_counter() - _start_wall_time
+    _print(f"\nCompleted in {_elapsed_wall_time:.2f} sec")
 
 
 if __name__ == '__main__':
