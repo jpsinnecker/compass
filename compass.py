@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V77
+compass.py — Simulation of a compass-needle lattice V78
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -33,47 +33,47 @@ COMMAND-LINE PARAMETERS
 │                    Default: 0.80 -> needle = 80% of 2R     │
 └────────────────────────────────────────────────────────────┘
 
-┌─ PHYSICS AND SIMULATION ───────────────────────────────────┐
+┌─ NEEDLE PROPERTIES ────────────────────────────────────────┐
 │                                                            │
-│  --moment    float Magnetic moment of each needle [A·m²]   │
-│                    Default: 0.1 (table compass, about 5 cm)│
-│                    Ref: pocket ≈ 0.01 | nautical ≈ 1.0     │
+│  --moment    float Magnetic moment of each needle [A·m²].  │
+│                    If omitted, calculated automatically.   │
+│                    Default: calculated from geometry       │
 │                                                            │
-│  --inertia   float Moment of inertia [kg·m²]. If omitted,  │
-│                    it is computed automatically from the   │
-│                    geometry: steel sheet using R,          │
-│                    needle_frac, --needle_thickness,        │
-│                    and --steel_density.                    │
+│  --inertia   float Moment of inertia [kg·m²].              │
+│                    If omitted, calculated automatically.   │
+│                    Default: calculated from geometry       │
+│                                                            │
+│  --needle_thickness float Thickness of the needle sheet [m]│
+│                    Default: 0.0004 m (0.4 mm)              │
+│                                                            │
+│  --steel_density float Density of the steel sheet [kg/m³]  │
+│                    Default: 7850 kg/m³                     │
+│                                                            │
+│  --steel_Bsat float Saturation flux density of steel [T]   │
+│                    Default: 2.0 T                          │
 │                                                            │
 │  --damping   float Viscous air damping [N·m·s/rad]         │
-│                    Controls the quality factor Q:          │
-│                    Q = omega_0·I/b (high Q = more          │
-│                    oscillatory motion). Default: 5e-8      │
-│                    (Q≈25, realistic compass). For a smooth │
-│                    B_ext=0.1 T run, use 8e-6 (Q≈4).        │
+│                    Default: 5e-8 (Q≈25, underdamped)       │
+│                                                            │
+│  --damping_noise float Damping noise fraction (0.0-1.0)    │
+│                    Default: 0.0 (no noise)                 │
+└────────────────────────────────────────────────────────────┘
+
+┌─ SIMULATION PARAMETERS ────────────────────────────────────┐
 │                                                            │
 │  --t_sim     float Total physical simulation time [s].     │
-│                    Sum of all integrated dt steps,         │
-│                    equivalent to what a real stopwatch     │
-│                    would measure while observing the       │
-│                    moving needles. The video displays this │
-│                    physical time. The simulation stops     │
-│                    earlier if S=1.00 or at rest.           │
+│                    Sum of integrated dt steps.             │
 │                    Default: 2.0 s                          │
 │                                                            │
 │  --dt_factor float Fraction of the natural period T0 used  │
 │                    as the integration step (0.02-0.10).    │
-│                    Smaller = more accurate, slower.        │
 │                    Default: 0.05                           │
 │                                                            │
-│  --noise     float Initial-noise amplitude [rad].          │
-│                    0 = all needles point toward +x         │
-│                    pi ≈ 3.14 = fully random orientation    │
+│  --noise     float Initial angular noise amplitude [rad].  │
 │                    Default: 1.5                            │
 │                                                            │
-│  --seed      int   Random-number-generator seed.           │
-│                    Ensures reproducibility.                │
-│                    Default: 42                             │
+│  --seed      int   Random seed for reproducibility.        │
+│                    Default: current time nanoseconds       │
 └────────────────────────────────────────────────────────────┘
 
 ┌─ UNIFORM EXTERNAL FIELD (SI units) ────────────────────────┐
@@ -112,7 +112,7 @@ COMMAND-LINE PARAMETERS
 │                                                            │
 │  --frame_every int Save one frame every N steps.           │
 │                    Smaller = smoother video, slower run.   │
-					Default: 5                              │
+					Default: 5                               │
 │                                                            │
 │  --fps       int   Frames per second of the MP4 video.     │
 │                    Default: 24                             │
@@ -647,6 +647,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     N, M = thetas.shape
     Bext_x, Bext_y = ext_field
+    Bext_x0, Bext_y0 = Bext_x, Bext_y
+    B_max = np.sqrt(Bext_x**2 + Bext_y**2)
+    phi_rad = np.arctan2(Bext_y, Bext_x)
+    cos_phi = np.cos(phi_rad)
+    sin_phi = np.sin(phi_rad)
     n_frames = 0
     forc_cycle_starts = None
     forc_t_down_list = None
@@ -767,7 +772,11 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             _print(f"    damping = {damping:.3e} N·m·s/rad (central, with random noise +/- {damping_noise*100:.1f}%)")
         else:
             _print(f"    damping = {damping:.3e} N·m·s/rad (uniform)")
-        _print(f"    Q       = {Q:.1f}  ({q_desc})")
+        if Q < 0.1:
+            q_str = f"{Q:.3e}"
+        else:
+            q_str = f"{Q:.1f}" if Q != np.inf else "inf"
+        _print(f"    Q       = {q_str}  ({q_desc})")
         _print()
 
     theta_cur = thetas.copy()
@@ -791,9 +800,9 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
     def _draw_clock(ax, t_phys, needle_len, stop_label=None):
         if t_phys < 0 and stop_label is None:
             if t_phys < -t_demag_delay:
-                stop_label = "⚡ demagnetizing"
+                stop_label = "~ demagnetizing"
             else:
-                stop_label = "⏳ resting"
+                stop_label = "... resting"
 
         xlim  = ax.get_xlim()
         ylim  = ax.get_ylim()
@@ -876,6 +885,77 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     fontfamily='monospace', va='top', ha='left',
                     zorder=25, transform=ax.transData)
 
+    def _draw_m_box(ax, M_val, needle_len, color='#E94560'):
+        xlim  = ax.get_xlim()
+        ylim  = ax.get_ylim()
+        xspan = xlim[1] - xlim[0]
+        yspan = ylim[1] - ylim[0]
+
+        pad = needle_len * 0.25
+        box_h = 0.140 * yspan + pad
+        bar_w = 0.18 * xspan
+        bar_h = 0.018 * yspan
+        
+        # Center the M box in the available space between the time and field boxes
+        left_bound = 0.32 * xspan + pad * 0.7
+        right_bound = 0.71 * xspan - pad * 0.3
+        
+        px_M = xlim[0] + (left_bound + right_bound - bar_w) / 2
+        py_top = ylim[1] - 0.035 * yspan
+        
+        # Background box
+        ax.add_patch(plt.Rectangle(
+            (px_M - pad * 0.3, py_top - box_h),
+            bar_w + pad, box_h,
+            facecolor='#080818', edgecolor=color,
+            linewidth=0.8, alpha=0.82, zorder=19,
+            transform=ax.transData))
+
+        # Text: Label "M (proj)"
+        ax.text(px_M, py_top - 0.022 * yspan, "M (proj)", color=color, fontsize=7,
+                alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23,
+                transform=ax.transData)
+
+        # Magnetization value (second line)
+        sign_str = "+" if M_val >= 0 else "-"
+        m_str = f"{sign_str}{abs(M_val):.4f}"
+        ax.text(px_M, py_top - 0.048 * yspan, m_str, color='#E8E8FF',
+                fontsize=9, fontweight='bold', fontfamily='monospace',
+                ha='left', va='top', zorder=23, transform=ax.transData)
+
+        # Horizontal intensity bar
+        bar_y = py_top - 0.115 * yspan
+        ax.add_patch(plt.Rectangle(
+            (px_M, bar_y), bar_w, bar_h,
+            facecolor='#252540', edgecolor='none',
+            zorder=20, transform=ax.transData))
+
+        # Centered active progress bar for M (normalized from -1 to 1)
+        f = max(-1.0, min(M_val, 1.0))
+        center_x = px_M + bar_w / 2.0
+
+        if abs(f) > 0.001:
+            if f >= 0.0:
+                fill_x = center_x
+                fill_w = (bar_w / 2.0) * f
+            else:
+                fill_w = (bar_w / 2.0) * abs(f)
+                fill_x = center_x - fill_w
+                
+            ax.add_patch(plt.Rectangle(
+                (fill_x, bar_y), fill_w, bar_h,
+                facecolor=color, edgecolor='none', alpha=0.85, zorder=21,
+                transform=ax.transData))
+
+        ax.add_patch(plt.Rectangle(
+            (px_M, bar_y), bar_w, bar_h,
+            facecolor='none', edgecolor='#5A5A8A',
+            linewidth=0.7, zorder=22, transform=ax.transData))
+
+        # Red center line representing M = 0
+        ax.plot([center_x, center_x], [bar_y, bar_y + bar_h],
+                color='#FF0000', linewidth=1.2, zorder=23, transform=ax.transData)
+
     field_log = []
     hysteresis_log = [] if field_mode in ('hysteresis', 'forc') else None
     sine_log       = [] if field_mode == 'sine'       else None
@@ -929,7 +1009,13 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
             axL.set_title(title, color='#ECF0F1', fontsize=11,
                           fontfamily='monospace')
             _draw_clock(axL, t_phys, needle_len, stop_label=stop_label)
-
+            
+            # Compute and draw magnetization projection M
+            mx_mean = np.mean(np.cos(th))
+            my_mean = np.mean(np.sin(th))
+            M_proj = mx_mean * cos_phi + my_mean * sin_phi
+            _draw_m_box(axL, M_proj, needle_len)
+            
             _render_hyst_panel(axR)
 
             plt.tight_layout()
@@ -1097,12 +1183,6 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
 
     _kb_thread = threading.Thread(target=_keyboard_listener, daemon=True)
     _kb_thread.start()
-
-    Bext_x0, Bext_y0 = ext_field
-    B_max = np.sqrt(Bext_x0**2 + Bext_y0**2)
-    phi_rad = np.arctan2(Bext_y0, Bext_x0)
-    cos_phi = np.cos(phi_rad)
-    sin_phi = np.sin(phi_rad)
 
     def field_at(t_full):
         if demag in ('on', 'rotational') and t_full < t_demag:
@@ -1282,7 +1362,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                 omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                 _step_frame = step - n_steps_demag if t_phys >= 0 else 0
                 _save_frame(_step_frame, theta_cur, omega_cur,
-                            stop_label="■ interrupted (Ctrl+I)")
+                            stop_label="[x] interrupted (Ctrl+I)")
             break
 
         bx_new, by_new = field_at(t_now)
@@ -1468,7 +1548,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                         theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                         omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                         _save_frame(step, theta_cur, omega_cur,
-                                    stop_label="★ S = 1.00  complete alignment", t_phys=t_phys)
+                                    stop_label="S = 1.00  complete alignment", t_phys=t_phys)
                     break
 
             if field_mode == 'pulse':
@@ -1572,7 +1652,7 @@ def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
                     theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
                     omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
                     _save_frame(step, theta_cur, omega_cur,
-                                stop_label="● lattice at rest", t_phys=t_phys)
+                                stop_label="lattice at rest", t_phys=t_phys)
                 break
 
     _finish_progress_bar_if_shown()
@@ -2477,8 +2557,8 @@ def main():
                       help='Fraction of natural period T0 used as time step dt')
     grp2.add_argument('--noise', type=float, default=1.5,
                       help='Initial random noise amplitude in orientations [rad]')
-    grp2.add_argument('--seed', type=int, default=42,
-                      help='Random generator seed')
+    grp2.add_argument('--seed', type=int, default=None,
+                      help='Random generator seed. If omitted, uses current time nanoseconds.')
     grp2.add_argument('--pbc', type=int, choices=[0, 1], default=0,
                       help='Periodic boundary conditions (PBC)')
     grp2.add_argument('--pbc_images', type=int, default=1,
@@ -2529,6 +2609,9 @@ def main():
                 f"[0, 0.8]; adjusted to {clamped}")
         args.needle_frac = clamped
 
+    if args.seed is None:
+        import time as _time
+        args.seed = _time.time_ns() % (2**32 - 1)
     np.random.seed(args.seed)
 
     if args.ext_Bx is not None or args.ext_By is not None:
@@ -2575,7 +2658,7 @@ def main():
         return              f"{B*1e6:.2f} µT"
 
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V77")
+    _print(f"  Version      : V78")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2647,6 +2730,42 @@ def main():
         dom = "DOMINANT" if ratio > 1 else "weak"
         _print(f"  B_ext/B_ref  : {ratio:.3f}  (External Field - {dom})")
     _print()
+
+    # Wait for user confirmation to proceed (with a 5-second countdown reading single keypress)
+    if sys.stdin.isatty():
+        import select
+        import tty
+        import termios
+        import os as _os
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            for remaining in range(5, 0, -1):
+                sys.stdout.write(f"\rProceed ?  [y/n] {remaining} ")
+                sys.stdout.flush()
+                rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
+                if rlist:
+                    char = _os.read(fd, 1).decode('utf-8', errors='ignore').strip().lower()
+                    if char == 'n':
+                        sys.stdout.write("\nAborted.\n")
+                        sys.stdout.flush()
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                        sys.exit(0)
+                    else:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        break
+            else:
+                sys.stdout.write("\rProceed ?  [y/n] Proceeding by default...\n")
+                sys.stdout.flush()
+        except Exception:
+            pass
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
 
     ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
                       r_halo=r_halo, halo_mode=args.halo_mode,
