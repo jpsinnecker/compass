@@ -1,6 +1,6 @@
 """
 ============================================================
-compass.py — Simulation of a compass-needle lattice V78
+compass.py — Simulation of a compass-needle lattice V79
 ============================================================
 
 Models a 2D grid of classical magnetic dipoles, represented as compass
@@ -266,23 +266,49 @@ def _print_progress_bar_finish():
 # ══════════════════════════════════════════════════════════════════════════════
 
 MU0_OVER_4PI = 1.0e-7   # T·m/A
-MOMENT_DEFAULT = 0.1      # A·m²
-INERTIA_DEFAULT = 1.0e-7  # kg·m²
+MOMENT_DEFAULT = 4.902e-3      # A·m²
+INERTIA_DEFAULT = 1.625e-10  # kg·m²
 STEEL_DENSITY_DEFAULT = 7850.0   # kg/m³
-NEEDLE_THICKNESS_DEFAULT = 0.4e-3   # m
+NEEDLE_THICKNESS_DEFAULT = 0.26e-3   # m
 STEEL_MS_SATURATION_DEFAULT = 1.59e6   # A/m
 
 
 def compute_inertia_from_geometry(needle_len, needle_width, thickness,
-                                  density=STEEL_DENSITY_DEFAULT):
-    mass = density * needle_len * needle_width * thickness
-    I = (1.0 / 12.0) * mass * (needle_len**2 + needle_width**2)
-    return I
+                                  density=STEEL_DENSITY_DEFAULT,
+                                  pivot_radius=0.0, pivot_thickness=0.0,
+                                  pivot_density=8500.0, pivot_mass=None):
+    # Rhombus area: 0.5 * L * W
+    area_solid = 0.5 * needle_len * needle_width
+    mass_solid = density * area_solid * thickness
+    I_solid = (1.0 / 24.0) * mass_solid * (needle_len**2 + needle_width**2)
+
+    # Subtract the cylindrical hole at the center (z-axis perpendicular to blade)
+    if pivot_radius > 0.0:
+        area_hole = np.pi * (pivot_radius**2)
+        mass_hole = density * area_hole * thickness
+        I_hole = 0.5 * mass_hole * (pivot_radius**2)
+        I_blade = max(0.0, I_solid - I_hole)
+    else:
+        I_blade = I_solid
+
+    # Add the central pivot cylinder
+    if pivot_mass is not None:
+        mass_pivot = pivot_mass
+    else:
+        mass_pivot = pivot_density * np.pi * (pivot_radius**2) * pivot_thickness
+
+    I_pivot = 0.5 * mass_pivot * (pivot_radius**2)
+    return I_blade + I_pivot
 
 
 def compute_moment_from_geometry(needle_len, needle_width, thickness,
-                                 Ms=STEEL_MS_SATURATION_DEFAULT):
-    volume = needle_len * needle_width * thickness
+                                 Ms=STEEL_MS_SATURATION_DEFAULT,
+                                 pivot_radius=0.0):
+    # Rhombus area: 0.5 * L * W, minus the pivot hole
+    area_solid = 0.5 * needle_len * needle_width
+    area_hole = np.pi * (pivot_radius**2)
+    area_net = max(0.0, area_solid - area_hole)
+    volume = area_net * thickness
     m = Ms * volume
     return m
 
@@ -2428,13 +2454,13 @@ def main():
                      help='Number of needle ROWS')
     grp.add_argument('--M', type=int, default=8,
                      help='Number of needle COLUMNS')
-    grp.add_argument('--R', type=float, default=0.025,
+    grp.add_argument('--R', type=float, default=0.0075,
                      help='Radius of the circumscribed circle enclosing each needle [m]. '
                            'The distance between neighbor centers = 2R. '
-                           'Default: 0.025 m = 2.5 cm')
-    grp.add_argument('--needle_frac', type=float, default=0.80,
+                           'Default: 0.0075 m = 0.75 cm')
+    grp.add_argument('--needle_frac', type=float, default=2.0/3.0,
                      help='Needle length as a fraction of the diameter 2R '
-                           '(0.0 to 0.8). Default: 0.80  ->  needle = 0.80 * 2R. '
+                           '(0.0 to 0.8). Default: 2/3 (0.6667)  ->  needle = (2/3) * 2R. '
                            'Values outside the range will be clamped.')
     grp.add_argument('--geometry',
                      choices=['square', 'triangular', 'honeycomb'],
@@ -2462,6 +2488,14 @@ def main():
                            'mass = density * L * width * thickness. '
                            'If supplied explicitly, this value '
                            'overrides the automatic calculation.')
+    grp2.add_argument('--pivot_radius', type=float, default=1.0e-3,
+                      help='Radius of the cylindrical pivot at the center of the needle [m] (default: 1.0e-3 = 1.0 mm).')
+    grp2.add_argument('--pivot_thickness', type=float, default=2.0e-3,
+                      help='Thickness/height of the cylindrical pivot [m] (default: 2.0e-3 = 2.0 mm).')
+    grp2.add_argument('--pivot_density', type=float, default=8500.0,
+                      help='Density of the pivot material [kg/m³] (default: 8500.0 for brass).')
+    grp2.add_argument('--pivot_mass', type=float, default=None,
+                      help='Explicit mass of the pivot [kg]. If provided, overrides density and dimension calculations.')
     grp2.add_argument('--needle_thickness', type=float,
                       default=NEEDLE_THICKNESS_DEFAULT,
                       help='Thickness of the steel sheet of the needle [m], '
@@ -2628,12 +2662,16 @@ def main():
 
     R          = args.R
     needle_len = args.needle_frac * 2.0 * R
-    needle_width = needle_len * 0.22
+    needle_width = needle_len * 0.30
 
     if args.inertia is None:
         inertia = compute_inertia_from_geometry(
             needle_len, needle_width, args.needle_thickness,
-            density=args.steel_density)
+            density=args.steel_density,
+            pivot_radius=args.pivot_radius,
+            pivot_thickness=args.pivot_thickness,
+            pivot_density=args.pivot_density,
+            pivot_mass=args.pivot_mass)
         _inertia_auto = True
     else:
         inertia = args.inertia
@@ -2645,7 +2683,8 @@ def main():
         _Ms_used = STEEL_MS_SATURATION_DEFAULT
     if args.moment is None:
         moment = compute_moment_from_geometry(
-            needle_len, needle_width, args.needle_thickness, Ms=_Ms_used)
+            needle_len, needle_width, args.needle_thickness, Ms=_Ms_used,
+            pivot_radius=args.pivot_radius)
         _moment_auto = True
     else:
         moment = args.moment
@@ -2657,8 +2696,44 @@ def main():
         if B >= 1e-4:   return f"{B*1e3:.4f} mT"
         return              f"{B*1e6:.2f} µT"
 
+    # Precalculate grid distance to compute Q before the banner
+    xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
+        N=args.N, M=args.M,
+        geometry=args.geometry,
+        noise=args.noise,
+        R=args.R,
+    )
+
+    r_halo     = R * 0.98
+    cutoff     = nn_dist * 2.6
+    pbc_warning_msg = None
+    if args.pbc:
+        max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
+        if cutoff > max_cutoff_pbc:
+            pbc_warning_msg = (f"  PBC: cutoff reduced from {cutoff*100:.2f}cm to "
+                               f"{max_cutoff_pbc*100:.2f}cm (min(Lx,Ly)/2 limit)")
+            cutoff = max_cutoff_pbc
+
+    B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
+    B_eff = max(B_ref, B_ext_mag)
+    omega0 = np.sqrt(moment * B_eff / inertia)
+    Q = omega0 * inertia / args.damping if args.damping > 0 else np.inf
+
+    if Q == np.inf:
+        q_val_str = "inf"
+        q_desc = "no damping"
+    else:
+        if Q > 2:
+            q_desc = "sub-damping(oscilates)"
+        elif Q > 0.5:
+            q_desc = "critically damped"
+        else:
+            q_desc = "overdamped"
+            
+        q_val_str = f"{Q:.3e}"
+
     _print(f"\n{'═'*62}")
-    _print(f"  Version      : V78")
+    _print(f"  Version      : V79")
     _print(f"  Developer    : J.P. Sinnecker")
     if args.gpu and _GPU_AVAILABLE:
         try:
@@ -2691,14 +2766,24 @@ def main():
     else:
         _print(f"  Mag Moment.  : {moment:.4g} A.m2  per needle [manual value]")
     if _inertia_auto:
-        _mass_g = args.steel_density * needle_len * needle_width * args.needle_thickness * 1e3
-        _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle")
+        _area_solid = 0.5 * needle_len * needle_width
+        _area_hole = np.pi * (args.pivot_radius**2) if args.pivot_radius > 0.0 else 0.0
+        _mass_g = args.steel_density * max(0.0, _area_solid - _area_hole) * args.needle_thickness * 1e3
+        if args.pivot_radius > 0.0:
+            if args.pivot_mass is not None:
+                _pivot_mass_g = args.pivot_mass * 1e3
+            else:
+                _pivot_mass_g = args.pivot_density * np.pi * (args.pivot_radius**2) * args.pivot_thickness * 1e3
+            _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle (blade: {_mass_g:.2e}g, pivot: {_pivot_mass_g:.2e}g)")
+        else:
+            _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle (blade: {_mass_g:.2e}g)")
     else:
         _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle [manual value]")
     if args.damping_noise > 0.0:
         _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air) [+/- {args.damping_noise*100:.1f}% noise]")
     else:
         _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air)")
+    _print(f"  Q            : {q_val_str}  ({q_desc})")
     _print(f"  External Field: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} degrees")
     _print(f"  Components   : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
     field_mode_str = args.field_mode
@@ -2706,24 +2791,8 @@ def main():
     _print(f"  Noise Seed   : {args.seed}")
     _print(f"{'═'*62}\n")
 
-    xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
-        N=args.N, M=args.M,
-        geometry=args.geometry,
-        noise=args.noise,
-        R=args.R,
-    )
-
-    r_halo     = R * 0.98
-    cutoff     = nn_dist * 2.6
-
-    if args.pbc:
-        max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
-        if cutoff > max_cutoff_pbc:
-            _print(f"  PBC: cutoff reduced from {cutoff*100:.2f}cm to "
-                    f"{max_cutoff_pbc*100:.2f}cm (min(Lx,Ly)/2 limit)")
-            cutoff = max_cutoff_pbc
-
-    B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
+    if pbc_warning_msg:
+        _print(pbc_warning_msg)
     _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (Between neighbours)")
     if B_ext_mag > 0:
         ratio = B_ext_mag / B_ref
@@ -2731,7 +2800,7 @@ def main():
         _print(f"  B_ext/B_ref  : {ratio:.3f}  (External Field - {dom})")
     _print()
 
-    # Wait for user confirmation to proceed (with a 5-second countdown reading single keypress)
+    # Wait for user confirmation to proceed (with a 10-second countdown reading single keypress)
     if sys.stdin.isatty():
         import select
         import tty
@@ -2741,8 +2810,8 @@ def main():
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setcbreak(fd)
-            for remaining in range(5, 0, -1):
-                sys.stdout.write(f"\rProceed ?  [y/n] {remaining} ")
+            for remaining in range(10, 0, -1):
+                sys.stdout.write(f"\rProceed ?  [y/n] {remaining:<2} ")
                 sys.stdout.flush()
                 rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
                 if rlist:
