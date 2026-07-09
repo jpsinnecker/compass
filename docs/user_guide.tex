@@ -106,7 +106,7 @@ The dipolar magnetic field $\vec{B}_i^{\text{dip}}$ generated at the center of n
 where $\vec{r}_{ij} = \vec{r}_i - \vec{r}_j$, $r_{ij} = |\vec{r}_{ij}|$, and $\hat{r}_{ij} = \vec{r}_{ij}/r_{ij}$.
 
 \subsection{Automatic Physical Parameter Calibration}
-If not explicitly overridden in the CLI, the simulator automatically calibrates the physical properties of the needles by assuming each is a flat rectangular steel sheet of thickness $d$ (default $0.40\text{ mm}$), width $w = L / 10$, and length $L = 2R \cdot \text{needle\_frac}$, where $R$ is the circumscribed circle radius of the lattice cell and $\text{needle\_frac}$ is the fractional needle size:
+If not explicitly overridden in the CLI, the simulator automatically calibrates the physical properties of the needles by assuming each is a flat rectangular steel sheet of thickness $d$ (default $0.40\text{ mm}$), width $w = 0.22\,L$, and length $L = 2R \cdot \text{needle\_frac}$, where $R$ is the circumscribed circle radius of the lattice cell and $\text{needle\_frac}$ is the fractional needle size:
 \begin{itemize}
     \item \textbf{Mass}: Computed using a standard carbon steel density $\rho \approx 7850\text{ kg/m}^3$:
     \begin{equation}
@@ -116,11 +116,21 @@ If not explicitly overridden in the CLI, the simulator automatically calibrates 
     \begin{equation}
     I = \frac{1}{12} \text{mass} \cdot (L^2 + w^2)
     \end{equation}
-    \item \textbf{Magnetic Moment ($m$)}: Assumes the steel is magnetized to saturation ($B_{\text{sat}} = 2.0\text{ T}$) along its longitudinal axis:
+    \item \textbf{Magnetic Moment ($m$)}: Assumes the steel is magnetized to saturation ($B_{\text{sat}} = 2.0\text{ T}$, corresponding to $M_s = 1.59 \times 10^6\text{ A/m}$) along its longitudinal axis:
     \begin{equation}
     m = M_s \cdot \text{volume} = \frac{B_{\text{sat}}}{\mu_0} (L \cdot w \cdot d)
     \end{equation}
 \end{itemize}
+
+\subsection{Quality Factor and Dynamical Regime}
+The degree of damping is characterized by the dimensionless quality factor $Q$:
+
+\begin{equation}
+Q = \frac{\omega_0 I}{b}
+\end{equation}
+
+\noindent
+with $Q \gg 1$ underdamped (needles oscillate visibly before settling) and $Q \ll 1$ overdamped (monotonic relaxation). The transition between these regimes occurs at the critical value $Q_c = 0.5$. The default value of \code{--damping} ($5 \times 10^{-8}$ N$\cdot$m$\cdot$s/rad) places a standard tabletop needle at $Q \approx 25$, in the strongly underdamped regime.
 
 \subsection{Integration Scheme and Time Step}
 Equation~\eqref{eq:motion} is integrated numerically using a second-order \textbf{Velocity-Verlet} algorithm. To maintain numerical stability while ensuring physical correctness across diverse damping regimes, the integration time step $\Delta t$ is computed dynamically as a fraction of the needle's natural oscillation period $T_0$:
@@ -282,9 +292,9 @@ Parameters specific to advanced field sweeps and pre-simulation preparation:
 \begin{description}
     \item[\code{--forc\_n\_curves <int>}] Number of minor reversal curves to simulate in FORC mode. Default: \code{30}.
     \item[\code{--forc\_Br\_min <float>}] Minimum reversal field $B_{r,\min}$ (\si{T}). Defaults to $-B_{\max}$ if unspecified.
-    \item[\code{--forc\_t\_sat <float>}] Duration (\si{s}) the system is held in positive saturation $+B_{\max}$ prior to starting each curve. Default: \code{0.05}.
-    \item[\code{--forc\_t\_ramp\_down <float>}] Time allocated to ramp from positive saturation to the reversal field $B_r$. Default: \code{0.10}.
-    \item[\code{--forc\_t\_ramp\_up <float>}] Time allocated to sweep back up from $B_r$ to $+B_{\max}$. Default: \code{0.20}.
+    \item[\code{--forc\_t\_sat <float>}] Duration (\si{s}) the system is held in positive saturation $+B_{\max}$ prior to starting each curve. Default: \code{0.05} (used if \code{--forc\_rate} is not specified).
+    \item[\code{--forc\_t\_ramp\_down <float>}] Time (\si{s}) to ramp from positive saturation down to the reversal field $B_r$. Default: \code{0.10} (used if \code{--forc\_rate} is not specified).
+    \item[\code{--forc\_t\_ramp\_up <float>}] Time (\si{s}) to sweep back from $B_r$ up to $+B_{\max}$. Default: \code{0.20} (used if \code{--forc\_rate} is not specified).
     \item[\code{--forc\_sweep \{both,up,down\}}] Trace increasing field curves, decreasing field curves, or both. Default: \code{both}.
     \item[\code{--forc\_rate <float>}] Target constant sweep rate $R$ (\si{T/s}). If specified, the sweep durations are scaled dynamically to enforce a constant rate $dB/dt = R$ across all loops. Default: \code{None}.
     \item[\code{--demag \{off,on,rotational,anneal\}}] Selects a pre-relaxation protocol to demagnetize the lattice: \code{off} (none), \code{on}/\code{rotational} (rotational decaying field), or \code{anneal} (simulated thermal annealing). Default: \code{off}.
@@ -327,8 +337,8 @@ When \code{--make\_images 1} is active, the following summary plots are generate
 \begin{itemize}
     \item \code{compass\_initial.png}: Shows the initial angular orientation configuration of the needles.
     \item \code{compass\_equilibrium.png}: Displays the final, relaxed configuration of the needle lattice.
-    \item \code{compass\_comparison.png}: Displays a side-by-side comparison of the initial and final states, along with histograms of angular displacement and local domain size distributions.
-    \item \code{compass\_order\_param.png}: Plots the temporal evolution of the lattice-wide order parameter $S(t) = \frac{1}{K} | \sum_{j=1}^K e^{i\theta_j} |$.
+    \item \code{compass\_comparison.png}: Displays a side-by-side comparison of the initial and final states of the needle array.
+    \item \code{compass\_order\_param.png}: Plots the temporal evolution of the lattice-wide order parameter $S(t) = \frac{1}{K} \left| \sum_{j=1}^{K} e^{i\theta_j} \right|$.
     \item \code{hysteresis\_loop.png} or \code{forc\_curves.png}: Generated during field sweeps. Plots the projected lattice magnetization $M_{\text{proj}}$ as a function of the external field $B_{\text{ext}}$.
     \item \code{sine\_field.png}: Time-series of both the sinusoidal external field and the lattice's projected magnetization.
 \end{itemize}
@@ -485,9 +495,9 @@ This section provides a quick lookup for all command-line interface arguments av
 \midrule
 \code{--forc\_n\_curves} & \code{int} & \code{30} & Number of First-Order Reversal Curves to trace. \\
 \code{--forc\_Br\_min} & \code{float} & \code{None} & Minimum reversal field limit (\si{T}). Defaults to $-B_{\max}$. \\
-\code{--forc\_t\_sat} & \code{float} & \code{0.05} & Holding time at positive saturation field (\si{s}). \\
-\code{--forc\_t\_ramp\_down} & \code{float} & \code{0.10} & Holding/sweep ramp down time to $B_r$ (\si{s}). \\
-\code{--forc\_t\_ramp\_up} & \code{float} & \code{0.20} & Holding/sweep ramp up time back to saturation (\si{s}). \\
+\code{--forc\_t\_sat} & \code{float} & \code{None} & Hold time at $+B_{\max}$ before each curve (\si{s}); internal default $0.05$~s. \\
+\code{--forc\_t\_ramp\_down} & \code{float} & \code{None} & Ramp time from saturation to $B_r$ (\si{s}); internal default $0.10$~s. \\
+\code{--forc\_t\_ramp\_up} & \code{float} & \code{None} & Sweep time back from $B_r$ to $+B_{\max}$ (\si{s}); internal default $0.20$~s. \\
 \code{--forc\_sweep} & \code{both, up, down} & \code{both} & Curve sweep directions to save and record in CSV. \\
 \code{--forc\_rate} & \code{float} & \code{None} & Constant $dB/dt$ rate (\si{T/s}) for dynamic curve duration scaling. \\
 \code{--demag} & \code{off, on, rotational, anneal} & \code{off} & Selected demagnetization method prior to simulation. \\
