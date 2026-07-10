@@ -46,6 +46,7 @@ import json
 import time
 import argparse
 import itertools
+import contextlib
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,35 +57,70 @@ import compass as cs
 # Fixed physical parameters of the study (same "tabletop" needle in all
 # runs; only geometry/R/damping/seed vary)
 # ────────────────────────────────────────────────────────────────────────
-R_DEFAULT          = 0.025      # m
-NEEDLE_FRAC        = 0.80       # same CLI default
+# Real compass-needle geometry (small tabletop apparatus):
+#   R = 7.5 mm, needle_frac = 2/3, thickness = 0.26 mm,
+#   pivot pin: r=1 mm, h=2 mm, brass (8500 kg/m³)
+# For the LAW3M 2026 campaign (large demonstration needle):
+#   override with --R 0.025 --needle_frac 0.80 --needle_thickness 0.4e-3
+#                  --pivot_radius 0 --pivot_thickness 0
+R_DEFAULT          = 0.0075     # m  — real small needle
+NEEDLE_FRAC        = 2.0/3.0    # same CLI default
 DT_FACTOR          = 0.05       # same CLI default
-CUTOFF_DEFAULT     = 3.5        # same CLI default (in units of R)
-NOISE_DEFAULT      = 1.5        # rad, initial noise in angles (default make_grid)
+CUTOFF_DEFAULT     = 3.5        # in units of r_nn = 2R
+NOISE_DEFAULT      = 1.5        # rad, initial orientation noise
 
 
-def derive_needle_geometry(R, needle_frac=0.80, needle_thickness=0.0004):
+def _bar(done, total, label="", extra="", width=36):
+    """Print a one-line overwriting progress bar.
+    Call with done=0 before the loop to show an empty bar, and with
+    done==total after the last job to finalise (adds newline).
+
+    Example output (on a single overwritten line):
+      HYSTERESIS  [████████████░░░░░░░░░░░░░░░░░░░░░░]  12/80  15.0%  Q=3.46
+    """
+    frac   = done / total if total > 0 else 0.0
+    filled = int(width * frac)
+    bar    = "█" * filled + "░" * (width - filled)
+    pct    = frac * 100.0
+    suffix = f"  {extra}" if extra else ""
+    line   = f"  {label:10s} [{bar}] {done:>4d}/{total}  {pct:5.1f}%{suffix}"
+    end    = "\n" if done == total else "\r"
+    print(line, end=end, flush=True)
+
+
+def derive_needle_geometry(R, needle_frac=2.0/3.0, needle_thickness=0.26e-3):
     needle_len   = needle_frac * 2.0 * R
-    needle_width = needle_len * 0.22
+    needle_width = needle_len * 0.30
     thickness    = needle_thickness
     return needle_len, needle_width, thickness
 
 
-def compute_physical_params(R, needle_frac=0.80, needle_thickness=0.0004,
+def compute_physical_params(R, needle_frac=2.0/3.0, needle_thickness=0.26e-3,
                             steel_density=7850.0, steel_Bsat=None,
-                            moment=None, inertia=None):
+                            moment=None, inertia=None,
+                            pivot_radius=1.0e-3, pivot_thickness=2.0e-3,
+                            pivot_density=8500.0, pivot_mass=None):
     """Replicates exactly what main() does to derive inertia/moment
     from geometry, so that the study is physically consistent
-    among the 3 geometries (same real needle, same steel density)."""
+    among the 3 geometries (same real needle, same steel density).
+
+    Pivot parameters (pivot_radius, pivot_thickness, pivot_density, pivot_mass)
+    are forwarded to compute_inertia_from_geometry() to match compass.py V78's
+    full inertia calculation, which includes the physical pivot pin.
+    All default to zero (no pivot), consistent with compass.py defaults.
+    """
     needle_len, needle_width, thickness = derive_needle_geometry(R, needle_frac, needle_thickness)
     if inertia is None:
-        inertia_val = cs.compute_inertia_from_geometry(needle_len, needle_width, thickness, density=steel_density)
+        inertia_val = cs.compute_inertia_from_geometry(
+            needle_len, needle_width, thickness, density=steel_density,
+            pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+            pivot_density=pivot_density, pivot_mass=pivot_mass)
     else:
         inertia_val = inertia
 
     if moment is None:
         ms_used = steel_Bsat / (4.0 * np.pi * 1e-7) if steel_Bsat is not None else cs.STEEL_MS_SATURATION_DEFAULT
-        moment_val = cs.compute_moment_from_geometry(needle_len, needle_width, thickness, Ms=ms_used)
+        moment_val = cs.compute_moment_from_geometry(needle_len, needle_width, thickness, Ms=ms_used, pivot_radius=pivot_radius)
     else:
         moment_val = moment
 
@@ -115,19 +151,21 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
                         show_progress=False, damping_noise=0.0,
                         needle_frac=0.80, needle_thickness=0.0004,
                         steel_density=7850.0, steel_Bsat=None,
-                        moment=None, inertia=None, noise=1.5):
+                        moment=None, inertia=None, noise=1.5,
+                        pivot_radius=0.0, pivot_thickness=0.0,
+                        pivot_density=8500.0, pivot_mass=None):
     np.random.seed(seed)
     inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
         R, needle_frac=needle_frac, needle_thickness=needle_thickness,
         steel_density=steel_density, steel_Bsat=steel_Bsat,
-        moment=moment, inertia=inertia)
+        moment=moment, inertia=inertia,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass)
 
     xs, ys, thetas, r_nn, Lx, Ly = cs.make_grid(
         N=n_grid, M=n_grid, geometry=geometry, noise=noise, R=R)
 
     Q, omega0, B_ref = compute_Q(inertia_val, moment_val, damping, r_nn)
-
-    phi_ext_deg = 0.0  # fixed field direction; symmetry axis chosen per geometry does not matter for M_proj
 
     t0 = time.perf_counter()
     theta_f, omega_f, hist, n_frames, dt, stop_reason, field_log = cs.relax(
@@ -148,6 +186,8 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
         damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
         inertia=inertia_val, moment=moment_val, r_nn=r_nn,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass,
         t_sim=t_sim, dt=dt, dt_factor=dt_factor, n_steps=len(field_log),
         pbc=pbc, stop_reason=stop_reason, wall_seconds=wall_s,
         field_mode='hysteresis',
@@ -161,12 +201,16 @@ def run_one_relax(geometry, R, damping, seed, t_sim, n_grid,
                    needle_frac=0.80, needle_thickness=0.0004,
                    steel_density=7850.0, steel_Bsat=None,
                    moment=None, inertia=None, noise=1.5,
-                   domain_tol=15.0):
+                   domain_tol=15.0,
+                   pivot_radius=0.0, pivot_thickness=0.0,
+                   pivot_density=8500.0, pivot_mass=None):
     np.random.seed(seed)
     inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
         R, needle_frac=needle_frac, needle_thickness=needle_thickness,
         steel_density=steel_density, steel_Bsat=steel_Bsat,
-        moment=moment, inertia=inertia)
+        moment=moment, inertia=inertia,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass)
 
     xs, ys, thetas, r_nn, Lx, Ly = cs.make_grid(
         N=n_grid, M=n_grid, geometry=geometry, noise=noise, R=R)
@@ -197,6 +241,8 @@ def run_one_relax(geometry, R, damping, seed, t_sim, n_grid,
         damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref,
         inertia=inertia_val, moment=moment_val, r_nn=r_nn,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass,
         t_sim=t_sim, dt=dt, dt_factor=dt_factor, n_steps=len(field_log),
         pbc=pbc, stop_reason=stop_reason, wall_seconds=wall_s,
         field_mode='static_relax',
@@ -210,6 +256,86 @@ def save_field_log_csv(field_log, path):
     arr = np.array(field_log)  # columns: t, B, M, S
     header = "t,B,M,S"
     np.savetxt(path, arr, delimiter=",", header=header, comments="")
+
+
+def save_forc_csv(field_log, path):
+    """Saves the FORC field log (7 columns) to CSV.
+    Columns: t, B, M, S, B_r, sweep_dir, curve_idx
+    Only 'up'-sweep rows are written (ascending branches only)."""
+    import csv as csv_mod
+    with open(path, 'w', newline='') as f:
+        w = csv_mod.writer(f)
+        w.writerow(['t', 'B', 'M', 'S', 'B_r', 'sweep_dir', 'curve_idx'])
+        for row in field_log:
+            if len(row) >= 7 and row[5] == 'up':
+                w.writerow(row)
+
+
+def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
+                  pbc=False, dt_factor=0.05, use_gpu=False,
+                  show_progress=False, damping_noise=0.0,
+                  needle_frac=2.0/3.0, needle_thickness=0.26e-3,
+                  steel_density=7850.0, steel_Bsat=None,
+                  moment=None, inertia=None, noise=1.5,
+                  pivot_radius=1.0e-3, pivot_thickness=2.0e-3,
+                  pivot_density=8500.0, pivot_mass=None,
+                  forc_n_curves=20, forc_Br_min=None,
+                  forc_rate=None, forc_t_sat=None,
+                  forc_t_ramp_down=None, forc_t_ramp_up=None):
+    """Runs one complete FORC measurement (all reversal curves) for a single
+    (geometry, damping, seed) point, using compass.py field_mode='forc'.
+    Returns (field_log, meta) where field_log rows are
+    [t, B, M, S, B_r, sweep_dir, curve_idx]."""
+    np.random.seed(seed)
+    inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
+        R, needle_frac=needle_frac, needle_thickness=needle_thickness,
+        steel_density=steel_density, steel_Bsat=steel_Bsat,
+        moment=moment, inertia=inertia,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass)
+
+    xs, ys, thetas, r_nn, Lx, Ly = cs.make_grid(
+        N=n_grid, M=n_grid, geometry=geometry, noise=noise, R=R)
+
+    Q, omega0, B_ref = compute_Q(inertia_val, moment_val, damping, r_nn)
+    Br_min = forc_Br_min if forc_Br_min is not None else -B_max
+
+    t0 = time.perf_counter()
+    theta_f, omega_f, hist, n_frames, dt, stop_reason, field_log = cs.relax(
+        thetas, xs, ys,
+        t_sim=0.0,              # t_sim is auto-computed by relax() in forc mode
+        dt_factor=dt_factor,
+        inertia=inertia_val, damping=damping,
+        damping_noise=damping_noise,
+        cutoff=CUTOFF_DEFAULT, ext_field=(B_max, 0.0),
+        moment=moment_val, field_mode='forc',
+        pbc=pbc, Lx=Lx if pbc else None, Ly=Ly if pbc else None,
+        use_gpu=use_gpu, show_progress=show_progress,
+        make_images=False,
+        forc_n_curves=forc_n_curves,
+        forc_Br_min=Br_min,
+        forc_rate=forc_rate,
+        forc_t_sat=forc_t_sat,
+        forc_t_ramp_down=forc_t_ramp_down,
+        forc_t_ramp_up=forc_t_ramp_up,
+        forc_sweep='up',        # record only the ascending branch (standard FORC)
+    )
+    wall_s = time.perf_counter() - t0
+
+    meta = dict(
+        geometry=geometry, R=R, n_grid=n_grid, seed=seed,
+        damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
+        inertia=inertia_val, moment=moment_val, r_nn=r_nn,
+        needle_len=needle_len, needle_width=needle_width, thickness=thickness,
+        pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
+        pivot_density=pivot_density, pivot_mass=pivot_mass,
+        dt=dt, dt_factor=dt_factor, n_steps=len(field_log),
+        pbc=pbc, stop_reason=stop_reason, wall_seconds=wall_s,
+        field_mode='forc',
+        forc_n_curves=forc_n_curves,
+        forc_Br_min=Br_min,
+    )
+    return field_log, meta
 
 
 def main():
@@ -236,10 +362,29 @@ def main():
                      help='Relative noise amplitude for per-needle damping')
     ap.add_argument('--skip_relax_stage', type=int, default=0,
                      help='If 1, only runs Stage 1 (hysteresis), skips Stage 2 (relaxation/domains)')
-    ap.add_argument('--needle_frac', type=float, default=0.80,
-                     help='Needle length fraction (0.0 to 0.8)')
-    ap.add_argument('--needle_thickness', type=float, default=0.0004,
-                     help='Thickness of the steel sheet [m]')
+    ap.add_argument('--skip_forc_stage', type=int, default=0,
+                     help='If 1, skips Stage 3 (FORC measurement)')
+    ap.add_argument('--forc_n_curves', type=int, default=20,
+                     help='Number of FORC reversal curves per run (default 20; quick_test uses 3)')
+    ap.add_argument('--forc_Br_min', type=float, default=None,
+                     help='Minimum reversal field [T] (default: -B_max, i.e. full range)')
+    ap.add_argument('--forc_rate', type=float, default=None,
+                     help='Constant field sweep rate for FORC ramps [T/s]. '
+                          'If None, fixed forc_t_ramp_down/up times are used.')
+    ap.add_argument('--forc_t_sat', type=float, default=None,
+                     help='Saturation hold time per FORC cycle [s] (default: compass.py default 0.05 s)')
+    ap.add_argument('--forc_t_ramp_down', type=float, default=None,
+                     help='Ramp-down time per FORC cycle [s] (default: compass.py default 0.10 s)')
+    ap.add_argument('--forc_t_ramp_up', type=float, default=None,
+                     help='Ramp-up time per FORC cycle [s] (default: compass.py default 0.20 s)')
+    ap.add_argument('--needle_frac', type=float, default=2.0/3.0,
+                     help='Needle length as fraction of 2R. '
+                          'Real small needle: 2/3. '
+                          'LAW3M large needle: 0.80')
+    ap.add_argument('--needle_thickness', type=float, default=0.26e-3,
+                     help='Steel blade thickness [m]. '
+                          'Real small needle: 0.26e-3. '
+                          'LAW3M large needle: 0.4e-3')
     ap.add_argument('--steel_density', type=float, default=7850.0,
                      help='Density of the steel [kg/m^3]')
     ap.add_argument('--steel_Bsat', type=float, default=None,
@@ -248,6 +393,16 @@ def main():
                      help='Magnetic moment overriding calculation')
     ap.add_argument('--inertia', type=float, default=None,
                      help='Moment of inertia overriding calculation')
+    ap.add_argument('--pivot_radius', type=float, default=1.0e-3,
+                     help='Pivot pin radius [m] (real needle: 1 mm; '
+                          'LAW3M large needle: 0 to ignore pivot)')
+    ap.add_argument('--pivot_thickness', type=float, default=2.0e-3,
+                     help='Pivot pin thickness [m] (real needle: 2 mm; '
+                          'LAW3M large needle: 0 to ignore pivot)')
+    ap.add_argument('--pivot_density', type=float, default=8500.0,
+                     help='Density of the pivot pin material [kg/m^3]')
+    ap.add_argument('--pivot_mass', type=float, default=None,
+                     help='Override pivot mass directly [kg] (overrides pivot_radius/thickness/density)')
     ap.add_argument('--dt_factor', type=float, default=0.05,
                      help='Fraction of natural period T0 used as time step dt')
     ap.add_argument('--noise', type=float, default=1.5,
@@ -264,6 +419,7 @@ def main():
         args.n_dampings = 3
         args.t_sim_periods = 8.0
         args.grid_n = 12
+        args.forc_n_curves = 3
         print(">>> QUICK_TEST MODE: reduced parameters for pipeline validation <<<")
 
     geometries = args.geometries.split(',')
@@ -271,8 +427,9 @@ def main():
     out_dir = args.out_dir
     hyst_dir   = os.path.join(out_dir, 'hysteresis')
     relax_dir  = os.path.join(out_dir, 'relax')
+    forc_dir   = os.path.join(out_dir, 'forc')
     meta_dir   = os.path.join(out_dir, 'meta')
-    for d in (hyst_dir, relax_dir, meta_dir):
+    for d in (hyst_dir, relax_dir, forc_dir, meta_dir):
         os.makedirs(d, exist_ok=True)
 
     manifest_path = os.path.join(out_dir, 'manifest.csv')
@@ -287,7 +444,9 @@ def main():
     inertia_ref, moment_ref, _, _, _ = compute_physical_params(
         args.R, needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
         steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
-        moment=args.moment, inertia=args.inertia)
+        moment=args.moment, inertia=args.inertia,
+        pivot_radius=args.pivot_radius, pivot_thickness=args.pivot_thickness,
+        pivot_density=args.pivot_density, pivot_mass=args.pivot_mass)
     xs_ref, ys_ref, _, r_nn_ref, _, _ = cs.make_grid(
         N=args.grid_n, M=args.grid_n, geometry='square', noise=0.0, R=args.R)
     damping_vals, Q_nominal, omega0_ref = make_damping_grid(
@@ -311,22 +470,25 @@ def main():
     t_campaign_start = time.perf_counter()
 
     # ── Stage 1: hysteresis ──────────────────────────────────────────────
+    _bar(0, total_runs, label="HYSTERESIS")
     for geometry in geometries:
         for damp_idx, damping in enumerate(damping_vals):
             for seed in range(args.n_seeds):
                 run_idx += 1
                 tag = f"{geometry}_damp{damp_idx:02d}_seed{seed:02d}"
-                print(f"[{run_idx}/{total_runs}] HYSTERESIS  {tag}  "
-                      f"(damping={damping:.3e})  ...", end=' ', flush=True)
 
-                field_log, meta = run_one_hysteresis(
-                    geometry, args.R, damping, seed, t_sim, B_max, args.grid_n,
-                    pbc=bool(args.pbc), use_gpu=bool(args.use_gpu),
-                    damping_noise=args.damping_noise,
-                    needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
-                    steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
-                    moment=args.moment, inertia=args.inertia,
-                    dt_factor=args.dt_factor, noise=args.noise)
+                with open(os.devnull, 'w') as _dn, \
+                        contextlib.redirect_stdout(_dn):
+                    field_log, meta = run_one_hysteresis(
+                        geometry, args.R, damping, seed, t_sim, B_max, args.grid_n,
+                        pbc=bool(args.pbc), use_gpu=bool(args.use_gpu),
+                        damping_noise=args.damping_noise,
+                        needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
+                        steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
+                        moment=args.moment, inertia=args.inertia,
+                        dt_factor=args.dt_factor, noise=args.noise,
+                        pivot_radius=args.pivot_radius, pivot_thickness=args.pivot_thickness,
+                        pivot_density=args.pivot_density, pivot_mass=args.pivot_mass)
 
                 csv_path = os.path.join(hyst_dir, tag + '.csv')
                 meta_path = os.path.join(meta_dir, tag + '_hyst.json')
@@ -341,31 +503,34 @@ def main():
                     wall_seconds=meta['wall_seconds'],
                     csv_path=csv_path, meta_path=meta_path,
                 ))
-                print(f"ok  ({meta['wall_seconds']:.1f}s, Q={meta['Q']:.3f}, "
-                      f"{meta['n_steps']} steps)")
+                _bar(run_idx, total_runs, label="HYSTERESIS",
+                     extra=f"{tag}  Q={meta['Q']:.3f}  {meta['wall_seconds']:.1f}s")
 
     # ── Stage 2: free relaxation / domains ──────────────────────────────
     if not args.skip_relax_stage:
         t_sim_relax = t_sim  # same total time scale, no field
         total_runs_relax = len(geometries) * len(damping_vals) * args.n_seeds
         run_idx2 = 0
+        _bar(0, total_runs_relax, label="RELAX")
         for geometry in geometries:
             for damp_idx, damping in enumerate(damping_vals):
                 for seed in range(args.n_seeds):
                     run_idx2 += 1
                     tag = f"{geometry}_damp{damp_idx:02d}_seed{seed:02d}"
-                    print(f"[{run_idx2}/{total_runs_relax}] RELAX  {tag}  "
-                          f"(damping={damping:.3e})  ...", end=' ', flush=True)
 
-                    field_log, meta = run_one_relax(
-                        geometry, args.R, damping, seed, t_sim_relax, args.grid_n,
-                        pbc=bool(args.pbc), use_gpu=bool(args.use_gpu),
-                        damping_noise=args.damping_noise,
-                        needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
-                        steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
-                        moment=args.moment, inertia=args.inertia,
-                        dt_factor=args.dt_factor, noise=args.noise,
-                        domain_tol=args.domain_tol)
+                    with open(os.devnull, 'w') as _dn, \
+                            contextlib.redirect_stdout(_dn):
+                        field_log, meta = run_one_relax(
+                            geometry, args.R, damping, seed, t_sim_relax, args.grid_n,
+                            pbc=bool(args.pbc), use_gpu=bool(args.use_gpu),
+                            damping_noise=args.damping_noise,
+                            needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
+                            steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
+                            moment=args.moment, inertia=args.inertia,
+                            dt_factor=args.dt_factor, noise=args.noise,
+                            domain_tol=args.domain_tol,
+                            pivot_radius=args.pivot_radius, pivot_thickness=args.pivot_thickness,
+                            pivot_density=args.pivot_density, pivot_mass=args.pivot_mass)
 
                     csv_path = os.path.join(relax_dir, tag + '.csv')
                     meta_path = os.path.join(meta_dir, tag + '_relax.json')
@@ -380,8 +545,54 @@ def main():
                         wall_seconds=meta['wall_seconds'],
                         csv_path=csv_path, meta_path=meta_path,
                     ))
-                    print(f"ok  ({meta['wall_seconds']:.1f}s, Q={meta['Q']:.3f}, "
-                          f"n_domains={meta['n_domains']})")
+                    _bar(run_idx2, total_runs_relax, label="RELAX",
+                         extra=f"{tag}  Q={meta['Q']:.3f}  nd={meta['n_domains']}")
+
+    # ── Stage 3: FORC measurement ──────────────────────────────────
+    if not args.skip_forc_stage:
+        total_runs_forc = len(geometries) * len(damping_vals) * args.n_seeds
+        run_idx3 = 0
+        _bar(0, total_runs_forc, label="FORC")
+        for geometry in geometries:
+            for damp_idx, damping in enumerate(damping_vals):
+                for seed in range(args.n_seeds):
+                    run_idx3 += 1
+                    tag = f"{geometry}_damp{damp_idx:02d}_seed{seed:02d}"
+
+                    with open(os.devnull, 'w') as _dn, \
+                            contextlib.redirect_stdout(_dn):
+                        field_log, meta = run_one_forc(
+                            geometry, args.R, damping, seed, B_max, args.grid_n,
+                            pbc=bool(args.pbc), use_gpu=bool(args.use_gpu),
+                            damping_noise=args.damping_noise,
+                            needle_frac=args.needle_frac, needle_thickness=args.needle_thickness,
+                            steel_density=args.steel_density, steel_Bsat=args.steel_Bsat,
+                            moment=args.moment, inertia=args.inertia,
+                            dt_factor=args.dt_factor, noise=args.noise,
+                            pivot_radius=args.pivot_radius, pivot_thickness=args.pivot_thickness,
+                            pivot_density=args.pivot_density, pivot_mass=args.pivot_mass,
+                            forc_n_curves=args.forc_n_curves,
+                            forc_Br_min=args.forc_Br_min,
+                            forc_rate=args.forc_rate,
+                            forc_t_sat=args.forc_t_sat,
+                            forc_t_ramp_down=args.forc_t_ramp_down,
+                            forc_t_ramp_up=args.forc_t_ramp_up)
+
+                    csv_path = os.path.join(forc_dir, tag + '.csv')
+                    meta_path = os.path.join(meta_dir, tag + '_forc.json')
+                    save_forc_csv(field_log, csv_path)
+                    with open(meta_path, 'w') as f:
+                        json.dump(meta, f, indent=2)
+
+                    manifest_rows.append(dict(
+                        tag=tag, stage='forc', geometry=geometry,
+                        damp_idx=damp_idx, seed=seed, damping=damping,
+                        Q=meta['Q'], n_steps=meta['n_steps'],
+                        wall_seconds=meta['wall_seconds'],
+                        csv_path=csv_path, meta_path=meta_path,
+                    ))
+                    _bar(run_idx3, total_runs_forc, label="FORC",
+                         extra=f"{tag}  Q={meta['Q']:.3f}  {meta['wall_seconds']:.1f}s")
 
     # ── manifest.csv ──────────────────────────────────────────────────
     import csv as csv_module
