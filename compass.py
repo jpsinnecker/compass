@@ -2,6 +2,7 @@
 """
 compassV02.py — research-grade simulation of dipolar compass-needle arrays
 Version: V2.0.2, July 2026
+File timestamp: 2026-07-10 11:50:24 -03
 
 Purpose
 -------
@@ -71,6 +72,7 @@ import json
 import math
 import os
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -104,6 +106,7 @@ NEEDLE_LEN_DEFAULT = 0.010  # m, physical blade length
 NEEDLE_WIDTH_DEFAULT = 0.003  # m, physical blade width
 NEEDLE_THICKNESS_DEFAULT = 0.0004  # m
 DAMPING_DEFAULT = 5.0e-8  # N m s / rad
+SOURCE_FILE_TIMESTAMP = "2026-07-10T11:50:24-03:00"  # generation/update timestamp
 
 
 # =============================================================================
@@ -783,6 +786,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     data_dir = ensure_dir(out_dir / "data")
     meta_dir = ensure_dir(out_dir / "meta")
     state_dir = ensure_dir(out_dir / "states")
+    image_dir = ensure_dir(out_dir / "images")
 
     seed = args.seed if args.seed is not None else int(time.time_ns() % (2**32 - 1))
     rng = np.random.default_rng(seed)
@@ -939,6 +943,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     tag = args.tag or f"{args.geometry}_{args.field_mode}_N{args.N}_M{args.M}_seed{seed}"
     csv_path = data_dir / f"{tag}.csv"
     meta_path = meta_dir / f"{tag}.json"
+    initial_state_path = state_dir / f"{tag}_initial.npz"
     state_path = state_dir / f"{tag}_final.npz"
 
     config = SimulationConfig(
@@ -977,7 +982,10 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     metadata = {
         "program": "compassV02.py",
         "version": "2.0.2",
+        "source_file_timestamp": SOURCE_FILE_TIMESTAMP,
         "created_unix_time": time.time(),
+        "created_datetime_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_datetime_local": datetime.now().astimezone().isoformat(timespec="seconds"),
         "tag": tag,
         "config": asdict(config),
         "derived": {
@@ -1009,6 +1017,17 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "E_kin": "0.5 I sum_i omega_i^2",
         },
     }
+
+    # Save the initial state before time integration.
+    np.savez_compressed(
+        initial_state_path,
+        xs=geom.xs,
+        ys=geom.ys,
+        theta=backend.to_cpu(theta),
+        omega=backend.to_cpu(omega),
+        r_nn=geom.r_nn,
+        metadata_json=json.dumps(metadata),
+    )
 
     if args.verbose:
         print(f"Backend      : {backend.name}")
@@ -1141,6 +1160,36 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     with open(meta_path, "w") as fh:
         json.dump(metadata, fh, indent=2)
 
+    # Always generate initial and final lattice figures.
+    try:
+        make_lattice_png(
+            initial_state_path,
+            image_dir / f"{tag}_initial_lattice.png",
+            dpi=args.png_dpi,
+            transparent=args.png_transparent,
+            with_axes=args.png_with_axes,
+            title="Initial state",
+        )
+        make_lattice_png(
+            state_path,
+            image_dir / f"{tag}_final_lattice.png",
+            dpi=args.png_dpi,
+            transparent=args.png_transparent,
+            with_axes=args.png_with_axes,
+            title="Final state",
+        )
+        make_initial_final_lattice_png(
+            initial_state_path,
+            state_path,
+            image_dir / f"{tag}_initial_final.png",
+            dpi=args.png_dpi,
+            transparent=args.png_transparent,
+            with_axes=args.png_with_axes,
+            panel_titles=not args.png_no_panel_titles,
+        )
+    except Exception as exc:
+        print(f"[warning] lattice PNG generation failed: {exc}")
+
     if args.make_plot:
         try:
             make_quick_plot(csv_path, out_dir / f"{tag}_quicklook.png")
@@ -1149,6 +1198,119 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
 
     return csv_path, meta_path, state_path
 
+
+
+# =============================================================================
+# Lattice PNG plotting
+# =============================================================================
+
+
+def _load_state_npz_for_png(npz_path: Path) -> Dict[str, object]:
+    data = np.load(npz_path, allow_pickle=True)
+    meta = json.loads(str(data["metadata_json"])) if "metadata_json" in data.files else {}
+    derived = meta.get("derived", {})
+    return {
+        "xs": np.asarray(data["xs"], dtype=float),
+        "ys": np.asarray(data["ys"], dtype=float),
+        "theta": np.asarray(data["theta"], dtype=float),
+        "r_nn": float(data["r_nn"]) if "r_nn" in data.files else float(derived.get("r_nn_m", 1.0)),
+        "needle_len": float(derived.get("needle_len_m", NEEDLE_LEN_DEFAULT)),
+        "needle_width": float(derived.get("needle_width_m", NEEDLE_WIDTH_DEFAULT)),
+        "metadata": meta,
+    }
+
+
+def _needle_halves_for_png(x: float, y: float, theta: float, length: float, width: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Return blue/north and white/south triangular halves of a compass needle."""
+    u = np.array([math.cos(theta), math.sin(theta)])
+    v = np.array([-math.sin(theta), math.cos(theta)])
+    c = np.array([x, y])
+    left_tip = c - 0.5 * length * u
+    right_tip = c + 0.5 * length * u
+    top_mid = c + 0.5 * width * v
+    bottom_mid = c - 0.5 * width * v
+    return np.array([left_tip, top_mid, bottom_mid]), np.array([right_tip, top_mid, bottom_mid])
+
+
+def _draw_lattice_png(ax, state: Dict[str, object], with_axes: bool = False, title: Optional[str] = None):
+    from matplotlib.patches import Polygon, Circle
+
+    xs = state["xs"]
+    ys = state["ys"]
+    theta = state["theta"]
+    r_nn = float(state["r_nn"])
+    needle_len = float(state["needle_len"])
+    needle_width = float(state["needle_width"])
+
+    blue_north = "#0017B8"
+    white_south = "#F2F2F2"
+    edge = "#4D4D4D"
+    pivot = "#777777"
+
+    for x, y, th in zip(xs, ys, theta):
+        north_half, south_half = _needle_halves_for_png(float(x), float(y), float(th), needle_len, needle_width)
+        ax.add_patch(Polygon(north_half, closed=True, facecolor=blue_north, edgecolor=edge,
+                             linewidth=0.8, joinstyle="miter", zorder=2))
+        ax.add_patch(Polygon(south_half, closed=True, facecolor=white_south, edgecolor=edge,
+                             linewidth=0.8, joinstyle="miter", zorder=2))
+        ax.add_patch(Circle((float(x), float(y)), 0.085 * r_nn, facecolor=pivot,
+                            edgecolor=edge, linewidth=0.6, zorder=5))
+        ax.add_patch(Circle((float(x), float(y)), 0.025 * r_nn, facecolor=pivot,
+                            edgecolor="white", linewidth=0.35, zorder=6))
+
+    margin = 0.8 * r_nn
+    ax.set_xlim(float(np.min(xs)) - margin, float(np.max(xs)) + margin)
+    ax.set_ylim(float(np.min(ys)) - margin, float(np.max(ys)) + margin)
+    ax.set_aspect("equal")
+
+    if with_axes:
+        if title:
+            ax.set_title(title)
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        ax.grid(alpha=0.25)
+    else:
+        ax.axis("off")
+
+
+def make_lattice_png(npz_path: Path, png_path: Path, dpi: int = 300,
+                     transparent: bool = False, with_axes: bool = False,
+                     title: Optional[str] = None):
+    """Generate one clean lattice PNG from a saved state NPZ."""
+    import matplotlib.pyplot as plt
+
+    state = _load_state_npz_for_png(npz_path)
+    fig, ax = plt.subplots(figsize=(6, 6), facecolor="none" if transparent else "white")
+    _draw_lattice_png(ax, state, with_axes=with_axes, title=title)
+    if with_axes:
+        fig.tight_layout()
+    else:
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    ensure_dir(Path(png_path).parent)
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight", pad_inches=0 if not with_axes else 0.1,
+                facecolor="none" if transparent else "white", transparent=transparent)
+    plt.close(fig)
+
+
+def make_initial_final_lattice_png(initial_npz: Path, final_npz: Path, png_path: Path,
+                                   dpi: int = 300, transparent: bool = False,
+                                   with_axes: bool = False, panel_titles: bool = True):
+    """Generate side-by-side initial/final lattice PNG from saved state NPZ files."""
+    import matplotlib.pyplot as plt
+
+    s0 = _load_state_npz_for_png(initial_npz)
+    s1 = _load_state_npz_for_png(final_npz)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5), facecolor="none" if transparent else "white")
+    _draw_lattice_png(axes[0], s0, with_axes=with_axes, title="Initial state" if panel_titles else None)
+    _draw_lattice_png(axes[1], s1, with_axes=with_axes, title="Final state" if panel_titles else None)
+    if with_axes:
+        fig.tight_layout()
+    else:
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.02)
+    ensure_dir(Path(png_path).parent)
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight", pad_inches=0 if not with_axes else 0.1,
+                facecolor="none" if transparent else "white", transparent=transparent)
+    plt.close(fig)
 
 # =============================================================================
 # Quick plotting
@@ -1272,6 +1434,10 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--progress", action="store_true")
     g.add_argument("--verbose", action="store_true")
     g.add_argument("--make_plot", action="store_true")
+    g.add_argument("--png_dpi", type=int, default=300, help="DPI for automatic lattice PNG images")
+    g.add_argument("--png_transparent", action="store_true", help="save lattice PNGs with transparent background")
+    g.add_argument("--png_with_axes", action="store_true", help="include axes/grid/title in lattice PNGs")
+    g.add_argument("--png_no_panel_titles", action="store_true", help="remove Initial/Final panel titles in side-by-side PNG")
     g.add_argument("--domain_tol_deg", type=float, default=15.0)
 
     return p
