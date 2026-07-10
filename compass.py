@@ -1,3058 +1,1292 @@
+#!/usr/bin/env python3
 """
-============================================================
-compass.py — Simulation of a compass-needle lattice V79
-============================================================
+compassV02.py — research-grade simulation of dipolar compass-needle arrays
+Version: V2.0.2, July 2026
 
-Models a 2D grid of classical magnetic dipoles, represented as compass
-needles, that interact through the magnetic field each needle produces at
-its neighbors. The dynamics are inertial, using Newton's second law for
-rotation with no pivot friction and viscous air damping. The integrator is
-Velocity-Verlet. All physical quantities use SI units.
+Purpose
+-------
+This program simulates two-dimensional arrays of classical magnetic compass
+needles. Each needle is represented as a point magnetic dipole fixed at a
+lattice site and free to rotate in the sample plane. The equation of motion is
+Newton's second law for rotation,
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-COMMAND-LINE PARAMETERS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    I theta_ddot = tau_dip + tau_ext - b theta_dot,
 
-┌─ LATTICE GEOMETRY ─────────────────────────────────────────┐
-│                                                            │
-│  --geometry  square | triangular | honeycomb               │
-│              Lattice type. Default: square                 │
-│              · square     : rectangular grid               │
-│              · triangular : equilateral triangular grid    │
-│              · honeycomb  : honeycomb, with hexagonal holes│
-│                                                            │
-│  --N         int   Number of needle ROWS. Default: 8       │
-│  --M         int   Number of needle COLUMNS. Default: 8    │
-│                                                            │
-│  --R         float Radius of each needle circle [m].       │
-│                    Neighbor distance = 2R.                 │
-│                    Default: 0.025 m (2.5 cm)               │
-│                                                            │
-│  --needle_frac float Needle length as a fraction of        │
-│                    the diameter 2R (0.0-1.0).              │
-│                    Default: 0.80 -> needle = 80% of 2R     │
-└────────────────────────────────────────────────────────────┘
+where the dipolar field is computed from the full tensor of pair interactions
+within a controlled cutoff. The code is intended for research studies of
+hysteresis, correlated reversal, damping-controlled avalanches, FORC curves,
+step/pulse relaxation, and director memory in classical dipolar arrays.
 
-┌─ NEEDLE PROPERTIES ────────────────────────────────────────┐
-│                                                            │
-│  --moment    float Magnetic moment of each needle [A·m²].  │
-│                    If omitted, calculated automatically.   │
-│                    Default: calculated from geometry       │
-│                                                            │
-│  --inertia   float Moment of inertia [kg·m²].              │
-│                    If omitted, calculated automatically.   │
-│                    Default: calculated from geometry       │
-│                                                            │
-│  --needle_thickness float Thickness of the needle sheet [m]│
-│                    Default: 0.0004 m (0.4 mm)              │
-│                                                            │
-│  --steel_density float Density of the steel sheet [kg/m³]  │
-│                    Default: 7850 kg/m³                     │
-│                                                            │
-│  --steel_Bsat float Saturation flux density of steel [T]   │
-│                    Default: 2.0 T                          │
-│                                                            │
-│  --damping   float Viscous air damping [N·m·s/rad]         │
-│                    Default: 5e-8 (Q≈25, underdamped)       │
-│                                                            │
-│  --damping_noise float Damping noise fraction (0.0-1.0)    │
-│                    Default: 0.0 (no noise)                 │
-└────────────────────────────────────────────────────────────┘
+Major improvements relative to compass.py V79
+---------------------------------------------
+1. Explicit cutoff convention:
+   --cutoff_shells specifies the cutoff as a multiple of r_nn.
+   --cutoff_m specifies an absolute SI cutoff and overrides cutoff_shells.
+   Internally, the cutoff is always stored in metres and both values are
+   written to metadata.
 
-┌─ SIMULATION PARAMETERS ────────────────────────────────────┐
-│                                                            │
-│  --t_sim     float Total physical simulation time [s].     │
-│                    Sum of integrated dt steps.             │
-│                    Default: 2.0 s                          │
-│                                                            │
-│  --dt_factor float Fraction of the natural period T0 used  │
-│                    as the integration step (0.02-0.10).    │
-│                    Default: 0.05                           │
-│                                                            │
-│  --noise     float Initial angular noise amplitude [rad].  │
-│                    Default: 1.5                            │
-│                                                            │
-│  --seed      int   Random seed for reproducibility.        │
-│                    Default: current time nanoseconds       │
-└────────────────────────────────────────────────────────────┘
+2. Research observables are native outputs:
+   Mx, My, M_proj, S1, S2, director angle, square-axis population q_axis,
+   flip counters, dipolar/external/kinetic energy, omega_rms and omega_max.
+   S1 is polar order. S2 is nematic/director order and is essential for
+   compass-lattice studies where opposite directions may cancel magnetically.
 
-┌─ UNIFORM EXTERNAL FIELD (SI units) ────────────────────────┐
-│  Two ways to specify the field. Do not use both together.  │
-│                                                            │
-│  Form A — magnitude + angle, recommended:                  │
-│  --B_ext     float Field magnitude [T].                    │
-│                    0.0      = no field (default)           │
-│                    50e-6    = Earth's field (≈50 µT)       │
-│                    1e-3     = fridge magnet at 5 cm        │
-│                    0.1      = strong field (aligns all)    │
-│                                                            │
-│  --phi_ext   float Field direction [degrees].              │
-│                    0   = right (+x), default               │
-│                    90  = up (+y)                           │
-│                    180 = left (-x)                         │
-│                    270 = down (-y)                         │
-│                    Counterclockwise sense. Default: 0.0    │
-│                                                            │
-│  --ext_Bx    float x component of the field [T]            │
-│  --ext_By    float y component of the field [T]            │
-└────────────────────────────────────────────────────────────┘
+3. Avalanche activity is exported directly:
+   flip_field counts sign changes relative to the selected drive axis.
+   flip_angle counts rotations larger than --flip_angle_deg in one time step.
+   These are accumulated over each logging interval and should be used for
+   avalanche statistics instead of the continuous order parameter S1.
 
-┌─ OUTPUT ───────────────────────────────────────────────────┐
-│  PNG files are always generated in the current directory:  │
-│    compass_initial.png      initial state                  │
-│    compass_equilibrium.png  final state                    │
-│    compass_comparison.png   side-by-side comparison        │
-│    compass_order_param.png  order parameter S(t)           │
-│                                                            │
-│  --video     str   Path of the MP4 video to generate.      │
-│                    Requires ffmpeg. If the file already    │
-│                    exists, saves as name0001.mp4,          │
-│                    name0002.mp4, etc.                      │
-│                    Example: --video simulation.mp4         │
-│                                                            │
-│  --frame_every int Save one frame every N steps.           │
-│                    Smaller = smoother video, slower run.   │
-					Default: 5                               │
-│                                                            │
-│  --fps       int   Frames per second of the MP4 video.     │
-│                    Default: 24                             │
-│                                                            │
-│  --keep_frames     If present, keeps the folder of         │
-│                    intermediate PNG frames after MP4       │
-│                    generation.                             │
-└────────────────────────────────────────────────────────────┘
+4. Energy accounting:
+   E_dip = -1/2 sum_i m_i · B_i^dip,
+   E_ext = -sum_i m_i · B_ext,
+   E_kin = 1/2 I sum_i omega_i^2.
+   This enables checks of relaxation pathways, dissipation, and numerical
+   stability.
 
-┌─ CONTROLS DURING THE SIMULATION ───────────────────────────┐
-│  The simulation stops automatically when:                  │
-│    · S = 1.00, all needles aligned                         │
-│    · The lattice is at rest, omega_max -> 0                │
-│    · The requested t_sim time is reached                   │
-│    · Ctrl+I (Tab) is pressed in the terminal               │
-│      -> interrupts and saves the video immediately         │
-└────────────────────────────────────────────────────────────┘
+5. Efficient torque calculation:
+   Axx, Axy and Ayy pair-interaction tensors are precomputed when memory
+   allows. Each time step then requires matrix-vector products instead of
+   rebuilding pair distances. CPU/NumPy and GPU/CuPy backends are supported.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXAMPLES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. Field protocols:
+   static, hysteresis, forc, sine, step_up, step_down, pulse, demag_rot,
+   and demag_linear. The code writes consistent CSV and JSON metadata for all
+   protocols.
 
-  # Defaults — 8x8 square lattice with no field
-  python compass.py
-
-  # Honeycomb with Earth's field
-  python compass.py --geometry honeycomb --N 10 --M 10 --B_ext 50e-6
-
-  # Triangular lattice with a 0.1 T field at 45°, smooth motion
-  python compass.py --geometry triangular --N 10 --M 10 \
-      --B_ext 0.1 --phi_ext 45 --damping 8e-6 --t_sim 2.0
-
-  # Video with larger needles and many oscillations
-  python compass.py --R 0.03 --needle_frac 0.85 --damping 1e-9 \
-      --t_sim 5.0 --frame_every 2 --fps 30 --video sim.mp4
-
-  # Field through Cartesian components
-  python compass.py --ext_Bx 0.05 --ext_By -0.05
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Dependencies: numpy, matplotlib, ffmpeg for video
-Optional GPU acceleration: cupy-cuda12x, or a version compatible with your CUDA
-  pip install cupy-cuda12x[ctk]
-  The [ctk] suffix also installs CUDA Toolkit headers, which are required
-  to compile kernels at runtime. Without them, the program falls back to CPU
-  with the error "Failed to find CUDA headers".
-  The backend is detected automatically. If CuPy is absent or incomplete,
-  the program uses CPU/NumPy.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Scientific caveat
+-----------------
+This is a continuous-angle inertial dipolar model. It is not a literal model of
+nanolithographic artificial spin ice, whose islands have shape anisotropy,
+micromagnetic reversal modes, switching-field distributions, and material
+specific damping. Its research value is to isolate what follows from dipolar
+coupling, geometry, inertia, damping, and field history alone.
 """
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import os
+import time
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.cm as cm
-from matplotlib.animation import FuncAnimation
-from matplotlib.collections import PatchCollection, LineCollection
-import argparse
-import time
-import sys
 
-_GPU_AVAILABLE = False
-_GPU_ERROR_MSG = None
-_xp = np
 try:
-    import cupy as cp
-    cp.cuda.Device(0).compute_capability
-    _test_arr = cp.array([0.0, 1.0])
-    _ = cp.cos(_test_arr)
-    cp.cuda.Stream.null.synchronize()
-    _xp = cp
-    _GPU_AVAILABLE = True
-except Exception as _e:
-    _xp = np
-    _GPU_AVAILABLE = False
-    _GPU_ERROR_MSG = str(_e).strip().splitlines()[-1] if str(_e).strip() else type(_e).__name__
+    import cupy as cp  # type: ignore
+    _CUPY_IMPORT_OK = True
+    _CUPY_ERROR = ""
+except Exception as exc:  # pragma: no cover - environment dependent
+    cp = None  # type: ignore
+    _CUPY_IMPORT_OK = False
+    _CUPY_ERROR = str(exc).splitlines()[-1] if str(exc) else type(exc).__name__
 
 
-def _to_cpu(arr):
-    if _GPU_AVAILABLE and hasattr(arr, 'get'):
-        return arr.get()
-    return arr
+# =============================================================================
+# Physical constants and defaults
+# =============================================================================
+
+MU0_OVER_4PI = 1.0e-7  # T m / A
+STEEL_DENSITY_DEFAULT = 7850.0  # kg/m^3
+STEEL_MS_SATURATION_DEFAULT = 1.59e6  # A/m, approximately Bsat=2.0 T / mu0
+# Default physical apparatus geometry used in the project report.
+# The lattice parameter is defined by the centre-to-centre spacing between
+# neighbouring pivots. In the code the historical variable R is kept as half
+# this distance because the lattice generators use d = 2R.
+CENTER_DISTANCE_DEFAULT = 0.013  # m, centre-to-centre pivot distance
+R_DEFAULT = 0.5 * CENTER_DISTANCE_DEFAULT  # m
+NEEDLE_LEN_DEFAULT = 0.010  # m, physical blade length
+NEEDLE_WIDTH_DEFAULT = 0.003  # m, physical blade width
+NEEDLE_THICKNESS_DEFAULT = 0.0004  # m
+DAMPING_DEFAULT = 5.0e-8  # N m s / rad
 
 
-def _to_backend(arr):
-    if _GPU_AVAILABLE:
-        return cp.asarray(arr)
-    return np.asarray(arr)
+# =============================================================================
+# Small numerical helpers
+# =============================================================================
 
 
-sys.stdout.reconfigure(line_buffering=True)
-
-def _print(*args, **kwargs):
-    import sys
-    msg = ' '.join(str(a) for a in args)
-    sys.stdout.write(msg + '\r\n')
-    sys.stdout.flush()
+def wrap_angle(a):
+    """Wrap angle(s) to (-pi, pi]. Works for NumPy or CuPy arrays."""
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
-def _progress_ansi_ok():
-    import sys
-    if _PROGRESS_REGION['ansi'] is None:
-        try:
-            _PROGRESS_REGION['ansi'] = bool(sys.stdout.isatty())
-        except Exception:
-            _PROGRESS_REGION['ansi'] = False
-    return _PROGRESS_REGION['ansi']
+def wrap_angle_np(a: np.ndarray) -> np.ndarray:
+    return (a + np.pi) % (2.0 * np.pi) - np.pi
 
 
-_PROGRESS_REGION = {'open': False, 'ansi': None}
+def safe_float(x) -> float:
+    """Convert NumPy/CuPy scalar to Python float."""
+    try:
+        if hasattr(x, "get"):
+            return float(x.get())
+    except Exception:
+        pass
+    return float(x)
 
 
-def _print_progress_bar(frac, bar_width=40, step=0, n_steps=0, steps_per_s=0,
-                        t_now=0.0, B_status=0.0, S_now=0.0, omega_max=0.0,
-                        backend="CPU", label="Integrating"):
-    import sys
-    frac = max(0.0, min(1.0, frac))
-    n_filled = int(round(frac * bar_width))
-    bar = '#' * n_filled + ' ' * (bar_width - n_filled)
-    pct = frac * 100.0
-    
-    line1 = f"{label} [{backend}] [{bar}]"
-    line2 = f"{pct:5.1f}%  step {step}/{n_steps}  ({steps_per_s:.0f} steps/s)  t={t_now:.4f}s"
-    line3 = f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  w_max={omega_max:.3f}rad/s"
-
-    if _progress_ansi_ok():
-        seq = ("\x1b[K" + line1 + "\n\r" +
-               "\x1b[K" + line2 + "\n\r" +
-               "\x1b[K" + line3 + "\x1b[2A\r")
-        sys.stdout.write(seq)
-        sys.stdout.flush()
-        _PROGRESS_REGION['open'] = True
-    else:
-        sys.stdout.write("\r" + line1 + " | " + line2 + " | " + line3)
-        sys.stdout.flush()
+def ensure_dir(path: str | Path) -> Path:
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
-def _print_progress_bar_finish():
-    import sys
-    if _progress_ansi_ok():
-        if _PROGRESS_REGION['open']:
-            sys.stdout.write('\n\r\n\r\n\r')
-            sys.stdout.flush()
-            _PROGRESS_REGION['open'] = False
-    else:
-        sys.stdout.write('\r\n')
-        sys.stdout.flush()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. PHYSICAL CONSTANTS (International System — SI)
-# ══════════════════════════════════════════════════════════════════════════════
-
-MU0_OVER_4PI = 1.0e-7   # T·m/A
-MOMENT_DEFAULT = 4.902e-3      # A·m²
-INERTIA_DEFAULT = 1.625e-10  # kg·m²
-STEEL_DENSITY_DEFAULT = 7850.0   # kg/m³
-NEEDLE_THICKNESS_DEFAULT = 0.26e-3   # m
-STEEL_MS_SATURATION_DEFAULT = 1.59e6   # A/m
+# =============================================================================
+# Physical parameter derivation
+# =============================================================================
 
 
-def compute_inertia_from_geometry(needle_len, needle_width, thickness,
-                                  density=STEEL_DENSITY_DEFAULT,
-                                  pivot_radius=0.0, pivot_thickness=0.0,
-                                  pivot_density=8500.0, pivot_mass=None):
-    # Rhombus area: 0.5 * L * W
+def compute_inertia_from_geometry(
+    needle_len: float,
+    needle_width: float,
+    thickness: float,
+    density: float = STEEL_DENSITY_DEFAULT,
+    pivot_radius: float = 0.0,
+    pivot_thickness: float = 0.0,
+    pivot_density: float = 8500.0,
+    pivot_mass: Optional[float] = None,
+) -> float:
+    """
+    Moment of inertia of a rhombus-shaped needle about its central z axis.
+
+    The blade area is approximated as 0.5 * L * W. A cylindrical pivot hole can
+    be subtracted and a central pivot cylinder can be added. The pivot options
+    are important for comparison with a tabletop apparatus because a metallic
+    pin can contribute non-negligibly to I.
+    """
     area_solid = 0.5 * needle_len * needle_width
     mass_solid = density * area_solid * thickness
     I_solid = (1.0 / 24.0) * mass_solid * (needle_len**2 + needle_width**2)
 
-    # Subtract the cylindrical hole at the center (z-axis perpendicular to blade)
     if pivot_radius > 0.0:
-        area_hole = np.pi * (pivot_radius**2)
+        area_hole = math.pi * pivot_radius**2
         mass_hole = density * area_hole * thickness
-        I_hole = 0.5 * mass_hole * (pivot_radius**2)
+        I_hole = 0.5 * mass_hole * pivot_radius**2
         I_blade = max(0.0, I_solid - I_hole)
     else:
         I_blade = I_solid
 
-    # Add the central pivot cylinder
     if pivot_mass is not None:
         mass_pivot = pivot_mass
     else:
-        mass_pivot = pivot_density * np.pi * (pivot_radius**2) * pivot_thickness
-
-    I_pivot = 0.5 * mass_pivot * (pivot_radius**2)
+        mass_pivot = pivot_density * math.pi * pivot_radius**2 * pivot_thickness
+    I_pivot = 0.5 * mass_pivot * pivot_radius**2
     return I_blade + I_pivot
 
 
-def compute_moment_from_geometry(needle_len, needle_width, thickness,
-                                 Ms=STEEL_MS_SATURATION_DEFAULT,
-                                 pivot_radius=0.0):
-    # Rhombus area: 0.5 * L * W, minus the pivot hole
+
+def compute_moment_from_geometry(
+    needle_len: float,
+    needle_width: float,
+    thickness: float,
+    Ms: float = STEEL_MS_SATURATION_DEFAULT,
+    pivot_radius: float = 0.0,
+) -> float:
+    """Magnetic moment m = Ms * volume of the rhombus blade minus pivot hole."""
     area_solid = 0.5 * needle_len * needle_width
-    area_hole = np.pi * (pivot_radius**2)
+    area_hole = math.pi * pivot_radius**2 if pivot_radius > 0.0 else 0.0
     area_net = max(0.0, area_solid - area_hole)
-    volume = area_net * thickness
-    m = Ms * volume
-    return m
-
-DAMPING_DEFAULT = 5.0e-8  # N·m·s/rad
+    return Ms * area_net * thickness
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 2. MAGNETIC DIPOLAR FIELD (SI)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def dipole_field_2d(rx, ry, theta_src, moment):
-    r2 = rx**2 + ry**2
-    if r2 < 1e-24:
-        return 0.0, 0.0
-
-    r  = np.sqrt(r2)
-    r5 = r2 * r2 * r
-
-    mx = moment * np.cos(theta_src)
-    my = moment * np.sin(theta_src)
-
-    mdotr = mx * rx + my * ry
-
-    Bx = MU0_OVER_4PI * (3.0 * mdotr * rx / r5  -  mx / (r2 * r))
-    By = MU0_OVER_4PI * (3.0 * mdotr * ry / r5  -  my / (r2 * r))
-    return Bx, By
+# =============================================================================
+# Geometry
+# =============================================================================
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. TOTAL FIELD ON THE NEEDLE (SI)
-# ══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class GeometryData:
+    xs: np.ndarray
+    ys: np.ndarray
+    theta0: np.ndarray
+    r_nn: float
+    Lx: float
+    Ly: float
+    needle_len: float
+    needle_width: float
+    geometry: str
 
-def total_field_on(i, j, thetas, xs, ys, cutoff, moment,
-                   pbc=False, Lx=None, Ly=None, n_images=1):
-    Bx_tot, By_tot = 0.0, 0.0
-    N, M = thetas.shape
-    xi, yi = xs[i, j], ys[i, j]
-
-    if pbc and Lx and Ly:
-        img_range = range(-n_images, n_images + 1)
-        x_shifts = [k * Lx for k in img_range]
-        y_shifts = [k * Ly for k in img_range]
-    else:
-        x_shifts = [0.0]
-        y_shifts = [0.0]
-
-    for ni in range(N):
-        for nj in range(M):
-            if ni == i and nj == j and not pbc:
-                continue
-
-            rx0 = xi - xs[ni, nj]
-            ry0 = yi - ys[ni, nj]
-
-            for dx_img in x_shifts:
-                for dy_img in y_shifts:
-                    if ni == i and nj == j and dx_img == 0.0 and dy_img == 0.0:
-                        continue
-
-                    rx = rx0 + dx_img
-                    ry = ry0 + dy_img
-                    dist = np.sqrt(rx*rx + ry*ry)
-
-                    if dist > cutoff:
-                        continue
-
-                    bx, by = dipole_field_2d(rx, ry, thetas[ni, nj], moment)
-                    Bx_tot += bx
-                    By_tot += by
-
-    return Bx_tot, By_tot
+    @property
+    def K(self) -> int:
+        return int(self.xs.size)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. INERTIAL DYNAMICS (Newton's second law for rotation — no pivot friction)
-# ══════════════════════════════════════════════════════════════════════════════
 
-def _plot_hysteresis(log, hyst_autoscale=False, forc_sweep='both'):
-    is_forc = False
-    if isinstance(log, list) and len(log) > 0 and len(log[0]) == 7:
-        is_forc = True
-    elif isinstance(log, np.ndarray) and log.ndim == 2 and log.shape[1] == 7:
-        is_forc = True
+def make_lattice(
+    N: int,
+    M: int,
+    geometry: str,
+    R: float,
+    needle_frac: float,
+    noise: float,
+    rng: np.random.Generator,
+    needle_len: float = NEEDLE_LEN_DEFAULT,
+    needle_width: float = NEEDLE_WIDTH_DEFAULT,
+    use_legacy_size_from_R: bool = False,
+) -> GeometryData:
+    """
+    Generate lattice positions and random initial angles.
 
-    if is_forc:
-        t_arr = np.array([row[0] for row in log], dtype=float)
-        B_arr = np.array([row[1] for row in log], dtype=float) * 1e3
-        M_arr = np.array([row[2] for row in log], dtype=float)
-    else:
-        log_arr = np.array(log, dtype=float)
-        t_arr  = log_arr[:, 0]
-        B_arr  = log_arr[:, 1] * 1e3
-        M_arr  = log_arr[:, 2]
+    The honeycomb option follows the earlier compass.py convention: it creates
+    a set of sites with hexagonal holes and returns flattened arrays shaped as
+    (K,). Square and triangular arrays return K=N*M positions.
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor='#1A1A2E')
+    Research default: the centre-to-centre distance is d=2R=13 mm, while the
+    needle blade is an independent physical object with default dimensions
+    L=10 mm and W=3 mm. This is intentionally different from the legacy
+    visualization convention where needle size was set as a fraction of 2R.
+    Use --use_legacy_size_from_R only for backward-compatible visual tests.
+    """
+    d = 2.0 * R
+    s3 = math.sqrt(3.0)
+    geometry = geometry.lower()
 
-    ax1 = axes[0]
-    ax1.set_facecolor('#0D1B2A')
-    
-    if is_forc:
-        from collections import defaultdict
-        segments = defaultdict(list)
-        for row in log:
-            if forc_sweep == 'up' and row[5] != 'up':
-                continue
-            if forc_sweep == 'down' and row[5] != 'down':
-                continue
-            if forc_sweep == 'both' and row[5] not in ('up', 'down'):
-                continue
-            segments[int(row[6])].append(row)
-        
-        for k_val in sorted(segments.keys()):
-            arr_seg = np.array(segments[k_val])
-            H_seg = arr_seg[:, 1].astype(float) * 1e3
-            M_seg = arr_seg[:, 2].astype(float)
-            ax1.plot(H_seg, M_seg, color='#E94560', lw=1.2, alpha=0.85)
-    else:
-        ax1.plot(B_arr, M_arr, color='#E94560', lw=1.2, alpha=0.85)
+    if geometry == "square":
+        jj, ii = np.meshgrid(np.arange(M), np.arange(N))
+        xs = jj.astype(float) * d
+        ys = ii.astype(float) * d
+        Lx = M * d
+        Ly = N * d
 
-    ax1.axhline(0, color='#4A4A6A', lw=0.6, ls='--')
-    ax1.axvline(0, color='#4A4A6A', lw=0.6, ls='--')
-    ax1.set_xlabel("Field B [mT]",    color='#BDC3C7')
-    ax1.set_ylabel("Magnetization M (projection)",  color='#BDC3C7')
-    if is_forc:
-        ax1.set_title("FORC Curves M x B", color='#ECF0F1', fontfamily='monospace')
-    else:
-        ax1.set_title("Hysteresis Loop M x B", color='#ECF0F1', fontfamily='monospace')
-    ax1.tick_params(colors='#7F8C8D')
-    ax1.grid(True, color='#2C3E50', alpha=0.5)
-    for sp in ax1.spines.values():
-        sp.set_edgecolor('#2C3E50')
+    elif geometry == "triangular":
+        jj, ii = np.meshgrid(np.arange(M), np.arange(N))
+        xs = jj.astype(float) * d + (ii % 2) * R
+        ys = ii.astype(float) * (R * s3)
+        Lx = M * d
+        Ly = N * R * s3
 
-    if not hyst_autoscale:
-        if is_forc:
-            if forc_sweep == 'up':
-                filtered_rows = [row for row in log if row[5] == 'up']
-            elif forc_sweep == 'down':
-                filtered_rows = [row for row in log if row[5] == 'down']
+    elif geometry == "honeycomb":
+        dy = R * s3
+        W = (M - 1) * d
+        H = (N - 1) * dy
+        n_rows = (N + 4) * 2
+        x_start = -4.0 * R
+        y_start = -2.0 * dy
+        xs_list: List[float] = []
+        ys_list: List[float] = []
+        for row in range(n_rows):
+            y = y_start + row * dy
+            if row % 2 == 0:
+                x = x_start
+                while x <= W + 4.0 * R:
+                    xs_list.append(x)
+                    ys_list.append(y)
+                    x += d
             else:
-                filtered_rows = [row for row in log if row[5] in ('up', 'down')]
-            
-            if filtered_rows:
-                arr_up = np.array(filtered_rows)
-                B_arr_for_lim = arr_up[:, 1].astype(float) * 1e3
-            else:
-                B_arr_for_lim = B_arr
-        else:
-            B_arr_for_lim = B_arr
-            
-        B_max = np.max(np.abs(B_arr_for_lim))
-        if B_max < 1e-5:
-            B_max = 1.0
-        ax1.set_xlim(-1.05 * B_max, 1.05 * B_max)
-        ax1.set_ylim(-1.15, 1.15)
+                x = x_start + R
+                while x <= W + 4.0 * R:
+                    xs_list.append(x)
+                    ys_list.append(y)
+                    x += 2.0 * d
+        all_x = np.asarray(xs_list)
+        all_y = np.asarray(ys_list)
+        margin = 0.99 * R
+        mask = (all_x >= -margin) & (all_x <= W + margin) & (all_y >= -margin) & (all_y <= H + margin)
+        xs = all_x[mask]
+        ys = all_y[mask]
+        Lx = W
+        Ly = H
 
-    ax2 = axes[1]
-    ax2.set_facecolor('#0D1B2A')
-    l1, = ax2.plot(t_arr, M_arr, color='#E94560', lw=1.2, label='M (proj.)')
-    ax2b = ax2.twinx()
-    ax2b.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
-              ls='--', label='B (mT)')
-    ax2b.set_ylabel("Field B [mT]", color='#FFD700')
-    ax2b.tick_params(colors='#FFD700')
-    ax2.set_xlabel("Physical time t [s]", color='#BDC3C7')
-    ax2.set_ylabel("Magnetization M", color='#E94560')
-    ax2.set_title("Time evolution", color='#ECF0F1', fontfamily='monospace')
-    ax2.tick_params(colors='#7F8C8D')
-    ax2.grid(True, color='#2C3E50', alpha=0.4)
-    for sp in ax2.spines.values():
-        sp.set_edgecolor('#2C3E50')
-    lines = [l1, plt.Line2D([0],[0], color='#FFD700', ls='--')]
-    ax2.legend(lines, ['M (proj.)', 'B (mT)'], facecolor='#1A1A2E',
-               edgecolor='#2C3E50', labelcolor='#ECF0F1', fontsize=8)
-
-    if is_forc:
-        fig.suptitle("First-Order Reversal Curves Simulation — Compass Array",
-                     color='#BDC3C7', fontsize=12, fontfamily='monospace')
     else:
-        fig.suptitle("Magnetic Hysteresis Simulation — Compass Array",
-                     color='#BDC3C7', fontsize=12, fontfamily='monospace')
-                     
-    plt.tight_layout()
-    out_img = "forc_curves.png" if is_forc else "hysteresis_loop.png"
-    plt.savefig(out_img, dpi=130, bbox_inches='tight',
-                facecolor='#1A1A2E')
-    plt.close(fig)
-    if is_forc:
-        _print(f"  FORC curves plot saved: {out_img}")
+        raise ValueError(f"Unknown geometry '{geometry}'. Choose square, triangular or honeycomb.")
+
+    xs = np.asarray(xs, dtype=float).ravel()
+    ys = np.asarray(ys, dtype=float).ravel()
+    theta0 = noise * rng.standard_normal(xs.size)
+
+    # Nearest-neighbour distance from the actual generated sites.
+    dx = xs[:, None] - xs[None, :]
+    dy = ys[:, None] - ys[None, :]
+    rr = np.sqrt(dx * dx + dy * dy)
+    np.fill_diagonal(rr, np.inf)
+    r_nn = float(np.min(rr))
+
+    if use_legacy_size_from_R:
+        # Backward-compatible convention inherited from the visualization code:
+        # changing the lattice spacing also changes the needle blade size.
+        # This should not be used for calibrated research runs.
+        needle_len_eff = needle_frac * d
+        needle_width_eff = 0.22 * needle_len_eff
     else:
-        _print(f"  Hysteresis plot saved: {out_img}")
+        # Research convention: the physical needle dimensions are independent
+        # of the lattice spacing. This matches the project-report apparatus.
+        needle_len_eff = float(needle_len)
+        needle_width_eff = float(needle_width)
+
+    return GeometryData(xs, ys, theta0, r_nn, Lx, Ly, needle_len_eff, needle_width_eff, geometry)
 
 
-def _plot_sine(log, freq):
-    log   = np.array(log)
-    t_arr = log[:, 0]
-    B_arr = log[:, 1] * 1e3
-    M_arr = log[:, 2]
-
-    fig, ax = plt.subplots(figsize=(10, 4), facecolor='#1A1A2E')
-    ax.set_facecolor('#0D1B2A')
-    ax.plot(t_arr, M_arr, color='#E94560', lw=1.2, label='M (proj.)')
-    ax2 = ax.twinx()
-    ax2.plot(t_arr, B_arr, color='#FFD700', lw=1.0, alpha=0.7,
-             ls='--', label=f'B (mT)  f={freq:.2f} Hz')
-    ax.set_xlabel("Physical time t [s]", color='#BDC3C7')
-    ax.set_ylabel("Magnetization M", color='#E94560')
-    ax2.set_ylabel("Field B [mT]", color='#FFD700')
-    ax.set_title(f"Sinusoidal Field — f = {freq:.3f} Hz",
-                 color='#ECF0F1', fontfamily='monospace')
-    ax.tick_params(colors='#7F8C8D')
-    ax2.tick_params(colors='#FFD700')
-    ax.grid(True, color='#2C3E50', alpha=0.4)
-    for sp in ax.spines.values():
-        sp.set_edgecolor('#2C3E50')
-    lines = [plt.Line2D([0],[0], color='#E94560'),
-             plt.Line2D([0],[0], color='#FFD700', ls='--')]
-    ax.legend(lines, ['M (proj.)', f'B (mT)  f={freq:.2f}Hz'],
-              facecolor='#1A1A2E', edgecolor='#2C3E50',
-              labelcolor='#ECF0F1', fontsize=8)
-    plt.tight_layout()
-    plt.savefig("sine_field.png", dpi=130, bbox_inches='tight',
-                facecolor='#1A1A2E')
-    plt.close(fig)
-    _print("  Sinusoidal plot saved: sine_field.png")
+# =============================================================================
+# Backend and tensor precomputation
+# =============================================================================
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3b. VECTORIZED CALCULATION OF THE DIPOLAR FIELD AND TORQUES (GPU/CPU)
-# ══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class Backend:
+    xp: object
+    name: str
+    active_gpu: bool
 
-def compute_torques_vectorized(theta_flat, x_flat, y_flat, moment, cutoff,
-                               bx_ext, by_ext,
-                               pbc=False, Lx=None, Ly=None, n_images=1, xp=np):
-    K  = theta_flat.shape[0]
+    def asarray(self, a, dtype=None):
+        return self.xp.asarray(a, dtype=dtype)
 
-    mx = moment * xp.cos(theta_flat)
-    my = moment * xp.sin(theta_flat)
+    def to_cpu(self, a):
+        if self.active_gpu and hasattr(a, "get"):
+            return a.get()
+        return np.asarray(a)
 
-    if pbc and Lx and Ly:
-        img_range = range(-n_images, n_images + 1)
-        x_shifts = [k * Lx for k in img_range]
-        y_shifts = [k * Ly for k in img_range]
+    def sync(self):
+        if self.active_gpu:
+            cp.cuda.Stream.null.synchronize()  # type: ignore[union-attr]
+
+
+
+def select_backend(use_gpu: bool) -> Backend:
+    if use_gpu:
+        if not _CUPY_IMPORT_OK:
+            print(f"[warning] CuPy unavailable: {_CUPY_ERROR}. Falling back to CPU.")
+            return Backend(np, "CPU/NumPy", False)
+        try:
+            cp.cuda.Device(0).compute_capability  # type: ignore[union-attr]
+            test = cp.asarray([0.0, 1.0])  # type: ignore[union-attr]
+            _ = cp.cos(test)  # type: ignore[union-attr]
+            cp.cuda.Stream.null.synchronize()  # type: ignore[union-attr]
+            return Backend(cp, "GPU/CuPy", True)  # type: ignore[arg-type]
+        except Exception as exc:
+            print(f"[warning] GPU initialization failed: {exc}. Falling back to CPU.")
+    return Backend(np, "CPU/NumPy", False)
+
+
+@dataclass
+class DipolarTensor:
+    Axx: object
+    Axy: object
+    Ayy: object
+    cutoff_m: float
+    cutoff_shells: float
+    n_images: int
+    pbc: bool
+
+
+
+def precompute_dipolar_tensor(
+    x,
+    y,
+    cutoff_m: float,
+    cutoff_shells: float,
+    backend: Backend,
+    pbc: bool = False,
+    Lx: Optional[float] = None,
+    Ly: Optional[float] = None,
+    n_images: int = 1,
+    dtype=np.float64,
+) -> DipolarTensor:
+    """
+    Precompute the linear dipolar map B_i = sum_j A_ij m_j.
+
+    This is the main efficiency improvement. For a fixed lattice, Axx, Axy and
+    Ayy do not depend on time. Time stepping then uses only matrix-vector
+    products. This is much faster than rebuilding pair distances every step.
+    """
+    xp = backend.xp
+    x = backend.asarray(x, dtype=dtype)
+    y = backend.asarray(y, dtype=dtype)
+    K = int(x.shape[0])
+
+    Axx = xp.zeros((K, K), dtype=dtype)
+    Axy = xp.zeros((K, K), dtype=dtype)
+    Ayy = xp.zeros((K, K), dtype=dtype)
+
+    if pbc:
+        if Lx is None or Ly is None or Lx <= 0.0 or Ly <= 0.0:
+            raise ValueError("PBC requires positive Lx and Ly.")
+        shifts_x = [k * Lx for k in range(-n_images, n_images + 1)]
+        shifts_y = [k * Ly for k in range(-n_images, n_images + 1)]
     else:
-        x_shifts = [0.0]
-        y_shifts = [0.0]
+        shifts_x = [0.0]
+        shifts_y = [0.0]
 
-    Bx_tot = xp.zeros(K)
-    By_tot = xp.zeros(K)
-
-    for dx_img in x_shifts:
-        for dy_img in y_shifts:
-            rx = (x_flat[:, None] - x_flat[None, :]) - dx_img
-            ry = (y_flat[:, None] - y_flat[None, :]) - dy_img
-
-            r2 = rx*rx + ry*ry
-
-            is_self = (r2 < 1e-24)
-            valid   = (~is_self) & (r2 <= cutoff*cutoff)
-
+    for sx in shifts_x:
+        for sy in shifts_y:
+            rx = (x[:, None] - x[None, :]) - sx
+            ry = (y[:, None] - y[None, :]) - sy
+            r2 = rx * rx + ry * ry
+            valid = (r2 > 1e-30) & (r2 <= cutoff_m * cutoff_m)
             r2_safe = xp.where(valid, r2, 1.0)
-            r       = xp.sqrt(r2_safe)
-            r5      = r2_safe * r2_safe * r
-
-            mdotr = mx[None, :] * rx + my[None, :] * ry
-
-            bx_pair = MU0_OVER_4PI * (3.0 * mdotr * rx / r5 - mx[None, :] / (r2_safe * r))
-            by_pair = MU0_OVER_4PI * (3.0 * mdotr * ry / r5 - my[None, :] / (r2_safe * r))
-
-            bx_pair = xp.where(valid, bx_pair, 0.0)
-            by_pair = xp.where(valid, by_pair, 0.0)
-
-            Bx_tot += bx_pair.sum(axis=1)
-            By_tot += by_pair.sum(axis=1)
-
-    Bx_tot += bx_ext
-    By_tot += by_ext
-
-    tau_flat = mx * By_tot - my * Bx_tot
-    return tau_flat
-
-
-# ── V40: precomputed dipolar-interaction tensor ─────────────────────────
-TENSOR_MEM_LIMIT_BYTES = 4.0e9
-
-
-def precompute_dipolar_tensor(x_flat, y_flat, cutoff,
-                              pbc=False, Lx=None, Ly=None, n_images=1):
-    if _GPU_AVAILABLE and hasattr(x_flat, 'get'):
-        xp = cp
-    else:
-        xp = np
-    K = x_flat.shape[0]
-
-    if pbc and Lx and Ly:
-        img_range = range(-n_images, n_images + 1)
-        x_shifts = [k * Lx for k in img_range]
-        y_shifts = [k * Ly for k in img_range]
-    else:
-        x_shifts = [0.0]
-        y_shifts = [0.0]
-
-    Axx = xp.zeros((K, K))
-    Axy = xp.zeros((K, K))
-    Ayy = xp.zeros((K, K))
-
-    for dx_img in x_shifts:
-        for dy_img in y_shifts:
-            rx = (x_flat[:, None] - x_flat[None, :]) - dx_img
-            ry = (y_flat[:, None] - y_flat[None, :]) - dy_img
-
-            r2 = rx*rx + ry*ry
-
-            is_self = (r2 < 1e-24)
-            valid   = (~is_self) & (r2 <= cutoff*cutoff)
-
-            r2_safe = xp.where(valid, r2, 1.0)
-            r  = xp.sqrt(r2_safe)
+            r = xp.sqrt(r2_safe)
             r3 = r2_safe * r
             r5 = r2_safe * r2_safe * r
-
             axx = MU0_OVER_4PI * (3.0 * rx * rx / r5 - 1.0 / r3)
             axy = MU0_OVER_4PI * (3.0 * rx * ry / r5)
             ayy = MU0_OVER_4PI * (3.0 * ry * ry / r5 - 1.0 / r3)
-
             Axx += xp.where(valid, axx, 0.0)
             Axy += xp.where(valid, axy, 0.0)
             Ayy += xp.where(valid, ayy, 0.0)
 
-    return Axx, Axy, Ayy
+    return DipolarTensor(Axx, Axy, Ayy, cutoff_m, cutoff_shells, n_images, pbc)
 
 
-def compute_torques_from_tensor(theta_flat, tensor, moment, bx_ext, by_ext, xp=np):
-    Axx, Axy, Ayy = tensor
-    mx = moment * xp.cos(theta_flat)
-    my = moment * xp.sin(theta_flat)
-    Bx = Axx @ mx + Axy @ my + bx_ext
-    By = Axy @ mx + Ayy @ my + by_ext
-    return mx * By - my * Bx
+# =============================================================================
+# Field protocols
+# =============================================================================
 
 
-def relax(thetas, xs, ys, t_sim=2.0, dt_factor=0.05,
-          inertia=INERTIA_DEFAULT, damping=DAMPING_DEFAULT,
-          damping_noise=0.0,
-          cutoff=3.5, ext_field=(0.0, 0.0), moment=MOMENT_DEFAULT,
-          field_mode='static', field_freq=1.0,
-          callback=None,
-          frame_dir=None, frame_every=10,
-          needle_len=0.042, needle_width=0.010, r_halo=None,
-          frame_dpi=120, figsize_inches=None,
-          pbc=False, Lx=None, Ly=None, n_images=1,
-          B_ext=0.0, phi_ext_deg=0.0, use_gpu=False, show_progress=True,
-          halo_mode='order', domain_tol_deg=15.0, make_images=True,
-          hyst_spacing='linear', hyst_log_k=5.0,
-          field_delay=0.0, t_pulse=None, torque_tol=1e-3,
-          t_sim_full=False, hyst_autoscale=True,
-          forc_Br_min=None, forc_n_curves=30,
-          forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
-          forc_sweep='both', forc_rate=None,
-          demag='off', demag_freq=2.0, demag_cycles=20, demag_temp=1.0, demag_delay=0.0):
-    import os
-    import time as _time_module
+@dataclass
+class FieldState:
+    bx: float
+    by: float
+    B_scalar: float
+    branch: str
+    curve_index: int
 
-    N, M = thetas.shape
-    Bext_x, Bext_y = ext_field
-    Bext_x0, Bext_y0 = Bext_x, Bext_y
-    B_max = np.sqrt(Bext_x**2 + Bext_y**2)
-    phi_rad = np.arctan2(Bext_y, Bext_x)
-    cos_phi = np.cos(phi_rad)
-    sin_phi = np.sin(phi_rad)
-    n_frames = 0
-    forc_cycle_starts = None
-    forc_t_down_list = None
-    forc_t_up_list = None
-    forc_Br_curr_list = None
 
-    if field_mode == 'forc':
-        # Calculate t_sim automatically based on FORC cycles parameters
-        tsat = forc_t_sat if forc_t_sat is not None else 0.05
-        t_down_def = forc_t_ramp_down if forc_t_ramp_down is not None else 0.10
-        t_up_def = forc_t_ramp_up if forc_t_ramp_up is not None else 0.20
-        n_curves = forc_n_curves if forc_n_curves is not None else 30
-        
-        B_max = np.sqrt(Bext_x**2 + Bext_y**2)
-        Br_min = forc_Br_min if forc_Br_min is not None else -B_max
-        
-        forc_cycle_starts = [0.0] * (n_curves + 1)
-        forc_t_down_list = [0.0] * n_curves
-        forc_t_up_list = [0.0] * n_curves
-        forc_Br_curr_list = [0.0] * n_curves
-        
-        for k in range(n_curves):
-            if n_curves > 1:
-                Br_curr = B_max - k * (B_max - Br_min) / (n_curves - 1)
-            else:
-                Br_curr = Br_min
-            forc_Br_curr_list[k] = Br_curr
-            
-            if forc_rate is not None and forc_rate > 0.0:
-                span = B_max - Br_curr
-                t_down_k = span / forc_rate if forc_t_ramp_down is None else t_down_def
-                t_up_k = span / forc_rate
-            else:
-                t_down_k = t_down_def
-                t_up_k = t_up_def
-                
-            forc_t_down_list[k] = t_down_k
-            forc_t_up_list[k] = t_up_k
-            
-            T_cycle_k = tsat + t_down_k + t_up_k
-            forc_cycle_starts[k+1] = forc_cycle_starts[k] + T_cycle_k
-            
-        t_sim = forc_cycle_starts[n_curves]
+@dataclass
+class ForcSchedule:
+    starts: List[float]
+    Br: List[float]
+    t_down: List[float]
+    t_up: List[float]
+    t_sat: float
+    total_time: float
 
-    _active_gpu = use_gpu and _GPU_AVAILABLE
-    _active_xp  = cp if _active_gpu else np
 
-    def _local_to_backend(arr):
-        if _active_gpu:
-            return cp.asarray(arr)
-        return np.asarray(arr)
 
-    if damping_noise > 0.0:
-        damping_arr = damping * (1.0 + damping_noise * np.random.uniform(-1.0, 1.0, size=N*M))
-        damping_arr = np.maximum(0.0, damping_arr)
-        damping_xp = _local_to_backend(damping_arr)
-    else:
-        damping_xp = damping
-
-    def _local_to_cpu(arr):
-        if _active_gpu and hasattr(arr, 'get'):
-            return arr.get()
-        return arr
-
-    x_flat_for_nn = xs.ravel()
-    y_flat_for_nn = ys.ravel()
-    dx_nn = x_flat_for_nn[:, None] - x_flat_for_nn[None, :]
-    dy_nn = y_flat_for_nn[:, None] - y_flat_for_nn[None, :]
-    d_nn  = np.sqrt(dx_nn**2 + dy_nn**2)
-    np.fill_diagonal(d_nn, np.inf)
-    r_nn  = float(np.min(d_nn))
-
-    B_ref     = MU0_OVER_4PI * 2.0 * moment / r_nn**3
-    B_ext_mag = np.sqrt(Bext_x**2 + Bext_y**2)
-    B_eff     = max(B_ref, B_ext_mag)
-    omega0    = np.sqrt(moment * B_eff / inertia)
-    T0        = 2.0 * np.pi / omega0
-    dt        = dt_factor * T0
-    if demag in ('on', 'rotational', 'anneal'):
-        t_demag = demag_cycles / demag_freq
-        n_steps_demag = int(np.ceil(t_demag / dt))
-        t_demag_delay = demag_delay
-        n_steps_demag_delay = int(np.ceil(t_demag_delay / dt))
-    else:
-        t_demag = 0.0
-        n_steps_demag = 0
-        t_demag_delay = 0.0
-        n_steps_demag_delay = 0
-
-    t_sim_total = t_sim + t_demag + t_demag_delay
-    n_steps   = max(1, int(np.ceil(t_sim_total / dt)))
-    Q         = omega0 * inertia / damping if damping > 0 else np.inf
-
-    if show_progress:
-        _print(f"  Dynamical inertial parameters:")
-        _print(f"    r_nn    = {r_nn*100:.2f} cm")
-        _print(f"    B_ref   = {B_ref*1e3:.4f} mT  (dipolar neighbours)")
-        if B_ext_mag > 0:
-            _print(f"    B_ext   = {B_ext_mag*1e3:.4f} mT  (External Field)")
-        _print(f"    B_eff   = {B_eff*1e3:.4f} mT  (Dominant Field)")
-        _print(f"    omega_0 = {omega0:.2f} rad/s   T0 = {T0:.5f} s")
-        _print(f"    dt      = {dt:.6f} s  ({dt_factor:.0%} of T0)")
-        if demag in ('on', 'rotational', 'anneal'):
-            _print(f"    t_demag = {t_demag:.3f} s  ({n_steps_demag} steps)")
-            if demag_delay > 0.0:
-                _print(f"    t_delay = {t_demag_delay:.3f} s  ({n_steps_demag_delay} steps)")
-            _print(f"    t_sim   = {t_sim:.3f} s  (measurement, {n_steps - n_steps_demag - n_steps_demag_delay} steps)")
-            _print(f"    t_total = {t_sim_total:.3f} s  -> {n_steps} steps total")
+def build_forc_schedule(
+    Bmax: float,
+    Br_min: float,
+    n_curves: int,
+    t_sat: float,
+    t_down_default: float,
+    t_up_default: float,
+    rate: Optional[float],
+) -> ForcSchedule:
+    starts = [0.0]
+    Br_list: List[float] = []
+    td_list: List[float] = []
+    tu_list: List[float] = []
+    for k in range(n_curves):
+        Br = Bmax - k * (Bmax - Br_min) / max(n_curves - 1, 1)
+        span = abs(Bmax - Br)
+        if rate is not None and rate > 0:
+            td = span / rate
+            tu = span / rate
         else:
-            _print(f"    t_sim   = {t_sim:.3f} s  -> {n_steps} steps")
-        if Q > 2:
-            q_desc = "sub-damping(oscilates)"
-        elif Q > 0.5:
-            q_desc = "critically damped"
-        else:
-            q_desc = "overdamped"
-        if damping_noise > 0.0:
-            _print(f"    damping = {damping:.3e} N·m·s/rad (central, with random noise +/- {damping_noise*100:.1f}%)")
-        else:
-            _print(f"    damping = {damping:.3e} N·m·s/rad (uniform)")
-        if Q < 0.1:
-            q_str = f"{Q:.3e}"
-        else:
-            q_str = f"{Q:.1f}" if Q != np.inf else "inf"
-        _print(f"    Q       = {q_str}  ({q_desc})")
-        _print()
+            td = t_down_default
+            tu = t_up_default
+        Br_list.append(Br)
+        td_list.append(td)
+        tu_list.append(tu)
+        starts.append(starts[-1] + t_sat + td + tu)
+    return ForcSchedule(starts, Br_list, td_list, tu_list, t_sat, starts[-1])
 
-    theta_cur = thetas.copy()
-    omega_cur = np.zeros((N, M))
-    hist      = [(theta_cur.copy(), omega_cur.copy())]
 
-    if not make_images and frame_dir is not None:
-        _print(f"  Warning: make_images=False -> ignoring frame_dir='{frame_dir}' "
-               f"(no PNG frames will be generated)")
-        frame_dir = None
+@dataclass
+class FieldProtocol:
+    mode: str
+    Bmax: float
+    phi: float
+    t_sim: float
+    field_delay: float = 0.0
+    t_pulse: Optional[float] = None
+    sine_freq: float = 1.0
+    hyst_spacing: str = "linear"
+    hyst_log_k: float = 5.0
+    forc: Optional[ForcSchedule] = None
+    demag_freq: float = 2.0
+    demag_cycles: int = 20
 
-    if frame_dir is not None:
-        os.makedirs(frame_dir, exist_ok=True)
+    @property
+    def cos_phi(self) -> float:
+        return math.cos(self.phi)
 
-    def _fmt_B(B):
-        if B == 0:    return ""
-        if B >= 0.1:  return f"B={B:.3f} T"
-        if B >= 1e-4: return f"B={B*1e3:.3f} mT"
-        return            f"B={B*1e6:.1f} µT"
+    @property
+    def sin_phi(self) -> float:
+        return math.sin(self.phi)
 
-    def _draw_clock(ax, t_phys, needle_len, stop_label=None):
-        if t_phys < 0 and stop_label is None:
-            if t_phys < -t_demag_delay:
-                stop_label = "~ demagnetizing"
-            else:
-                stop_label = "... resting"
+    def at(self, t: float) -> FieldState:
+        mode = self.mode
+        B = self.Bmax
+        branch = mode
+        idx = -1
 
-        xlim  = ax.get_xlim()
-        ylim  = ax.get_ylim()
-        xspan = xlim[1] - xlim[0]
-        yspan = ylim[1] - ylim[0]
+        if mode == "static":
+            Bs = B
 
-        px    = xlim[0] + 0.02 * xspan
-        py_top = ylim[1] - 0.035 * yspan
-
-        pad = needle_len * 0.25
-        box_h = 0.140 * yspan + pad
-        bar_w = 0.30 * xspan
-        bar_h = 0.018 * yspan
-        bar_y = py_top - 0.115 * yspan
-
-        ax.add_patch(plt.Rectangle(
-            (px - pad * 0.3, py_top - box_h),
-            bar_w + pad, box_h,
-            facecolor='#080818', edgecolor='#3A3A6A',
-            linewidth=0.8, alpha=0.82, zorder=19,
-            transform=ax.transData))
-
-        if t_phys < 0:
-            t_pre = t_demag + t_demag_delay
-            frac = min((t_phys + t_pre) / t_pre, 1.0) if t_pre > 0 else 0.0
-        else:
-            frac = min(t_phys / t_sim, 1.0) if t_sim > 0 else 0.0
-
-        ax.add_patch(plt.Rectangle(
-            (px, bar_y), bar_w, bar_h,
-            facecolor='#252540', edgecolor='none',
-            zorder=20, transform=ax.transData))
-
-        if frac > 0:
-            if t_phys < 0:
-                face_color = (0.1, 0.6, 0.9)
-            else:
-                r_col = min(2.0 * frac, 1.0)
-                g_col = min(2.0 * (1.0 - frac), 1.0)
-                face_color = (r_col, g_col, 0.15)
-            ax.add_patch(plt.Rectangle(
-                (px, bar_y), bar_w * frac, bar_h,
-                facecolor=face_color, edgecolor='none',
-                zorder=21, transform=ax.transData))
-
-        ax.add_patch(plt.Rectangle(
-            (px, bar_y), bar_w, bar_h,
-            facecolor='none', edgecolor='#5A5A8A',
-            linewidth=0.7, zorder=22, transform=ax.transData))
-
-        if 0 < frac < 1.0:
-            mx = px + bar_w * frac
-            ax.plot([mx, mx], [bar_y, bar_y + bar_h],
-                    color='white', lw=1.2, zorder=24,
-                    transform=ax.transData)
-
-        if t_phys >= 60.0:
-            mins = int(t_phys // 60)
-            secs = t_phys - mins * 60
-            time_str = f"t = {mins:02d}:{secs:05.2f}"
-        else:
-            time_str = f"t = {t_phys:.4f} s"
-
-        ax.text(px + pad * 0.2, py_top - 0.015 * yspan,
-                time_str,
-                color='#E8E8FF', fontsize=11, fontweight='bold',
-                fontfamily='monospace', va='top', ha='left',
-                zorder=25, transform=ax.transData)
-
-        ax.text(px + pad * 0.2, py_top - 0.065 * yspan,
-                f"/ {t_sim:.4f} s  (physical time)",
-                color='#5555AA', fontsize=6,
-                fontfamily='monospace', va='top', ha='left',
-                zorder=25, transform=ax.transData)
-
-        if stop_label:
-            ax.text(px + pad * 0.2, py_top - 0.090 * yspan,
-                    stop_label,
-                    color='#FFD700', fontsize=7, fontweight='bold',
-                    fontfamily='monospace', va='top', ha='left',
-                    zorder=25, transform=ax.transData)
-
-    def _draw_m_box(ax, M_val, needle_len, color='#E94560'):
-        xlim  = ax.get_xlim()
-        ylim  = ax.get_ylim()
-        xspan = xlim[1] - xlim[0]
-        yspan = ylim[1] - ylim[0]
-
-        pad = needle_len * 0.25
-        box_h = 0.140 * yspan + pad
-        bar_w = 0.18 * xspan
-        bar_h = 0.018 * yspan
-        
-        # Center the M box in the available space between the time and field boxes
-        left_bound = 0.32 * xspan + pad * 0.7
-        right_bound = 0.71 * xspan - pad * 0.3
-        
-        px_M = xlim[0] + (left_bound + right_bound - bar_w) / 2
-        py_top = ylim[1] - 0.035 * yspan
-        
-        # Background box
-        ax.add_patch(plt.Rectangle(
-            (px_M - pad * 0.3, py_top - box_h),
-            bar_w + pad, box_h,
-            facecolor='#080818', edgecolor=color,
-            linewidth=0.8, alpha=0.82, zorder=19,
-            transform=ax.transData))
-
-        # Text: Label "M (proj)"
-        ax.text(px_M, py_top - 0.022 * yspan, "M (proj)", color=color, fontsize=7,
-                alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23,
-                transform=ax.transData)
-
-        # Magnetization value (second line)
-        sign_str = "+" if M_val >= 0 else "-"
-        m_str = f"{sign_str}{abs(M_val):.4f}"
-        ax.text(px_M, py_top - 0.048 * yspan, m_str, color='#E8E8FF',
-                fontsize=9, fontweight='bold', fontfamily='monospace',
-                ha='left', va='top', zorder=23, transform=ax.transData)
-
-        # Horizontal intensity bar
-        bar_y = py_top - 0.115 * yspan
-        ax.add_patch(plt.Rectangle(
-            (px_M, bar_y), bar_w, bar_h,
-            facecolor='#252540', edgecolor='none',
-            zorder=20, transform=ax.transData))
-
-        # Centered active progress bar for M (normalized from -1 to 1)
-        f = max(-1.0, min(M_val, 1.0))
-        center_x = px_M + bar_w / 2.0
-
-        if abs(f) > 0.001:
-            if f >= 0.0:
-                fill_x = center_x
-                fill_w = (bar_w / 2.0) * f
-            else:
-                fill_w = (bar_w / 2.0) * abs(f)
-                fill_x = center_x - fill_w
-                
-            ax.add_patch(plt.Rectangle(
-                (fill_x, bar_y), fill_w, bar_h,
-                facecolor=color, edgecolor='none', alpha=0.85, zorder=21,
-                transform=ax.transData))
-
-        ax.add_patch(plt.Rectangle(
-            (px_M, bar_y), bar_w, bar_h,
-            facecolor='none', edgecolor='#5A5A8A',
-            linewidth=0.7, zorder=22, transform=ax.transData))
-
-        # Red center line representing M = 0
-        ax.plot([center_x, center_x], [bar_y, bar_y + bar_h],
-                color='#FF0000', linewidth=1.2, zorder=23, transform=ax.transData)
-
-    field_log = []
-    hysteresis_log = [] if field_mode in ('hysteresis', 'forc') else None
-    sine_log       = [] if field_mode == 'sine'       else None
-
-    def _save_frame(step, th, om, stop_label=None,
-                    B_ext_inst=None, phi_ext_inst=None, t_phys=None):
-        nonlocal n_frames
-        if t_phys is None:
-            t_phys   = step * dt
-        S        = np.abs(np.mean(np.exp(1j * th)))
-        om_max   = np.max(np.abs(om))
-
-        b_now    = B_ext_inst   if B_ext_inst   is not None else B_ext
-        phi_now  = phi_ext_inst if phi_ext_inst is not None else phi_ext_deg
-
-        if b_now is not None and abs(b_now) > 1e-12:
-            sign_str = "+" if b_now > 0 else "-"
-            b_str = sign_str + _fmt_B(abs(b_now))
-        else:
-            b_str = "0 T"
-
-        title = f"S = {S:.4f}   w_max = {om_max:.2f} rad/s   B = {b_str}"
-
-        if field_mode in ('hysteresis', 'forc'):
-            fig, (axL, axR) = plt.subplots(
-                1, 2, figsize=(figsize_inches[0] * 2.05, figsize_inches[1]),
-                facecolor='#1A1A2E',
-                gridspec_kw={'width_ratios': [1.0, 1.0]})
-
-            axL.set_facecolor('#16213E')
-            axL.set_aspect('equal')
-            _margin = needle_len * 1.6
-            yspan_lattice = ys.max() - ys.min() + 2 * _margin
-            yspan = yspan_lattice / 0.8
-            axL.set_xlim(xs.min() - _margin, xs.max() + _margin)
-            axL.set_ylim(ys.min() - _margin, ys.min() - _margin + yspan)
-            axL.tick_params(left=False, bottom=False,
-                            labelleft=False, labelbottom=False)
-            for sp in axL.spines.values():
-                sp.set_edgecolor('#2C3E50')
-            draw_halos_batch(axL, xs, ys, th, needle_len, r_halo=r_halo,
-                             halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
-            draw_compass_batch(axL, xs, ys, th,
-                              length=needle_len, width=needle_width)
-            
-            draw_ext_field_on_lattice(
-                axL, xs, ys,
-                abs(b_now) if b_now is not None else 0.0,
-                phi_now, needle_len, B_ext_max=B_ext, B_signed=b_now)
-            
-            axL.set_title(title, color='#ECF0F1', fontsize=11,
-                          fontfamily='monospace')
-            _draw_clock(axL, t_phys, needle_len, stop_label=stop_label)
-            
-            # Compute and draw magnetization projection M
-            mx_mean = np.mean(np.cos(th))
-            my_mean = np.mean(np.sin(th))
-            M_proj = mx_mean * cos_phi + my_mean * sin_phi
-            _draw_m_box(axL, M_proj, needle_len)
-            
-            _render_hyst_panel(axR)
-
-            plt.tight_layout()
-            fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
-            plt.savefig(fpath, dpi=frame_dpi, bbox_inches='tight',
-                        facecolor='#1A1A2E')
-            plt.close(fig)
-            n_frames += 1
-            return
-
-        fig, ax = plot_state(th, xs, ys, title=title,
-                             needle_len=needle_len, needle_width=needle_width,
-                             r_halo=r_halo,
-                             B_ext=abs(b_now) if b_now is not None else 0.0,
-                             phi_ext_deg=phi_now,
-                             B_ext_max=B_ext,
-                             B_signed=b_now,
-                             figsize_inches=figsize_inches,
-                             halo_mode=halo_mode,
-                             domain_tol_deg=domain_tol_deg)
-        plt.tight_layout()
-        _draw_clock(ax, t_phys, needle_len, stop_label=stop_label)
-
-        fpath = os.path.join(frame_dir, f"frame_{n_frames:05d}.png")
-        plt.savefig(fpath, dpi=frame_dpi, bbox_inches='tight', facecolor='#1A1A2E')
-        plt.close(fig)
-        n_frames += 1
-
-    def _render_hyst_panel(axR):
-        axR.set_facecolor('#16213E')
-        for sp in axR.spines.values():
-            sp.set_edgecolor('#2C3E50')
-        axR.tick_params(colors='#7F8C9A', labelsize=8)
-
-        H_max_mT = (B_ext * 1e3) if B_ext > 0 else 1.0
-        axR.set_xlabel("H  (mT)", color='#BDC3C7', fontsize=10,
-                       fontfamily='monospace')
-        axR.set_ylabel("M  (projeção normalizada)", color='#BDC3C7',
-                       fontsize=10, fontfamily='monospace')
-        axR.set_title("Curva de histerese  M × H", color='#ECF0F1',
-                       fontsize=11, fontfamily='monospace')
-
-        axR.axhline(0.0, color='#2C3E50', lw=1.0, zorder=1)
-        axR.axvline(0.0, color='#2C3E50', lw=1.0, zorder=1)
-
-        if hysteresis_log:
-            if field_mode == 'forc':
-                from collections import defaultdict
-                segments = defaultdict(list)
-                for row in hysteresis_log:
-                    if forc_sweep == 'up' and row[5] != 'up':
-                        continue
-                    if forc_sweep == 'down' and row[5] != 'down':
-                        continue
-                    if forc_sweep == 'both' and row[5] not in ('up', 'down'):
-                        continue
-                    segments[int(row[6])].append(row)
-                
-                if forc_sweep == 'up':
-                    filtered_rows = [row for row in hysteresis_log if row[5] == 'up']
-                elif forc_sweep == 'down':
-                    filtered_rows = [row for row in hysteresis_log if row[5] == 'down']
-                else:
-                    filtered_rows = [row for row in hysteresis_log if row[5] in ('up', 'down')]
-                
-                if filtered_rows:
-                    arr_up = np.array(filtered_rows)
-                    H_mT_all = arr_up[:, 1].astype(float) * 1e3
-                    Mv_all   = arr_up[:, 2].astype(float)
-                else:
-                    H_mT_all = np.array([0.0])
-                    Mv_all   = np.array([0.0])
-
-                if hyst_autoscale:
-                    H_min, H_max = np.min(H_mT_all), np.max(H_mT_all)
-                    M_min, M_max = np.min(Mv_all), np.max(Mv_all)
-                    H_span = H_max - H_min
-                    M_span = M_max - M_min
-                    H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
-                    M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
-                    axR.set_xlim(H_min - H_margin, H_max + H_margin)
-                    axR.set_ylim(M_min - M_margin, M_max + M_margin)
-                else:
-                    axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
-                    axR.set_ylim(-1.15, 1.15)
-
-                for k_val in sorted(segments.keys()):
-                    arr_seg = np.array(segments[k_val])
-                    H_seg = arr_seg[:, 1].astype(float) * 1e3
-                    M_seg = arr_seg[:, 2].astype(float)
-                    axR.plot(H_seg, M_seg, color='#F1C40F', lw=1.6, zorder=3)
-
-                last_row = hysteresis_log[-1]
-                if (forc_sweep == 'both' and last_row[5] in ('up', 'down')) or (forc_sweep == last_row[5]):
-                    H_last = last_row[1] * 1e3
-                    Mv_last = last_row[2]
-                    axR.plot([H_last], [Mv_last], 'o', color='#E74C3C', ms=7, zorder=4)
-            else:
-                arr = np.array(hysteresis_log)
-                H_mT = arr[:, 1] * 1e3
-                Mv   = arr[:, 2]
-                if hyst_autoscale:
-                    H_min, H_max = np.min(H_mT), np.max(H_mT)
-                    M_min, M_max = np.min(Mv), np.max(Mv)
-                    H_span = H_max - H_min
-                    M_span = M_max - M_min
-                    H_margin = 0.05 * H_span if H_span > 1e-5 else 1.0
-                    M_margin = 0.05 * M_span if M_span > 1e-5 else 0.1
-                    axR.set_xlim(H_min - H_margin, H_max + H_margin)
-                    axR.set_ylim(M_min - M_margin, M_max + M_margin)
-                else:
-                    axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
-                    axR.set_ylim(-1.15, 1.15)
-                axR.plot(H_mT, Mv, color='#F1C40F', lw=1.6, zorder=3)
-                axR.plot([H_mT[-1]], [Mv[-1]], 'o', color='#E74C3C', ms=7, zorder=4)
-        else:
-            axR.set_xlim(-1.05 * H_max_mT, 1.05 * H_max_mT)
-            axR.set_ylim(-1.15, 1.15)
-
-    if frame_dir is not None:
-        _save_frame(0, theta_cur, omega_cur)
-
-    import threading, sys, os as _os
-
-    _stop_flag = threading.Event()
-    _term_fd  = None
-    _term_old = None
-    try:
-        import termios
-        _term_fd  = sys.stdin.fileno()
-        _term_old = termios.tcgetattr(_term_fd)
-    except Exception:
-        pass
-
-    def _restore_terminal():
-        if _term_fd is not None and _term_old is not None:
-            try:
-                import termios
-                termios.tcsetattr(_term_fd, termios.TCSADRAIN, _term_old)
-            except Exception:
-                pass
-
-    import atexit
-    atexit.register(_restore_terminal)
-
-    def _keyboard_listener():
-        try:
-            import tty, termios
-            fd = sys.stdin.fileno()
-            tty.setraw(fd)
-            while not _stop_flag.is_set():
-                ch = _os.read(fd, 1)
-                if ch == b'\t':
-                    _stop_flag.set()
-                    break
-                elif ch == b'\x03':
-                    _restore_terminal()
-                    sys.stdout.write("\r\n  Aborted (Ctrl+C) — immediate shutdown.\r\n")
-                    sys.stdout.flush()
-                    _os._exit(130)
-        except Exception:
-            pass
-        finally:
-            _restore_terminal()
-
-    _kb_thread = threading.Thread(target=_keyboard_listener, daemon=True)
-    _kb_thread.start()
-
-    def field_at(t_full):
-        if demag in ('on', 'rotational') and t_full < t_demag:
-            envelope = B_max * (1.0 - t_full / t_demag) 
-            omega_demag = 2.0 * np.add.reduce([np.pi]) * demag_freq
-            theta_field = omega_demag * t_full
-            return envelope * np.cos(theta_field), envelope * np.sin(theta_field)
-        elif demag == 'anneal' and t_full < t_demag:
-            envelope = B_max * (1.0 - t_full / t_demag)
-            return envelope * cos_phi, envelope * sin_phi
-
-        if demag in ('on', 'rotational', 'anneal') and t_full < (t_demag + t_demag_delay):
-            return 0.0, 0.0
-
-        t = t_full - t_demag - t_demag_delay
-        if field_mode == 'static':
-            return Bext_x0, Bext_y0
-
-        elif field_mode == 'forc':
-            import bisect
-            k = bisect.bisect_right(forc_cycle_starts, t) - 1
-            k = min(max(0, k), len(forc_t_down_list) - 1)
-            
-            t_local = t - forc_cycle_starts[k]
-            tsat = forc_t_sat if forc_t_sat is not None else 0.05
-            t_down_k = forc_t_down_list[k]
-            t_up_k = forc_t_up_list[k]
-            Br_curr = forc_Br_curr_list[k]
-            
-            if t_local <= tsat:
-                B_scalar = B_max
-            elif t_local <= tsat + t_down_k:
-                f = (t_local - tsat) / t_down_k if t_down_k > 0.0 else 1.0
-                B_scalar = (1.0 - f) * B_max + f * Br_curr
-            else:
-                f = (t_local - tsat - t_down_k) / t_up_k if t_up_k > 0.0 else 1.0
-                B_scalar = (1.0 - f) * Br_curr + f * B_max
-            return B_scalar * cos_phi, B_scalar * sin_phi
-
-        elif field_mode == 'hysteresis':
-            T  = t_sim if t_sim > 0 else 1.0
+        elif mode == "hysteresis":
+            T = max(self.t_sim, 1e-30)
             t5 = T / 5.0
-            if t <= t5:                      # seg 1: 0 → +Bmax
-                u0, sgn = (t / t5), +1.0
-            elif t <= 2.0 * t5:              # seg 2: +Bmax → 0
-                u0, sgn = (1.0 - (t - t5) / t5), +1.0
-            elif t <= 3.0 * t5:              # seg 3: 0 → -Bmax
-                u0, sgn = ((t - 2.0 * t5) / t5), -1.0
-            elif t <= 4.0 * t5:              # seg 4: -Bmax → 0
-                u0, sgn = (1.0 - (t - 3.0 * t5) / t5), -1.0
-            else:                            # seg 5: 0 → +Bmax
-                u0, sgn = ((t - 4.0 * t5) / t5), +1.0
-            if hyst_spacing == 'log' and hyst_log_k > 1e-9:
-                u0 = min(max(u0, 0.0), 1.0)
-                g = np.sinh(hyst_log_k * u0) / np.sinh(hyst_log_k)
+            if t <= t5:
+                u, sgn, branch = t / t5, +1.0, "0_to_pos"
+            elif t <= 2.0 * t5:
+                u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
+            elif t <= 3.0 * t5:
+                u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
+            elif t <= 4.0 * t5:
+                u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
             else:
-                g = u0
-            B_scalar = sgn * B_max * g
-            return B_scalar * cos_phi, B_scalar * sin_phi
-
-        elif field_mode == 'sine':
-            B_scalar = B_max * np.sin(2.0 * np.pi * field_freq * t)
-            return B_scalar * cos_phi, B_scalar * sin_phi
-
-        elif field_mode == 'pulse':
-            if t < field_delay:
-                return 0.0, 0.0
-            if t_pulse is not None:
-                if t < field_delay + t_pulse:
-                    return Bext_x0, Bext_y0
-                return 0.0, 0.0
-            if _pulse_relaxing[0]:
-                return 0.0, 0.0
-            return Bext_x0, Bext_y0
-
-        elif field_mode == 'step_pos':
-            if t < field_delay:
-                return 0.0, 0.0
-            return Bext_x0, Bext_y0
-
-        elif field_mode == 'step_neg':
-            if t < field_delay:
-                return Bext_x0, Bext_y0
-            return 0.0, 0.0
-
-        else:
-            return Bext_x0, Bext_y0
-
-    _pulse_relaxing = [False]
-
-    _print("  [Ctrl+I to stop and e save video]")
-    _print("  [Ctrl+C to ABORT withou saving]")
-
-    x_flat_xp = _local_to_backend(xs.ravel())
-    y_flat_xp = _local_to_backend(ys.ravel())
-
-    _dipolar_tensor = None
-    _K_total = int(x_flat_xp.shape[0])
-    _tensor_bytes = 3.0 * _K_total * _K_total * 8.0
-    if _tensor_bytes <= TENSOR_MEM_LIMIT_BYTES:
-        _dipolar_tensor = precompute_dipolar_tensor(
-            x_flat_xp, y_flat_xp, cutoff,
-            pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images)
-        _print(f"  Pre calculated Diploar Tensor: 3 matrixes {_K_total}x{_K_total} "
-               f"({_tensor_bytes/1e6:.0f} MB) — step matriz-vetor (V40)")
-    else:
-        _print(f"  Dipolar tensor NOT precomputed ({_tensor_bytes/1e9:.1f} GB "
-               f"exceeds the limit of {TENSOR_MEM_LIMIT_BYTES/1e9:.0f} GB) — "
-               f"using step-by-step calculation (V39 method)")
-
-    def _torques_xp(theta_flat_xp, bx_ext, by_ext):
-        if _dipolar_tensor is not None:
-            return compute_torques_from_tensor(
-                theta_flat_xp, _dipolar_tensor, moment, bx_ext, by_ext, xp=_active_xp)
-        return compute_torques_vectorized(
-            theta_flat_xp, x_flat_xp, y_flat_xp, moment, cutoff,
-            bx_ext, by_ext, pbc=pbc, Lx=Lx, Ly=Ly, n_images=n_images, xp=_active_xp)
-
-    def _torques(th, bx_ext, by_ext):
-        theta_flat_xp = _local_to_backend(th.ravel())
-        tau_flat_xp = _torques_xp(theta_flat_xp, bx_ext, by_ext)
-        tau_flat = _local_to_cpu(tau_flat_xp)
-        return tau_flat.reshape(N, M)
-
-    if _active_gpu:
-        cp.cuda.Stream.null.synchronize()
-    _perf_t_start  = _time_module.perf_counter()
-    _perf_last_print_step = 0
-    _perf_last_print_time = _perf_t_start
-    _last_status_print_time = _perf_t_start
-    _status_text = f"  [step 0/{n_steps}]  waiting for first status..."
-    _last_bar_suffix = f"step 0/{n_steps}"
-
-    def _finish_progress_bar_if_shown():
-        if show_progress:
-            _print_progress_bar_finish()
-
-    _tau_ref = inertia * omega0 * omega0
-    bx_cur, by_cur    = field_at(0.0)
-    theta_xp          = _local_to_backend(theta_cur.ravel())
-    omega_xp           = _active_xp.zeros(N * M)
-    tau_xp             = _torques_xp(theta_xp, bx_cur, by_cur)
-    if demag == 'anneal' and t_demag > 0.0:
-        noise_std = demag_temp * _tau_ref
-        tau_xp += noise_std * _active_xp.random.randn(*theta_xp.shape)
-    _converged_count  = 0
-    _S1_count         = 0
-    _allow_S1_stop     = (field_mode == 'static') and (not t_sim_full)
-    _allow_rest_stop   = (field_mode == 'static') and (not t_sim_full)
-    _stop_reason       = "total time reached"
-    _pulse_phase   = "delay" if (field_mode == 'pulse' and field_delay > 0) \
-                     else "field_on"
-    _S99_count        = 0
-    _S_window         = []
-    _step_after_announced = False
-    _S_WINDOW_SIZE    = max(40, int(2.0 / dt_factor))
-
-    # Pre-computed integration parameters to optimize simulation step speed
-    _dt_sq_half = 0.5 * (dt ** 2)
-    _inv_inertia = 1.0 / inertia
-    _b_half = damping_xp * dt * (0.5 * _inv_inertia)
-    _coeff_omega = (1.0 - _b_half) / (1.0 + _b_half)
-    _coeff_tau = dt * (0.5 * _inv_inertia) / (1.0 + _b_half)
-
-    for step in range(1, n_steps + 1):
-
-        t_now = step * dt
-        t_phys = t_now - t_demag - t_demag_delay
-
-        if _stop_flag.is_set():
-            _finish_progress_bar_if_shown()
-            _t_str = f"t_phys={t_phys:.4f}s" if t_phys >= 0 else f"t_demag={t_now:.4f}s"
-            _print(f"\n  Stopped (Ctrl+I) at {_t_str}  (step {step}/{n_steps})")
-            _stop_reason = "interrupted by user (Ctrl+I)"
-            if frame_dir is not None:
-                theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                _step_frame = step - n_steps_demag if t_phys >= 0 else 0
-                _save_frame(_step_frame, theta_cur, omega_cur,
-                            stop_label="[x] interrupted (Ctrl+I)")
-            break
-
-        bx_new, by_new = field_at(t_now)
-
-        accel_xp  = (tau_xp - damping_xp * omega_xp) * _inv_inertia
-        theta_new_xp = theta_xp + omega_xp * dt + accel_xp * _dt_sq_half
-        theta_new_xp = (theta_new_xp + _active_xp.pi) % (2.0 * _active_xp.pi) - _active_xp.pi
-
-        tau_new_xp = _torques_xp(theta_new_xp, bx_new, by_new)
-
-        if demag == 'anneal' and (t_now + dt) < t_demag:
-            next_t = t_now + dt
-            noise_std = demag_temp * _tau_ref * (1.0 - next_t / t_demag)
-            tau_thermal_next = noise_std * _active_xp.random.randn(*theta_xp.shape)
-        else:
-            tau_thermal_next = 0.0
-
-        omega_new_xp = omega_xp * _coeff_omega + (tau_xp + tau_new_xp + tau_thermal_next) * _coeff_tau
-
-        theta_xp = theta_new_xp
-        omega_xp = omega_new_xp
-        tau_xp   = tau_new_xp + tau_thermal_next
-        bx_cur    = bx_new
-        by_cur    = by_new
-
-        S_now_xp     = _active_xp.abs(_active_xp.mean(_active_xp.exp(1j * theta_xp)))
-        omega_max_xp = _active_xp.max(_active_xp.abs(omega_xp))
-        mx_mean_xp   = _active_xp.mean(_active_xp.cos(theta_xp))
-        my_mean_xp   = _active_xp.mean(_active_xp.sin(theta_xp))
-
-        S_now     = float(S_now_xp)
-        omega_max = float(omega_max_xp)
-        mx_mean   = float(mx_mean_xp)
-        my_mean   = float(my_mean_xp)
-
-        _need_cpu_sync = (callback is not None) or (t_phys >= 0 and step % 20 == 0) or \
-                         (frame_dir is not None and step % frame_every == 0)
-        if _need_cpu_sync:
-            theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-            omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-
-        if callback:
-            callback(step, theta_cur.copy(), omega_cur.copy())
-
-        if t_phys >= 0:
-            if step % 20 == 0:
-                hist.append((theta_cur.copy(), omega_cur.copy()))
-
-            M_proj   = mx_mean * cos_phi + my_mean * sin_phi
-            B_scalar = bx_cur * cos_phi + by_cur * sin_phi
-            if field_mode == 'forc':
-                import bisect
-                k = bisect.bisect_right(forc_cycle_starts, t_phys) - 1
-                k = min(max(0, k), len(forc_t_down_list) - 1)
-                t_local = t_phys - forc_cycle_starts[k]
-                tsat = forc_t_sat if forc_t_sat is not None else 0.05
-                t_down_k = forc_t_down_list[k]
-                Br_curr = forc_Br_curr_list[k]
-                if t_local <= tsat:
-                    sweep_type = 'sat'
-                elif t_local <= tsat + t_down_k:
-                    sweep_type = 'down'
-                else:
-                    sweep_type = 'up'
-                entry = (t_phys, B_scalar, M_proj, S_now, Br_curr, sweep_type, k)
+                u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
+            u = max(0.0, min(1.0, u))
+            if self.hyst_spacing == "log" and self.hyst_log_k > 1e-12:
+                g = math.sinh(self.hyst_log_k * u) / math.sinh(self.hyst_log_k)
             else:
-                entry = (t_phys, B_scalar, M_proj, S_now)
+                g = u
+            Bs = sgn * B * g
 
-            field_log.append(entry)
-            if hysteresis_log is not None:
-                hysteresis_log.append(entry)
-            if sine_log is not None:
-                sine_log.append(entry)
-
-        is_demag_phase = (n_steps_demag > 0) and (step <= n_steps_demag)
-        is_delay_phase = (n_steps_demag_delay > 0) and (not is_demag_phase) and (step <= n_steps_demag + n_steps_demag_delay)
-        if is_demag_phase:
-            phase_step = step
-            phase_n_steps = n_steps_demag
-            phase_frac = step / n_steps_demag
-            phase_time = t_now
-            phase_label = "Demagnetizing"
-        elif is_delay_phase:
-            phase_step = step - n_steps_demag
-            phase_n_steps = n_steps_demag_delay
-            phase_frac = phase_step / phase_n_steps if phase_n_steps > 0 else 1.0
-            phase_time = t_now - t_demag
-            phase_label = "Resting"
-        else:
-            phase_step = step - n_steps_demag - n_steps_demag_delay
-            phase_n_steps = n_steps - n_steps_demag - n_steps_demag_delay
-            phase_frac = phase_step / phase_n_steps if phase_n_steps > 0 else 1.0
-            phase_time = t_phys
-            if field_mode == 'hysteresis':
-                phase_label = "Hysteresis"
-            elif field_mode == 'forc':
-                phase_label = "FORC sweep"
-            elif field_mode == 'static':
-                phase_label = "Relaxing"
+        elif mode == "forc":
+            if self.forc is None:
+                raise RuntimeError("FORC mode requires a schedule.")
+            starts = self.forc.starts
+            # Manual binary search, avoiding scipy dependency.
+            k = np.searchsorted(starts, t, side="right") - 1
+            k = int(max(0, min(k, len(self.forc.Br) - 1)))
+            idx = k
+            tl = t - starts[k]
+            ts = self.forc.t_sat
+            td = self.forc.t_down[k]
+            tu = self.forc.t_up[k]
+            Br = self.forc.Br[k]
+            if tl <= ts:
+                Bs = B
+                branch = "sat"
+            elif tl <= ts + td:
+                f = (tl - ts) / max(td, 1e-30)
+                Bs = (1.0 - f) * B + f * Br
+                branch = "down"
             else:
-                phase_label = "Integrating"
+                f = (tl - ts - td) / max(tu, 1e-30)
+                Bs = (1.0 - f) * Br + f * B
+                branch = "up"
 
-        if show_progress:
-            _perf_now = _time_module.perf_counter()
-            is_phase_end = (is_demag_phase and step == n_steps_demag) or \
-                           (is_delay_phase and step == (n_steps_demag + n_steps_demag_delay)) or \
-                           (not is_demag_phase and not is_delay_phase and step == n_steps)
-            if (_perf_now - _perf_last_print_time) >= 0.15 or is_phase_end:
-                _steps_since = phase_step - _perf_last_print_step
-                _dt_wall     = _perf_now - _perf_last_print_time
-                _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
-                _backend_tag = "GPU" if _active_gpu else "CPU"
-                B_status = bx_cur * cos_phi + by_cur * sin_phi
-                _print_progress_bar(
-                    phase_frac,
-                    step=phase_step, n_steps=phase_n_steps, steps_per_s=_steps_per_s,
-                    t_now=phase_time, B_status=B_status, S_now=S_now, omega_max=omega_max,
-                    backend=_backend_tag, label=phase_label)
-                _perf_last_print_step = phase_step
-                _perf_last_print_time = _perf_now
+        elif mode == "sine":
+            Bs = B * math.sin(2.0 * math.pi * self.sine_freq * t)
+            branch = "sine"
 
-            if is_demag_phase and step == n_steps_demag:
-                _print_progress_bar_finish()
-                if n_steps_demag_delay > 0:
-                    _print(f"  Demagnetization complete. Resting for {demag_delay:.3f} s...")
-                else:
-                    _sim_desc = "hysteresis sweep" if field_mode == 'hysteresis' else ("FORC campaign" if field_mode == 'forc' else "relaxation")
-                    _print(f"  Demagnetization complete. Starting {_sim_desc}...")
-                _perf_last_print_step = 0
-                _perf_last_print_time = _time_module.perf_counter()
-                _last_status_print_time = _perf_last_print_time
+        elif mode in ("step_up", "step_pos"):
+            Bs = 0.0 if t < self.field_delay else B
+            branch = "before_step" if t < self.field_delay else "after_step"
 
-            elif is_delay_phase and step == (n_steps_demag + n_steps_demag_delay):
-                _print_progress_bar_finish()
-                _sim_desc = "hysteresis sweep" if field_mode == 'hysteresis' else ("FORC campaign" if field_mode == 'forc' else "relaxation")
-                _print(f"  Rest completed. Starting {_sim_desc}...")
-                _perf_last_print_step = 0
-                _perf_last_print_time = _time_module.perf_counter()
-                _last_status_print_time = _perf_last_print_time
+        elif mode in ("step_down", "step_neg"):
+            Bs = B if t < self.field_delay else 0.0
+            branch = "before_step" if t < self.field_delay else "after_step"
 
-        _status_now = _time_module.perf_counter()
-        if (_status_now - _last_status_print_time) >= 2.0 or step == n_steps:
-            B_status = bx_cur * cos_phi + by_cur * sin_phi
-            if show_progress:
-                if _progress_ansi_ok():
-                    _backend_tag = "GPU" if _active_gpu else "CPU"
-                    _steps_since = phase_step - _perf_last_print_step
-                    _dt_wall     = _status_now - _perf_last_print_time
-                    _steps_per_s = _steps_since / _dt_wall if _dt_wall > 0 else 0.0
-                    _print_progress_bar(
-                        phase_frac,
-                        step=phase_step, n_steps=phase_n_steps, steps_per_s=_steps_per_s,
-                        t_now=phase_time, B_status=B_status, S_now=S_now, omega_max=omega_max,
-                        backend=_backend_tag, label=phase_label)
-                else:
-                    _status_text = (f"  [{phase_label} step {phase_step}/{phase_n_steps}]  t={phase_time:.4f}s  "
-                                    f"B={B_status*1e3:+.4f}mT  S={S_now:.4f}  "
-                                    f"w_max={omega_max:.3f}rad/s")
-                    _print_progress_bar_finish()
-                    _print(_status_text)
-            _last_status_print_time = _status_now
-
-        if frame_dir is not None and step % frame_every == 0:
-            B_signed = bx_cur * cos_phi + by_cur * sin_phi
-            _save_frame(step, theta_cur, omega_cur,
-                        B_ext_inst=B_signed, phi_ext_inst=phi_ext_deg, t_phys=t_phys)
-
-        if t_phys >= 0:
-
-            if _allow_S1_stop:
-                if S_now >= 0.9999:
-                    _S1_count += 1
-                else:
-                    _S1_count = 0
-
-                if _S1_count >= 30:
-                    _finish_progress_bar_if_shown()
-                    if show_progress:
-                        _print(f"\n  S = 1.00 at t_phys={t_phys:.4f}s  (step {step}/{n_steps})")
-                    _stop_reason = f"S = 1.00 reached at t_phys = {t_phys:.4f} s"
-                    _stop_flag.set()
-                    if frame_dir is not None:
-                        theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                        omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                        _save_frame(step, theta_cur, omega_cur,
-                                    stop_label="S = 1.00  complete alignment", t_phys=t_phys)
-                    break
-
-            if field_mode == 'pulse':
-                if _pulse_phase == 'delay' and t_phys >= field_delay:
-                    _pulse_phase = 'field_on'
-                    _finish_progress_bar_if_shown()
-                    if show_progress:
-                        _print(f"\n  Pulse: initial wait completed: t_phys={t_phys:.4f}s  field ON")
-                    tau_xp = _torques_xp(theta_xp, *field_at(t_now))
-                if (_pulse_phase == 'field_on' and t_pulse is not None
-                        and t_phys >= field_delay + t_pulse):
-                    _pulse_relaxing[0] = True
-                    _pulse_phase = 'relaxing'
-                    _finish_progress_bar_if_shown()
-                    if show_progress:
-                        _print(f"\n  Pulse: duration t_pulse={t_pulse:.4f}s concluded in "
-                               f"t_phys={t_phys:.4f}s  zero field: stabilizing")
-                    tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
-                    if frame_dir is not None:
-                        theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                        omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                        _save_frame(step, theta_cur, omega_cur,
-                                    stop_label="zero field - stabilizing",
-                                    B_ext_inst=0.0, t_phys=t_phys)
-            elif field_mode in ('step_pos', 'step_neg') and not _step_after_announced:
-                if t_phys >= field_delay:
-                    _step_after_announced = True
-                    _finish_progress_bar_if_shown()
-                    if show_progress:
-                        if field_mode == 'step_pos':
-                            _print(f"\n  Step+: field ON in t_phys={t_phys:.4f}s (stay ON)")
-                        else:
-                            _print(f"\n  Step-: field OFF in t_phys={t_phys:.4f}s (stay zero)")
-                    tau_xp = _torques_xp(theta_xp, *field_at(t_now))
-
-        if (field_mode == 'pulse' and _pulse_phase == 'field_on'
-                and t_pulse is None):
-            if S_now >= 0.99:
-                _S99_count += 1
+        elif mode == "pulse":
+            if t < self.field_delay:
+                Bs = 0.0
+                branch = "delay"
+            elif self.t_pulse is not None and t >= self.field_delay + self.t_pulse:
+                Bs = 0.0
+                branch = "post_pulse"
             else:
-                _S99_count = 0
+                Bs = B
+                branch = "pulse_on"
 
-            _S_window.append(S_now)
-            if len(_S_window) > _S_WINDOW_SIZE:
-                _S_window.pop(0)
+        elif mode == "demag_rot":
+            Tdemag = self.demag_cycles / max(self.demag_freq, 1e-30)
+            if t <= Tdemag:
+                envelope = B * (1.0 - t / max(Tdemag, 1e-30))
+                angle = 2.0 * math.pi * self.demag_freq * t
+                return FieldState(envelope * math.cos(angle), envelope * math.sin(angle), envelope, "demag_rot", -1)
+            Bs = 0.0
+            branch = "post_demag"
 
-            _trigger_B = False
-            if len(_S_window) >= _S_WINDOW_SIZE:
-                S_max = max(_S_window)
-                S_min = min(_S_window)
-                S_mean = sum(_S_window) / len(_S_window)
-                if S_mean > 1e-6:
-                    spread_rel = (S_max - S_min) / S_mean
-                    if spread_rel < 0.05:
-                        _trigger_B = True
+        elif mode == "demag_linear":
+            Tdemag = self.demag_cycles / max(self.demag_freq, 1e-30)
+            Bs = B * max(0.0, 1.0 - t / max(Tdemag, 1e-30))
+            branch = "demag_linear" if t <= Tdemag else "post_demag"
 
-            _trigger_A = (_S99_count >= 20)
-
-            if _trigger_A or _trigger_B:
-                _pulse_relaxing[0] = True
-                _pulse_phase = 'relaxing'
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    if _trigger_A:
-                        _print(f"\n  Pulse: S>=0.99 at t_phys={t_phys:.4f}s  field ZERO, relaxing")
-                    else:
-                        _print(f"\n  Pulse: S stable (S={S_now:.4f}) at t_phys={t_phys:.4f}s  field ZERO, relaxing")
-                tau_xp = _torques_xp(theta_xp, 0.0, 0.0)
-                if frame_dir is not None:
-                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                    _save_frame(step, theta_cur, omega_cur,
-                                stop_label="Field Zero - relaxing",
-                                B_ext_inst=0.0, t_phys=t_phys)
-
-        # ── condition 2: lattice in equilibrium ─────────────────────────────────
-        _in_step_final = (t_phys >= 0) and (field_mode in ('step_pos', 'step_neg')
-                          and t_phys >= field_delay)
-        _rest_stop_active = (t_phys >= 0) and (not t_sim_full) and (_allow_rest_stop or (
-            field_mode == 'pulse' and _pulse_phase == 'relaxing') or
-            _in_step_final)
-        if _rest_stop_active:
-            _needs_torque_check = (field_mode in ('pulse', 'step_pos',
-                                                   'step_neg'))
-            _eq_now = (omega_max < omega0 * 1e-3)
-            if _eq_now and _needs_torque_check and torque_tol > 0:
-                tau_mean = float(abs(tau_xp).mean())
-                _eq_now = (tau_mean < torque_tol * _tau_ref)
-            if _eq_now:
-                _converged_count += 1
-            else:
-                _converged_count = 0
-
-            if _converged_count >= 50:
-                _finish_progress_bar_if_shown()
-                if show_progress:
-                    _print(f"\n  Lattice at rest at t_phys={t_phys:.4f}s  (step {step}/{n_steps})  S={S_now:.4f}")
-                _stop_reason = f"lattice at rest at t_phys = {t_phys:.4f} s"
-                _stop_flag.set()
-                if frame_dir is not None:
-                    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-                    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-                    _save_frame(step, theta_cur, omega_cur,
-                                stop_label="lattice at rest", t_phys=t_phys)
-                break
-
-    _finish_progress_bar_if_shown()
-
-    theta_cur = _local_to_cpu(theta_xp).reshape(N, M)
-    omega_cur = _local_to_cpu(omega_xp).reshape(N, M)
-
-    if _active_gpu:
-        cp.cuda.Stream.null.synchronize()
-    _perf_t_end       = _time_module.perf_counter()
-    _perf_total_s     = _perf_t_end - _perf_t_start
-    _perf_steps_done  = step
-    _perf_steps_per_s = _perf_steps_done / _perf_total_s if _perf_total_s > 0 else 0.0
-    _perf_ms_per_step = (_perf_total_s / _perf_steps_done * 1000.0) if _perf_steps_done > 0 else 0.0
-    _perf_backend_tag = "GPU" if _active_gpu else "CPU"
-    if show_progress:
-        _print()
-        _print(f"  ── performance ({_perf_backend_tag}) ──────────────────────────")
-        _print(f"  Integration time    : {_perf_total_s:.3f} s  (wall-clock)")
-        _print(f"  Steps executed      : {_perf_steps_done}")
-        _print(f"  Throughput          : {_perf_steps_per_s:.1f} steps/s  "
-               f"({_perf_ms_per_step:.4f} ms/step)")
-        _print(f"  Needles in lattice  : {N*M}  (K = N x M)")
-
-    _stop_flag.set()
-    _restore_terminal()
-
-    if hysteresis_log:
-        import csv
-        csv_path = "forc_curve.csv" if field_mode == 'forc' else "hysteresis_loop.csv"
-        with open(csv_path, 'w', newline='') as f:
-            w = csv.writer(f)
-            if field_mode == 'forc':
-                w.writerow(['t_s', 'B_T', 'M_proj', 'S', 'B_r'])
-                if forc_sweep == 'up':
-                    w.writerows([row[:5] for row in hysteresis_log if row[5] == 'up'])
-                elif forc_sweep == 'down':
-                    w.writerows([row[:5] for row in hysteresis_log if row[5] == 'down'])
-                else: # both
-                    w.writerows([row[:5] for row in hysteresis_log if row[5] in ('up', 'down')])
-            else:
-                w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
-                w.writerows(hysteresis_log)
-        if field_mode == 'forc':
-            _print(f"  FORC curve data saved: {csv_path}")
         else:
-            _print(f"  Hysteresis data saved: {csv_path}")
-        if make_images:
-            _plot_hysteresis(hysteresis_log, hyst_autoscale=hyst_autoscale, forc_sweep=forc_sweep)
-
-    if sine_log:
-        import csv
-        csv_path = "sine_field.csv"
-        with open(csv_path, 'w', newline='') as f:
-            w = csv.writer(f)
-            w.writerow(['t_s', 'B_T', 'M_proj', 'S'])
-            w.writerows(sine_log)
-        _print(f"  Sinusoidal field data saved: {csv_path}")
-        if make_images:
-            _plot_sine(sine_log, field_freq)
-
-    return theta_cur, omega_cur, hist, n_frames, dt, _stop_reason, field_log
-
-
-def next_available_path(path):
-    import os, re
-    base, ext = os.path.splitext(path)
-    prefix = re.sub(r'\d{4}$', '', base)
-    n = 0
-    while True:
-        candidate = f"{prefix}{n:04d}{ext}"
-        if not os.path.exists(candidate):
-            return candidate
-        n += 1
-
-
-def render_video(frame_dir, output_path, fps=24, crf=20, use_gpu=False):
-    import subprocess, shutil, os
-
-    if not shutil.which('ffmpeg'):
-        _print("WARNING: ffmpeg not found.")
-        return False
-
-    input_pattern = os.path.join(frame_dir, "frame_%05d.png")
-    vf = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-
-    strategies = []
-    if use_gpu and _GPU_AVAILABLE:
-        strategies.append((
-            "H.264 via NVENC (GPU)",
-            ['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', str(crf),
-             '-pix_fmt', 'yuv420p']))
-
-    strategies += [
-        ("H.264 (libx264) — CPU",
-         ['-c:v', 'libx264', '-preset', 'fast', '-crf', str(crf),
-          '-pix_fmt', 'yuv420p']),
-        ("MPEG-4 (mpeg4) — fallback for old ffmpeg",
-         ['-c:v', 'mpeg4', '-q:v', '5',
-          '-pix_fmt', 'yuv420p']),
-        ("default ffmpeg codec",
-         ['-pix_fmt', 'yuv420p']),
-    ]
-
-    _print(f"\nAssembling MP4 video: {output_path}")
-    _print(f"  Source : {frame_dir}/frame_*.png   FPS={fps}   CRF={crf}")
-
-    for desc, codec_args in strategies:
-        cmd = [
-            'ffmpeg', '-y',
-            '-framerate', str(fps),
-            '-i', input_pattern,
-            '-vf', vf,
-        ] + codec_args + [
-            '-f', 'mp4',
-            output_path,
-        ]
-
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode == 0:
-            size_mb = os.path.getsize(output_path) / 1024**2
-            _print(f"  Codec : {desc}")
-            _print(f"  Saved : {output_path}  ({size_mb:.1f} MB)")
-            return True
-        else:
-            last_err = result.stderr.strip().splitlines()
-            short_err = last_err[-1] if last_err else "(no message)"
-            _print(f"  [{desc}] failed: {short_err}")
-
-    _print(f"\nERROR: ffmpeg failed to assemble the video.")
-    return False
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. GENERATION OF THE NEEDLE GRID
-# ══════════════════════════════════════════════════════════════════════════════
-
-def make_grid(N=8, M=8, geometry='square', noise=1.5, R=0.025):
-    s3 = np.sqrt(3.0)
-
-    if geometry == 'square':
-        d = 2.0 * R
-        xs = np.zeros((N, M))
-        ys = np.zeros((N, M))
-        for i in range(N):
-            for j in range(M):
-                xs[i, j] = j * d
-                ys[i, j] = i * d
-        thetas = noise * np.random.randn(N, M)
-        Lx, Ly = M * d, N * d
-        return xs, ys, thetas, d, Lx, Ly
-
-    elif geometry == 'triangular':
-        d      = 2.0 * R
-        dx_col = d
-        dy_row = R * s3
-        offset = R
-        xs = np.zeros((N, M))
-        ys = np.zeros((N, M))
-        for i in range(N):
-            x_off = offset * (i % 2)
-            for j in range(M):
-                xs[i, j] = j * dx_col + x_off
-                ys[i, j] = i * dy_row
-        thetas = noise * np.random.randn(N, M)
-        Lx, Ly = M * dx_col, N * dy_row
-        return xs, ys, thetas, d, Lx, Ly
-
-    elif geometry == 'honeycomb':
-        dy  = R * np.sqrt(3.0)
-        d   = 2.0 * R
-
-        W = (M - 1) * 2.0 * R
-        H = (N - 1) * dy
-
-        N_rows = (N + 4) * 2
-        x_start = -2.0 * 2 * R
-        y_start = -2.0 * dy
-
-        xs_list, ys_list = [], []
-        for row in range(N_rows):
-            y = y_start + row * dy
-            if row % 2 == 0:
-                x = x_start
-                while x <= W + 2 * 2 * R:
-                    xs_list.append(x)
-                    ys_list.append(y)
-                    x += 2.0 * R
-            else:
-                x = x_start + R
-                while x <= W + 2 * 2 * R:
-                    xs_list.append(x)
-                    ys_list.append(y)
-                    x += 4.0 * R
-
-        all_x = np.array(xs_list)
-        all_y = np.array(ys_list)
-
-        margin = R * 0.99
-        mask = ((all_x >= -margin) & (all_x <= W + margin) &
-                (all_y >= -margin) & (all_y <= H + margin))
-        clipped_x = all_x[mask]
-        clipped_y = all_y[mask]
-
-        n_pts = len(clipped_x)
-        xs     = clipped_x.reshape(n_pts, 1)
-        ys     = clipped_y.reshape(n_pts, 1)
-        thetas = noise * np.random.randn(n_pts, 1)
-        Lx, Ly = W, H
-        return xs, ys, thetas, d, Lx, Ly
-
-    else:
-        raise ValueError(f"Geometria desconhecida: '{geometry}'")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5b. IDENTIFICATION OF MAGNETIC DOMAINS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def label_magnetic_domains(thetas, tol_deg=15.0):
-    N, M = thetas.shape
-    K = N * M
-    parent = np.arange(K)
-
-    def find(x):
-        root = x
-        while parent[root] != root:
-            root = parent[root]
-        while parent[x] != root:
-            parent[x], x = root, parent[x]
-        return root
-
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    tol_rad = np.deg2rad(tol_deg)
-
-    def _angdiff(a, b):
-        d = a - b
-        return np.abs(np.arctan2(np.sin(d), np.cos(d)))
-
-    idx_grid = np.arange(K).reshape(N, M)
-
-    if N > 1:
-        d_vert = _angdiff(thetas[:-1, :], thetas[1:, :])
-        mask_vert = d_vert <= tol_rad
-        pairs_a = [idx_grid[:-1, :][mask_vert]]
-        pairs_b = [idx_grid[1:, :][mask_vert]]
-    else:
-        pairs_a, pairs_b = [], []
-
-    if M > 1:
-        d_horiz = _angdiff(thetas[:, :-1], thetas[:, 1:])
-        mask_horiz = d_horiz <= tol_rad
-        pairs_a.append(idx_grid[:, :-1][mask_horiz])
-        pairs_b.append(idx_grid[:, 1:][mask_horiz])
-
-    if pairs_a:
-        flat_a = np.concatenate(pairs_a)
-        flat_b = np.concatenate(pairs_b)
-        for a, b in zip(flat_a.tolist(), flat_b.tolist()):
-            union(a, b)
-
-    labels_raw = np.array([find(k) for k in range(K)])
-    _, labels_remapped = np.unique(labels_raw, return_inverse=True)
-    n_domains = int(labels_remapped.max()) + 1 if K > 0 else 0
-    return labels_remapped.reshape(N, M), n_domains
-
-
-def _domain_color_palette(n_domains):
-    if n_domains <= 1:
-        return np.array([[0.55, 0.55, 0.85, 1.0]])
-    hues = np.linspace(0.0, 1.0, n_domains, endpoint=False)
-    hues = (hues * 0.618034 + 0.15) % 1.0
-    return cm.hsv(hues)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. DESENHO OF A NEEDLE OF COMPASS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def draw_compass(ax, x, y, theta, length=0.42, width=0.10,
-                 color_n='#FFFFFF', color_s='#2E6DB4',
-                 edge='#1a1a1a', zorder=4):
-    half   = length / 2.0
-    half_w = width  / 2.0
-
-    pts_local = np.array([
-        [ half,     0.0    ],
-        [ 0.0,      half_w ],
-        [-half,     0.0    ],
-        [ 0.0,     -half_w ],
-    ])
-
-    c, s = np.cos(theta), np.sin(theta)
-    R = np.array([[c, -s],
-                  [s,  c]])
-    pts = (R @ pts_local.T).T + np.array([x, y])
-
-    north = plt.Polygon(
-        [pts[0], pts[1], [x, y], pts[3]],
-        closed=True, facecolor=color_n,
-        edgecolor=edge, linewidth=0.5, zorder=zorder)
-
-    south = plt.Polygon(
-        [pts[2], pts[1], [x, y], pts[3]],
-        closed=True, facecolor=color_s,
-        edgecolor=edge, linewidth=0.5, zorder=zorder)
-
-    ax.add_patch(south)
-    ax.add_patch(north)
-
-    ax.plot(x, y, 'o', ms=2.0, color='#555555',
-            markeredgecolor='#222222', markeredgewidth=0.4,
-            zorder=zorder + 1)
-
-
-def draw_compass_batch(ax, xs, ys, thetas, length=0.42, width=0.10,
-                       color_n='#FFFFFF', color_s='#2E6DB4',
-                       edge='#1a1a1a', zorder=4):
-    half   = length / 2.0
-    half_w = width  / 2.0
-    x_flat = np.asarray(xs).ravel()
-    y_flat = np.asarray(ys).ravel()
-    th_flat = np.asarray(thetas).ravel()
-    K = x_flat.shape[0]
-
-    pts_local = np.array([
-        [ half,     0.0    ],
-        [ 0.0,      half_w ],
-        [-half,     0.0    ],
-        [ 0.0,     -half_w ],
-    ])
-
-    c = np.cos(th_flat)
-    s = np.sin(th_flat)
-    R = np.empty((K, 2, 2))
-    R[:, 0, 0] = c
-    R[:, 0, 1] = -s
-    R[:, 1, 0] = s
-    R[:, 1, 1] = c
-
-    pts_rot = np.einsum('kab,vb->kva', R, pts_local)
-    pts_rot[:, :, 0] += x_flat[:, None]
-    pts_rot[:, :, 1] += y_flat[:, None]
-
-    centers = np.stack([x_flat, y_flat], axis=1)
-
-    north_patches = []
-    south_patches = []
-    for k in range(K):
-        p0, p1, p2, p3 = pts_rot[k]
-        ctr = centers[k]
-        north_patches.append(mpatches.Polygon(
-            [p0, p1, ctr, p3], closed=True))
-        south_patches.append(mpatches.Polygon(
-            [p2, p1, ctr, p3], closed=True))
-
-    pc_north = PatchCollection(
-        north_patches, facecolor=color_n, edgecolor=edge,
-        linewidths=0.5, zorder=zorder)
-    pc_south = PatchCollection(
-        south_patches, facecolor=color_s, edgecolor=edge,
-        linewidths=0.5, zorder=zorder)
-    ax.add_collection(pc_south)
-    ax.add_collection(pc_north)
-
-    scatter_pins = ax.scatter(
-        x_flat, y_flat, s=4.0, c='#555555',
-        edgecolors='#222222', linewidths=0.4,
-        zorder=zorder + 1)
-
-    return pc_north, pc_south, scatter_pins
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 7. LATTICE-STATE VISUALIZATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _fmt_B(B):
-    if B == 0:      return "0 T"
-    if B >= 0.1:    return f"{B:.4f} T"
-    if B >= 1e-4:   return f"{B*1e3:.4f} mT"
-    return              f"{B*1e6:.2f} µT"
-
-
-def draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg,
-                              needle_len, B_ext_max=None, B_signed=None,
-                              color='#FFD700'):
-    """Represents the external field in the image."""
-    b_val = B_signed if B_signed is not None else B_ext
-    
-    B_max_ref = B_ext_max if (B_ext_max and B_ext_max > 0) else max(abs(b_val), 1e-30)
-    
-    if B_signed is not None:
-        frac = (B_signed / B_max_ref + 1.0) / 2.0
-    else:
-        frac = min(abs(B_ext) / B_max_ref, 1.0)
-    frac = max(0.0, min(frac, 1.0))
-    field_on  = (abs(b_val) > 1e-30)
-
-    # ── 2. panel field (ALWAYS visible) — corner upper right ──────
-    xlim  = ax.get_xlim()
-    ylim  = ax.get_ylim()
-    xspan = xlim[1] - xlim[0]
-    yspan = ylim[1] - ylim[0]
-
-    bar_w = 0.20 * xspan
-    bar_h = 0.018 * yspan
-    arrow_zone_w = 0.07 * xspan
-
-    box_w = bar_w + arrow_zone_w
-    px = xlim[1] - 0.02 * xspan - box_w
-    py_top = ylim[1] - 0.035 * yspan
-
-    pad = needle_len * 0.25
-    box_h = 0.140 * yspan + pad
-
-    # semi-transparent background box
-    ax.add_patch(plt.Rectangle(
-        (px - pad * 0.3, py_top - box_h),
-        box_w + pad, box_h,
-        facecolor='#080818', edgecolor=color,
-        linewidth=0.8, alpha=0.82, zorder=19,
-        transform=ax.transData))
-
-    # ── text: intensity and direction ────────────
-    if abs(b_val) > 1e-12:
-        sign_str = "+" if b_val >= 0 else "-"
-        b_str = sign_str + _fmt_B(abs(b_val))
-    else:
-        b_str = "0 T  (desligado)" if not field_on else "0 T"
-    phi_str = f"dir: {phi_ext_deg:.1f} graus"
-
-    text_color = color if field_on else '#777777'
-    
-    # Label "B ext" (left)
-    ax.text(px, py_top - 0.022 * yspan, "B ext", color=color, fontsize=7,
-            alpha=0.8, fontfamily='monospace', ha='left', va='top', zorder=23,
-            transform=ax.transData)
-            
-    # Field value (second line)
-    ax.text(px, py_top - 0.048 * yspan, b_str, color=text_color,
-            fontsize=9, fontweight='bold', fontfamily='monospace',
-            ha='left', va='top', zorder=23, transform=ax.transData)
-            
-    # Direction (third line)
-    ax.text(px, py_top - 0.072 * yspan, phi_str, color=text_color,
-            fontsize=7, fontfamily='monospace', ha='left', va='top', zorder=23,
-            transform=ax.transData)
-
-    # ── horizontal intensity bar ───
-    bar_y = py_top - 0.115 * yspan
-    ax.add_patch(plt.Rectangle(
-        (px, bar_y), bar_w, bar_h,
-        facecolor='#252540', edgecolor='none',
-        zorder=20, transform=ax.transData))
-    
-    # Active bar (centered, growing left for negative fields and right for positive fields)
-    f = b_val / B_max_ref if B_max_ref > 0 else 0.0
-    f = max(-1.0, min(f, 1.0))
-    center_x = px + bar_w / 2.0
-    
-    if abs(f) > 0.001:
-        if f >= 0.0:
-            fill_x = center_x
-            fill_w = (bar_w / 2.0) * f
-        else:
-            fill_w = (bar_w / 2.0) * abs(f)
-            fill_x = center_x - fill_w
-            
-        ax.add_patch(plt.Rectangle(
-            (fill_x, bar_y), fill_w, bar_h,
-            facecolor=color if field_on else '#555555',
-            edgecolor='none', alpha=0.85, zorder=21,
-            transform=ax.transData))
-            
-    ax.add_patch(plt.Rectangle(
-        (px, bar_y), bar_w, bar_h,
-        facecolor='none', edgecolor='#5A5A8A',
-        linewidth=0.7, zorder=22, transform=ax.transData))
-
-    # Red vertical center line (representing zero field reference)
-    ax.plot([center_x, center_x], [bar_y, bar_y + bar_h],
-            color='#FF0000' if field_on else '#777777',
-            linewidth=1.2, zorder=23, transform=ax.transData)
-
-    # ── direction dial (circle + arrow): centered next to the text lines ──
-    arrow_cx = px + box_w - pad - 0.01 * xspan
-    arrow_cy = py_top - 0.048 * yspan
-    r_dial   = needle_len * 0.55 * 1.30
-    
-    dial = plt.Circle((arrow_cx, arrow_cy), r_dial, facecolor='#080818',
-                      edgecolor='#5A5A8A', lw=0.7, zorder=20)
-    ax.add_patch(dial)
-    
-    f = b_val / B_max_ref if B_max_ref > 0 else 0.0
-    f = max(-1.0, min(f, 1.0))
-    
-    if field_on and abs(f) > 1e-5:
-        phi_arrow = (phi_ext_deg + 180.0) % 360.0 if f < 0 else phi_ext_deg
-        # Scale arrow length: full diameter at |f|=1, shrinks toward center
-        arrow_len = abs(f) * (2.0 * r_dial)
-
-        cos_a = np.cos(np.deg2rad(phi_arrow))
-        sin_a = np.sin(np.deg2rad(phi_arrow))
-
-        # Arrow geometry (centered in the circle) - scaled proportionally to |f| to preserve aspect ratio
-        scale_w = abs(f)
-        shaft_w  = (r_dial * 0.28) * scale_w          # shaft half-width
-        head_w   = (r_dial * 0.60) * scale_w          # head half-width
-        head_len = (r_dial * 0.65) * scale_w          # head length
-
-        # Tail position (centered on arrow_cx/cy)
-        x_tail = arrow_cx - (arrow_len / 2.0) * cos_a
-        y_tail = arrow_cy - (arrow_len / 2.0) * sin_a
-
-        from matplotlib.patches import FancyArrow
-        fat_arrow = FancyArrow(
-            x_tail, y_tail,
-            arrow_len * cos_a, arrow_len * sin_a,
-            width=shaft_w * 2,
-            head_width=head_w * 2,
-            head_length=head_len,
-            length_includes_head=True,
-            facecolor=color,
-            edgecolor='#1A1A2E',
-            linewidth=0.8,
-            zorder=22,
-            transform=ax.transData,
-        )
-        ax.add_patch(fat_arrow)
-
-    # ── 1. arrows at the sites ─────────────────
-    if field_on:
-        phi_inst = np.deg2rad(phi_ext_deg + 180.0 if b_val < 0 else phi_ext_deg)
-        cos_phi  = np.cos(phi_inst)
-        sin_phi  = np.sin(phi_inst)
-        alen_sites = needle_len * 0.35
-        dx_a = alen_sites * cos_phi
-        dy_a = alen_sites * sin_phi
-        N, M = xs.shape
-        x0 = xs.ravel() - dx_a / 2.0
-        y0 = ys.ravel() - dy_a / 2.0
-        ax.quiver(x0, y0, dx_a, dy_a,
-                 angles='xy', scale_units='xy', scale=1.0,
-                 color=color, alpha=0.50, width=0.0035,
-                 headwidth=4.0, headlength=4.5, headaxislength=4.0,
-                 zorder=2)
-
-
-def draw_halos_batch(ax, xs, ys, thetas, needle_len, r_halo=None,
-                     halo_mode='order', domain_tol_deg=15.0):
-    N, M = thetas.shape
-    _r = r_halo if r_halo is not None else needle_len * 0.58
-    _n_domains_found = None
-    _n_significant   = None
-
-    if halo_mode == 'domains':
-        domain_labels, _n_domains_found = label_magnetic_domains(
-            thetas, tol_deg=domain_tol_deg)
-        K_total = N * M
-        _unique_labels, _inverse, _counts = np.unique(
-            domain_labels, return_inverse=True, return_counts=True)
-        _inverse = _inverse.ravel()
-        _min_domain_size = max(3, int(0.02 * K_total))
-        _is_significant = _counts >= _min_domain_size
-        _n_significant = int(np.sum(_is_significant))
-
-        _sig_idx = np.where(_is_significant)[0]
-        _sig_order = _sig_idx[np.argsort(-_counts[_sig_idx])]
-        _color_rank = np.full(len(_unique_labels), -1, dtype=int)
-        _color_rank[_sig_order] = np.arange(len(_sig_order))
-
-        palette = _domain_color_palette(max(_n_significant, 1))
-        _gray = np.array([0.45, 0.45, 0.48, 1.0])
-        per_label_colors = np.tile(_gray, (len(_unique_labels), 1))
-        if _n_significant > 0:
-            per_label_colors[_sig_order] = palette[:_n_significant]
-
-        colors = per_label_colors[_inverse]
-    else:
-        align_sum   = np.zeros((N, M))
-        align_count = np.zeros((N, M))
-        for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            dst_i0, dst_i1 = max(0, -di), N - max(0, di)
-            dst_j0, dst_j1 = max(0, -dj), M - max(0, dj)
-            src_i0, src_i1 = dst_i0 + di, dst_i1 + di
-            src_j0, src_j1 = dst_j0 + dj, dst_j1 + dj
-            delta = thetas[dst_i0:dst_i1, dst_j0:dst_j1] - thetas[src_i0:src_i1, src_j0:src_j1]
-            align_sum[dst_i0:dst_i1, dst_j0:dst_j1]   += np.cos(delta)
-            align_count[dst_i0:dst_i1, dst_j0:dst_j1] += 1.0
-
-        align_avg = np.where(align_count > 0, align_sum / np.maximum(align_count, 1.0), 0.0)
-        colors = cm.RdYlGn((align_avg.ravel() + 1.0) / 2.0)
-
-    halo_patches = [plt.Circle((x, y), _r)
-                    for x, y in zip(xs.ravel(), ys.ravel())]
-    _halo_alpha = 0.35 if halo_mode == 'domains' else 0.20
-    pc_halos = PatchCollection(
-        halo_patches, facecolor=colors, edgecolor='none',
-        alpha=_halo_alpha, zorder=1)
-    ax.add_collection(pc_halos)
-    return _n_domains_found, _n_significant
-
-
-def plot_state(thetas, xs, ys, title="Array of compass", show_order=True,
-               needle_len=0.42, needle_width=0.10, r_halo=None,
-               B_ext=0.0, phi_ext_deg=0.0, B_ext_max=None,
-               B_signed=None, figsize_inches=None,
-               halo_mode='order', domain_tol_deg=15.0):
-    """Generates a figure with the instantaneous state of the needle lattice."""
-    if figsize_inches is None:
-        x_span = xs.max() - xs.min() + 2 * needle_len * 2.0
-        y_span = ys.max() - ys.min() + 2 * needle_len * 4.0
-        aspect = x_span / y_span if y_span > 0 else 1.0
-        base = 8.0
-        if aspect >= 1.0:
-            fig_w = min(base * aspect, 20.0)
-            fig_h = fig_w / aspect
-        else:
-            fig_h = min(base / aspect, 20.0)
-            fig_w = fig_h * aspect
-        figsize_inches = (max(fig_w, 6.0), max(fig_h, 6.0))
-
-    fig, ax = plt.subplots(figsize=figsize_inches, facecolor='#1A1A2E')
-    ax.set_facecolor('#16213E')
-    N, M = thetas.shape
-
-    if show_order:
-        _n_domains_found, _n_significant = draw_halos_batch(
-            ax, xs, ys, thetas, needle_len, r_halo=r_halo,
-            halo_mode=halo_mode, domain_tol_deg=domain_tol_deg)
-
-    draw_compass_batch(ax, xs, ys, thetas,
-                       length=needle_len, width=needle_width)
-
-    ax.set_aspect('equal')
-    margin = needle_len * 1.6
-    yspan_lattice = ys.max() - ys.min() + 2 * margin
-    yspan = yspan_lattice / 0.8
-    ax.set_xlim(xs.min() - margin, xs.max() + margin)
-    ax.set_ylim(ys.min() - margin, ys.min() - margin + yspan)
-    ax.set_title(title, color='#ECF0F1', fontsize=11, pad=10,
-                 fontfamily='monospace')
-    ax.tick_params(colors='#7F8C8D')
-    for spine in ax.spines.values():
-        spine.set_edgecolor('#2C3E50')
-
-    draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len,
-                              B_ext_max=B_ext_max, B_signed=B_signed)
-
-    patch_n = mpatches.Patch(facecolor='#FFFFFF', edgecolor='#555',
-                              label='North Pole (white)')
-    patch_s = mpatches.Patch(facecolor='#2E6DB4', edgecolor='#555',
-                              label='South Pole (blue)')
-    handles = [patch_n, patch_s]
-    if show_order and halo_mode == 'domains':
-        if _n_significant < _n_domains_found:
-            _dom_label = (f'Domains: {_n_significant} main '
-                          f'(+{_n_domains_found - _n_significant} small, grey)  '
-                          f'tol={domain_tol_deg:.0f}°')
-        else:
-            _dom_label = f'Magnetic Domains: {_n_domains_found}  (tol={domain_tol_deg:.0f}°)'
-        patch_dom = mpatches.Patch(facecolor='none', edgecolor='none',
-                                   label=_dom_label)
-        handles.append(patch_dom)
-    if B_ext > 0:
-        patch_b = mpatches.Patch(facecolor='#FFD700', edgecolor='#555',
-                                  label=f'Ext. Field.  {_fmt_B(B_ext)}  '
-                                        f'φ={phi_ext_deg:.1f}°')
-        handles.append(patch_b)
-    ax.legend(handles=handles, loc='lower left',
-              facecolor='#1A1A2E', edgecolor='#2C3E50',
-              labelcolor='#ECF0F1', fontsize=8)
-
-    return fig, ax
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 8. RELAXATION ANIMATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def animate_relaxation(thetas_hist, xs, ys,
-                       needle_len=0.42, needle_width=0.10,
-                       B_ext=0.0, phi_ext_deg=0.0,
-                       interval=80, save_gif=None):
-    """Generates a frame-by-frame animation of the lattice time evolution."""
-    fig, ax = plt.subplots(figsize=(7, 7), facecolor='#1A1A2E')
-    ax.set_facecolor('#16213E')
-    ax.set_aspect('equal')
-    margin = needle_len * 1.6
-    yspan_lattice = ys.max() - ys.min() + 2 * margin
-    yspan = yspan_lattice / 0.8
-    ax.set_xlim(xs.min() - margin, xs.max() + margin)
-    ax.set_ylim(ys.min() - margin, ys.min() - margin + yspan)
-
-    N, M = thetas_hist[0].shape
-
-    def update(frame):
-        for art in ax.lines + ax.patches + ax.collections:
-            art.remove()
-        thetas = thetas_hist[frame]
-        draw_compass_batch(ax, xs, ys, thetas,
-                           length=needle_len, width=needle_width)
-        draw_ext_field_on_lattice(ax, xs, ys, B_ext, phi_ext_deg, needle_len)
-        ax.set_title(f"Dipolar relaxation — step {frame * 20}",
-                     color='#ECF0F1', fontsize=11, fontfamily='monospace')
-        return []
-
-    ani = FuncAnimation(fig, update, frames=len(thetas_hist),
-                        interval=interval, blit=False)
-    if save_gif:
-        ani.save(save_gif, writer='pillow', fps=12, dpi=90)
-        _print(f"GIF saved at: {save_gif}")
-    return fig, ani
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 9. GLOBAL ORDER-PARAMETER PLOT
-# ══════════════════════════════════════════════════════════════════════════════
-
-def plot_order_parameter(thetas_hist, outpath, dt=None):
-    """Plots the time evolution of the global magnetic order parameter S(t)."""
-    order_params = [
-        np.abs(np.mean(np.exp(1j * th)))
-        for th in thetas_hist
-    ]
-
-    if dt is not None:
-        time_ax = np.arange(len(order_params)) * 20 * dt
-        xlabel  = "Time  t  [s]"
-    else:
-        time_ax = np.arange(len(order_params))
-        xlabel  = "Snapshot (every 20 steps)"
-
-    fig, ax = plt.subplots(figsize=(8, 3.5), facecolor='#1A1A2E')
-    ax.set_facecolor('#0F3460')
-    ax.plot(time_ax, order_params, color='#E94560', lw=2)
-    ax.set_xlabel(xlabel, color='#BDC3C7')
-    ax.set_ylabel(r"Order parameter $S = |\langle e^{i\theta}\rangle|$",
-                  color='#BDC3C7')
-    ax.set_title("Global Magnetic Order Parameter Evolution",
-                 color='#ECF0F1', fontfamily='monospace')
-    ax.tick_params(colors='#7F8C8D')
-    ax.set_ylim(0, 1.05)
-    ax.grid(True, color='#2C3E50', alpha=0.5)
-    for spine in ax.spines.values():
-        spine.set_edgecolor('#2C3E50')
-    plt.tight_layout()
-    plt.savefig(outpath, dpi=130, bbox_inches='tight', facecolor='#1A1A2E')
-    _print(f"Order parameter saved at: {outpath}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 10. COMMAND-LINE INTERFACE (main)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def main():
-    """Command-line entry point of the simulation."""
-    import time as _time
-    _start_wall_time = _time.perf_counter()
-    parser = argparse.ArgumentParser(
-        description="Simulation of a compass-needle array — 2D dipolar field",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-    grp = parser.add_argument_group("Lattice geometry")
-    grp.add_argument('--N', type=int, default=8,
-                     help='Number of needle ROWS')
-    grp.add_argument('--M', type=int, default=8,
-                     help='Number of needle COLUMNS')
-    grp.add_argument('--R', type=float, default=0.0075,
-                     help='Radius of the circumscribed circle enclosing each needle [m]. '
-                           'The distance between neighbor centers = 2R. '
-                           'Default: 0.0075 m = 0.75 cm')
-    grp.add_argument('--needle_frac', type=float, default=2.0/3.0,
-                     help='Needle length as a fraction of the diameter 2R '
-                           '(0.0 to 0.8). Default: 2/3 (0.6667)  ->  needle = (2/3) * 2R. '
-                           'Values outside the range will be clamped.')
-    grp.add_argument('--geometry',
-                     choices=['square', 'triangular', 'honeycomb'],
-                     default='square',
-                     help='Lattice geometry type')
-
-    grp2 = parser.add_argument_group("Physics and simulation")
-    grp2.add_argument('--moment', type=float, default=None,
-                      help='Magnetic moment of each needle [A·m²]. '
-                           'If omitted (default), calculated automatically '
-                           'from the physical volume of the needle (R, '
-                           'needle_frac, thickness), assuming that the steel '
-                           'is saturated along the long axis (North) '
-                           'of the needle: m = Ms * volume, where Ms is the '
-                           'saturation magnetization of the steel (--steel_Bsat). '
-                           'If supplied explicitly, this value '
-                           'overrides the automatic calculation. '
-                           'Typical: 0.01 (small) to 1.0 (large).')
-    grp2.add_argument('--inertia', type=float, default=None,
-                      help='Moment of inertia of each needle [kg·m²]. '
-                           'If omitted (default), calculated automatically '
-                           'from the physical geometry of the needle (R, '
-                           'needle_frac, thickness) as a steel plate: '
-                           'I = (1/12)*mass*(L^2 + width^2), '
-                           'mass = density * L * width * thickness. '
-                           'If supplied explicitly, this value '
-                           'overrides the automatic calculation.')
-    grp2.add_argument('--pivot_radius', type=float, default=1.0e-3,
-                      help='Radius of the cylindrical pivot at the center of the needle [m] (default: 1.0e-3 = 1.0 mm).')
-    grp2.add_argument('--pivot_thickness', type=float, default=2.0e-3,
-                      help='Thickness/height of the cylindrical pivot [m] (default: 2.0e-3 = 2.0 mm).')
-    grp2.add_argument('--pivot_density', type=float, default=8500.0,
-                      help='Density of the pivot material [kg/m³] (default: 8500.0 for brass).')
-    grp2.add_argument('--pivot_mass', type=float, default=None,
-                      help='Explicit mass of the pivot [kg]. If provided, overrides density and dimension calculations.')
-    grp2.add_argument('--needle_thickness', type=float,
-                      default=NEEDLE_THICKNESS_DEFAULT,
-                      help='Thickness of the steel sheet of the needle [m], '
-                           'used in the automatic calculations of the moment of '
-                           'inertia and the magnetic moment (when '
-                           '--inertia / --moment are not provided). '
-                           f'Default: {NEEDLE_THICKNESS_DEFAULT*1e3:.2f} mm')
-    grp2.add_argument('--steel_density', type=float,
-                      default=STEEL_DENSITY_DEFAULT,
-                      help='Density of the magnetic steel [kg/m³], used '
-                           'only in the automatic calculation of the moment of '
-                           'inertia. Default: {STEEL_DENSITY_DEFAULT:.0f} '
-                           'kg/m³ (standard carbon steel)')
-    grp2.add_argument('--steel_Bsat', type=float,
-                      default=None,
-                      help='Saturation flux density of the magnetic '
-                           'steel [T], used only in the automatic '
-                           'calculation of the magnetic moment (when '
-                           '--moment is not provided). Relation: '
-                           'Ms = Bsat / mu0. Typical range for standard '
-                           'magnetic steels: 1.6-2.2 T. '
-                           f'Default: {STEEL_MS_SATURATION_DEFAULT*4*np.pi*1e-7:.2f} T')
-    grp2.add_argument('--damping', type=float, default=DAMPING_DEFAULT,
-                      help='Viscous air damping coefficient b [N·m·s/rad]. '
-                           'Zero = no damping (oscillates indefinitely). '
-                           'Large = no visible oscillations. '
-                           f'Default: {DAMPING_DEFAULT:.2e} N·m·s/rad '
-                           '(underdamped, Q >> 1)')
-    grp2.add_argument('--damping_noise', type=float, default=0.0,
-                      help='Relative noise amplitude for per-needle damping. '
-                           'Damping for each needle is randomized as b_i = max(0, b * (1 + noise * U[-1, 1])). '
-                           'Default: 0.0 (no noise).')
-    grp2.add_argument('--t_sim', type=float, default=2.0,
-                      help='Total physical simulation time [s] '
-                           '(= sum of integrated dt steps). '
-                           'In hysteresis: covers 1 full cycle (0->Hmax->-Hmax->Hmax). '
-                           'In sine: must cover several periods (>= 3/field_freq). '
-                           'Default: 2.0 s')
-    grp2.add_argument('--t_sim_full', type=int, default=0, choices=[0, 1],
-                      help='1 = runs until the END of t_sim, disabling all '
-                           'early physical stop criteria (S=1.00, '
-                           'lattice at rest, torque equilibrium in '
-                           'pulse/step modes). Useful for uniform time-series '
-                           'lengths in sweeps. User interruptions '
-                           '(Ctrl+I/Ctrl+C) remain active. '
-                           '0 (default) = normal early stops.')
-    grp2.add_argument('--field_mode',
-                      choices=['static', 'hysteresis', 'sine', 'pulse',
-                               'step_pos', 'step_neg', 'forc'],
-                      default='static',
-                      help='External field mode')
-    grp2.add_argument('--forc_n_curves', type=int, default=30,
-                      help='Number of first-order reversal curves (FORCs) to simulate (default: 30).')
-    grp2.add_argument('--forc_Br_min', type=float, default=None,
-                      help='Minimum reversal field Br_min [T] (default: -B_ext_mag).')
-    grp2.add_argument('--forc_t_sat', type=float, default=None,
-                      help='Saturation hold time [s] per cycle (default: 0.05 s).')
-    grp2.add_argument('--forc_t_ramp_down', type=float, default=None,
-                      help='Time to ramp down from saturation to reversal field [s] per cycle (default: 0.10 s).')
-    grp2.add_argument('--forc_t_ramp_up', type=float, default=None,
-                      help='Time to sweep back from reversal field to saturation [s] per cycle (default: 0.20 s).')
-    grp2.add_argument('--forc_sweep', choices=['both', 'up', 'down'], default='both',
-                      help="FORC curves to trace: 'both' (default), 'up' (increasing field), 'down' (decreasing field).")
-    grp2.add_argument('--forc_rate', type=float, default=None,
-                      help='Target constant sweep rate R [T/s] for FORC curves. '
-                           'If specified, dynamically scales ramp-up/down times '
-                           'proportionally to the sweep depth (Method B from FORC.md) '
-                           'to maintain a constant field rate (default: None, use fixed times).')
-    grp2.add_argument('--demag', choices=['off', 'on', 'rotational', 'anneal'], default='off',
-                      help="Enable or disable a demagnetization procedure: 'off' (default), 'on'/'rotational' (Method A: Biaxial Rotational), or 'anneal' (Method B: Simulated Annealing).")
-    grp2.add_argument('--demag_freq', type=float, default=2.0,
-                      help='Frequency of the demagnetization sinusoidal sweep/annealing field rotation [Hz] (default: 2.0).')
-    grp2.add_argument('--demag_cycles', type=int, default=20,
-                      help='Number of decay cycles for the demagnetization procedure (default: 20).')
-    grp2.add_argument('--demag_temp', type=float, default=1.0,
-                      help='Initial temperature/noise amplitude factor for simulated thermal annealing demagnetization (default: 1.0).')
-    grp2.add_argument('--demag_delay', type=float, default=0.0,
-                      help='Wait time in seconds between the end of the demagnetization and the beginning of the primary simulation (default: 0.0).')
-    grp2.add_argument('--hyst_spacing', choices=['linear', 'log'],
-                      default='linear',
-                      help='Hysteresis ramp spacing')
-    grp2.add_argument('--hyst_log_k', type=float, default=5.0,
-                      help='Concentration parameter of log spacing for hysteresis')
-    grp2.add_argument('--field_delay', type=float, default=0.0,
-                      help='Delay t_delay [s]')
-    grp2.add_argument('--t_pulse', type=float, default=None,
-                      help='Pulse duration [s]')
-    grp2.add_argument('--torque_tol', type=float, default=1e-3,
-                      help='Relative torque tolerance for equilibrium stopping criterion')
-    grp2.add_argument('--field_freq', type=float, default=1.0,
-                      help='Frequency of the sinusoidal field [Hz].')
-    grp2.add_argument('--dt_factor', type=float, default=0.05,
-                      help='Fraction of natural period T0 used as time step dt')
-    grp2.add_argument('--noise', type=float, default=1.5,
-                      help='Initial random noise amplitude in orientations [rad]')
-    grp2.add_argument('--seed', type=int, default=None,
-                      help='Random generator seed. If omitted, uses current time nanoseconds.')
-    grp2.add_argument('--pbc', type=int, choices=[0, 1], default=0,
-                      help='Periodic boundary conditions (PBC)')
-    grp2.add_argument('--pbc_images', type=int, default=1,
-                      help='Number of periodic shell replicas summed')
-    grp2.add_argument('--gpu', type=int, choices=[0, 1], default=0,
-                      help='Enable GPU acceleration (CuPy)')
-    grp2.add_argument('--progress_bar', type=int, choices=[0, 1], default=1,
-                      help='Show interactive progress bar in real time')
-    grp2.add_argument('--halo_mode', type=str, choices=['order', 'domains'],
-                      default='order',
-                      help='Halo coloring mode')
-    grp2.add_argument('--domain_tol', type=float, default=15.0,
-                      help='Angular tolerance [degrees] for domain grouping')
-
-    grp3 = parser.add_argument_group("Uniform external field (SI)")
-    grp3.add_argument('--B_ext', type=float, default=0.0,
-                      help='External field intensity [T].')
-    grp3.add_argument('--phi_ext', type=float, default=0.0,
-                      help='External field direction [degrees]')
-    grp3.add_argument('--ext_Bx', type=float, default=None,
-                      help='Bx component of the external field [T]')
-    grp3.add_argument('--ext_By', type=float, default=None,
-                      help='By component of the external field [T]')
-
-    grp4 = parser.add_argument_group("Output")
-    grp4.add_argument('--video', type=str, default=None,
-                      metavar='NAME',
-                      help='Generate MP4 video with this base name.')
-    grp4.add_argument('--frame_every', type=int, default=5,
-                      help='Save one frame every N steps.')
-    grp4.add_argument('--make_images', type=int, default=1, choices=[0, 1],
-                      help='1 (default) = generate summary PNG images, 0 = disable.')
-    grp4.add_argument('--fps', type=int, default=24,
-                      help='Frames per second of the MP4 video.')
-    grp4.add_argument('--dpi', type=int, default=120,
-                      help='Frame resolution in DPI.')
-    grp4.add_argument('--keep_frames', action='store_true',
-                      help='Keep the temporary folder of PNG frames')
-    grp4.add_argument('--hyst_autoscale', type=int, choices=[0, 1], default=1,
-                      help='Enables automatic scaling (autoscale) of the axes for the MxH hysteresis curve.')
-    grp4.add_argument('--csv_order', choices=['t', 'B'], default='t',
-                      help='Column order in the exported CSV file.')
-    args = parser.parse_args()
-
-    if args.needle_frac < 0.0 or args.needle_frac > 0.8:
-        clamped = max(0.0, min(args.needle_frac, 0.8))
-        _print(f"  Warning: --needle_frac {args.needle_frac} outside range "
-                f"[0, 0.8]; adjusted to {clamped}")
-        args.needle_frac = clamped
-
-    if args.seed is None:
-        import time as _time
-        args.seed = _time.time_ns() % (2**32 - 1)
-    np.random.seed(args.seed)
-
-    if args.ext_Bx is not None or args.ext_By is not None:
-        Bext_x = args.ext_Bx if args.ext_Bx is not None else 0.0
-        Bext_y = args.ext_By if args.ext_By is not None else 0.0
-        B_ext_mag = np.sqrt(Bext_x**2 + Bext_y**2)
-        phi_ext_deg = np.degrees(np.arctan2(Bext_y, Bext_x))
-    else:
-        phi_rad = np.deg2rad(args.phi_ext)
-        Bext_x  = args.B_ext * np.cos(phi_rad)
-        Bext_y  = args.B_ext * np.sin(phi_rad)
-        B_ext_mag   = args.B_ext
-        phi_ext_deg = args.phi_ext
-
-    R          = args.R
-    needle_len = args.needle_frac * 2.0 * R
-    needle_width = needle_len * 0.30
-
-    if args.inertia is None:
-        inertia = compute_inertia_from_geometry(
-            needle_len, needle_width, args.needle_thickness,
-            density=args.steel_density,
-            pivot_radius=args.pivot_radius,
-            pivot_thickness=args.pivot_thickness,
-            pivot_density=args.pivot_density,
-            pivot_mass=args.pivot_mass)
-        _inertia_auto = True
-    else:
-        inertia = args.inertia
-        _inertia_auto = False
-
-    if args.steel_Bsat is not None:
-        _Ms_used = args.steel_Bsat / (4.0 * np.pi * 1e-7)
-    else:
-        _Ms_used = STEEL_MS_SATURATION_DEFAULT
-    if args.moment is None:
-        moment = compute_moment_from_geometry(
-            needle_len, needle_width, args.needle_thickness, Ms=_Ms_used,
-            pivot_radius=args.pivot_radius)
-        _moment_auto = True
-    else:
-        moment = args.moment
-        _moment_auto = False
-
-    def fmt_field(B):
-        if B == 0:      return "0 T"
-        if B >= 0.1:    return f"{B:.4f} T"
-        if B >= 1e-4:   return f"{B*1e3:.4f} mT"
-        return              f"{B*1e6:.2f} µT"
-
-    # Precalculate grid distance to compute Q before the banner
-    xs, ys, thetas_init, nn_dist, Lx_period, Ly_period = make_grid(
-        N=args.N, M=args.M,
-        geometry=args.geometry,
-        noise=args.noise,
-        R=args.R,
+            raise ValueError(f"Unknown field_mode '{mode}'.")
+
+        return FieldState(Bs * self.cos_phi, Bs * self.sin_phi, Bs, branch, idx)
+
+
+# =============================================================================
+# Metrics and domain statistics
+# =============================================================================
+
+
+@dataclass
+class Metrics:
+    Mx: float
+    My: float
+    M_proj: float
+    S1: float
+    S2: float
+    theta_director: float
+    q_axis: float
+    omega_rms: float
+    omega_max: float
+    E_dip: float
+    E_ext: float
+    E_kin: float
+
+
+
+def compute_metrics(
+    theta,
+    omega,
+    tensor: DipolarTensor,
+    moment: float,
+    inertia: float,
+    bx: float,
+    by: float,
+    phi_drive: float,
+    backend: Backend,
+) -> Metrics:
+    xp = backend.xp
+    mx = moment * xp.cos(theta)
+    my = moment * xp.sin(theta)
+
+    Bdx = tensor.Axx @ mx + tensor.Axy @ my
+    Bdy = tensor.Axy @ mx + tensor.Ayy @ my
+
+    Mx = xp.mean(xp.cos(theta))
+    My = xp.mean(xp.sin(theta))
+    M_proj = Mx * math.cos(phi_drive) + My * math.sin(phi_drive)
+    S1 = xp.sqrt(Mx * Mx + My * My)
+
+    c2 = xp.mean(xp.cos(2.0 * theta))
+    s2 = xp.mean(xp.sin(2.0 * theta))
+    S2 = xp.sqrt(c2 * c2 + s2 * s2)
+    theta_director = 0.5 * xp.arctan2(s2, c2)
+
+    # q_axis measures population imbalance between x-like and y-like axes.
+    # It is meaningful for square-type director studies, but still useful as a
+    # diagnostic in other geometries if interpreted cautiously.
+    x_like = xp.abs(xp.cos(theta)) >= xp.abs(xp.sin(theta))
+    q_axis = xp.abs(xp.mean(xp.where(x_like, 1.0, -1.0)))
+
+    E_dip = -0.5 * xp.sum(mx * Bdx + my * Bdy)
+    E_ext = -xp.sum(mx * bx + my * by)
+    E_kin = 0.5 * inertia * xp.sum(omega * omega)
+    omega_rms = xp.sqrt(xp.mean(omega * omega))
+    omega_max = xp.max(xp.abs(omega))
+
+    return Metrics(
+        safe_float(Mx),
+        safe_float(My),
+        safe_float(M_proj),
+        safe_float(S1),
+        safe_float(S2),
+        safe_float(theta_director),
+        safe_float(q_axis),
+        safe_float(omega_rms),
+        safe_float(omega_max),
+        safe_float(E_dip),
+        safe_float(E_ext),
+        safe_float(E_kin),
     )
 
-    r_halo     = R * 0.98
-    cutoff     = nn_dist * 2.6
-    pbc_warning_msg = None
-    if args.pbc:
-        max_cutoff_pbc = min(Lx_period, Ly_period) / 2.0
-        if cutoff > max_cutoff_pbc:
-            pbc_warning_msg = (f"  PBC: cutoff reduced from {cutoff*100:.2f}cm to "
-                               f"{max_cutoff_pbc*100:.2f}cm (min(Lx,Ly)/2 limit)")
-            cutoff = max_cutoff_pbc
 
-    B_ref = MU0_OVER_4PI * 2.0 * moment / nn_dist**3
-    B_eff = max(B_ref, B_ext_mag)
-    omega0 = np.sqrt(moment * B_eff / inertia)
-    Q = omega0 * inertia / args.damping if args.damping > 0 else np.inf
 
-    if Q == np.inf:
-        q_val_str = "inf"
-        q_desc = "no damping"
-    else:
-        if Q > 2:
-            q_desc = "sub-damping(oscilates)"
-        elif Q > 0.5:
-            q_desc = "critically damped"
-        else:
-            q_desc = "overdamped"
-            
-        q_val_str = f"{Q:.3e}"
+def domain_statistics(theta_cpu: np.ndarray, x_cpu: np.ndarray, y_cpu: np.ndarray, r_nn: float, tol_deg: float) -> Dict[str, object]:
+    """
+    Simple connected-component domain statistics.
 
-    _print(f"\n{'═'*62}")
-    _print(f"  Version      : V79")
-    _print(f"  Developer    : J.P. Sinnecker")
-    if args.gpu and _GPU_AVAILABLE:
-        try:
-            _gpu_name = cp.cuda.runtime.getDeviceProperties(0)['name'].decode()
-        except Exception:
-            _gpu_name = "GPU CUDA"
-        _print(f"  Backend      : GPU ({_gpu_name}) via CuPy  [--gpu 1]")
-    elif args.gpu and not _GPU_AVAILABLE:
-        _print(f"  Backend      : CPU (NumPy)  [--gpu 1 requested, but GPU unavailable]")
-        if _GPU_ERROR_MSG:
-            if 'CUDA headers' in _GPU_ERROR_MSG or 'CUDA_PATH' in _GPU_ERROR_MSG:
-                _print(f"  GPU unavailable: missing CUDA Toolkit headers.")
-                _print(f"  Solution: pip install cupy-cuda12x[ctk]")
-            else:
-                _print(f"  GPU unavailable: {_GPU_ERROR_MSG[:70]}")
-        else:
-            _print(f"  GPU unavailable: cupy not installed")
+    Two needles are in the same local domain when they are spatial nearest
+    neighbours and their angles differ by less than tol_deg modulo 2pi. This is
+    a strict polar-domain definition. For director domains, users should repeat
+    the analysis with theta modulo pi in a separate script.
+    """
+    K = int(theta_cpu.size)
+    if K == 0:
+        return {"n_domains": 0, "mean_domain_size": 0.0, "max_domain_size": 0, "domain_sizes": []}
+    parent = np.arange(K)
+    size = np.ones(K, dtype=int)
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def union(a: int, b: int):
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        if size[ra] < size[rb]:
+            ra, rb = rb, ra
+        parent[rb] = ra
+        size[ra] += size[rb]
+
+    tol = math.radians(tol_deg)
+    # O(K^2), but called only at the end. Avoids scipy dependency.
+    for i in range(K):
+        dx = x_cpu[i] - x_cpu[i + 1 :]
+        dy = y_cpu[i] - y_cpu[i + 1 :]
+        dist = np.sqrt(dx * dx + dy * dy)
+        neigh = np.where(dist <= 1.05 * r_nn)[0] + i + 1
+        if neigh.size == 0:
+            continue
+        dtheta = np.abs(wrap_angle_np(theta_cpu[i] - theta_cpu[neigh]))
+        for j in neigh[dtheta <= tol]:
+            union(i, int(j))
+
+    roots = np.array([find(i) for i in range(K)])
+    _, counts = np.unique(roots, return_counts=True)
+    counts = np.sort(counts)[::-1]
+    return {
+        "n_domains": int(counts.size),
+        "mean_domain_size": float(np.mean(counts)),
+        "max_domain_size": int(counts[0]),
+        "domain_sizes": [int(c) for c in counts.tolist()],
+    }
+
+
+# =============================================================================
+# Simulation engine
+# =============================================================================
+
+
+@dataclass
+class SimulationConfig:
+    geometry: str
+    N: int
+    M: int
+    R: float
+    center_distance: float
+    needle_frac: float
+    needle_len: float
+    needle_width: float
+    use_legacy_size_from_R: bool
+    needle_thickness: float
+    steel_density: float
+    steel_Ms: float
+    moment: float
+    inertia: float
+    damping: float
+    damping_noise: float
+    t_sim: float
+    dt_factor: float
+    field_mode: str
+    B_ext: float
+    phi_ext_deg: float
+    cutoff_m: float
+    cutoff_shells: float
+    pbc: bool
+    n_images: int
+    seed: int
+    backend: str
+    log_every: int
+    flip_angle_deg: float
+    domain_tol_deg: float
+
+
+
+def run_simulation(args) -> Tuple[Path, Path, Path]:
+    out_dir = ensure_dir(args.out_dir)
+    data_dir = ensure_dir(out_dir / "data")
+    meta_dir = ensure_dir(out_dir / "meta")
+    state_dir = ensure_dir(out_dir / "states")
+
+    seed = args.seed if args.seed is not None else int(time.time_ns() % (2**32 - 1))
+    rng = np.random.default_rng(seed)
+    geom = make_lattice(
+        args.N,
+        args.M,
+        args.geometry,
+        args.R,
+        args.needle_frac,
+        args.noise,
+        rng,
+        needle_len=args.needle_len,
+        needle_width=args.needle_width,
+        use_legacy_size_from_R=bool(args.use_legacy_size_from_R),
+    )
+
+    needle_thickness = args.needle_thickness
+    steel_Ms = args.steel_Ms
+    if args.steel_Bsat is not None:
+        # Bsat = mu0 Ms, so Ms = Bsat / mu0.
+        steel_Ms = args.steel_Bsat / (4.0 * math.pi * 1.0e-7)
+
+    moment = args.moment if args.moment is not None else compute_moment_from_geometry(
+        geom.needle_len,
+        geom.needle_width,
+        needle_thickness,
+        steel_Ms,
+        args.pivot_radius,
+    )
+    inertia = args.inertia if args.inertia is not None else compute_inertia_from_geometry(
+        geom.needle_len,
+        geom.needle_width,
+        needle_thickness,
+        args.steel_density,
+        args.pivot_radius,
+        args.pivot_thickness,
+        args.pivot_density,
+        args.pivot_mass,
+    )
+
+    B_ref = MU0_OVER_4PI * 2.0 * moment / geom.r_nn**3
+    B_ext = args.B_ext if args.B_ext is not None else args.B_max_factor * B_ref
+    phi = math.radians(args.phi_ext_deg)
+
+    if args.cutoff_m is not None:
+        cutoff_m = float(args.cutoff_m)
+        cutoff_shells = cutoff_m / geom.r_nn
+        cutoff_policy = "absolute_m"
     else:
-        _gpu_hint = " (GPU detected, use --gpu 1 to activate)" if _GPU_AVAILABLE else ""
-        _print(f"  Backend      : CPU (NumPy)  [--gpu 0]{_gpu_hint}")
-    _print(f"  Array        : {args.geometry}  {args.N}x{args.M} needles")
-    pbc_str = (f"on  (n_images={args.pbc_images}, sum over "
-               f"{(2*args.pbc_images+1)**2} cells)") if args.pbc else "off"
-    _print(f"  PBC          : {pbc_str}")
-    _print(f"  Radius R     : {args.R*100:.2f} cm  (2R = {2*args.R*100:.2f} cm)")
-    _print(f"  Needle R     : {args.needle_frac*100:.0f}% of 2R = {args.needle_frac*2*args.R*100:.2f} cm")
-    if _moment_auto:
-        _Bsat_used = _Ms_used * 4.0 * np.pi * 1e-7
-        _print(f"  Mag Moment.  : {moment:.4g} A.m2  per needle")
+        cutoff_shells = float(args.cutoff_shells)
+        cutoff_m = cutoff_shells * geom.r_nn
+        cutoff_policy = "shells_times_r_nn"
+
+    B_eff = max(abs(B_ext), B_ref)
+    omega0 = math.sqrt(moment * B_eff / inertia)
+    T0 = 2.0 * math.pi / omega0
+    dt = args.dt_factor * T0
+
+    if args.field_mode == "forc":
+        forc_Br_min = args.forc_Br_min if args.forc_Br_min is not None else -abs(B_ext)
+        forc_schedule = build_forc_schedule(
+            abs(B_ext),
+            forc_Br_min,
+            args.forc_n_curves,
+            args.forc_t_sat,
+            args.forc_t_ramp_down,
+            args.forc_t_ramp_up,
+            args.forc_rate,
+        )
+        t_sim = forc_schedule.total_time
+    elif args.field_mode == "demag_rot" or args.field_mode == "demag_linear":
+        forc_schedule = None
+        t_sim = args.demag_cycles / max(args.demag_freq, 1e-30) + args.t_relax_after
     else:
-        _print(f"  Mag Moment.  : {moment:.4g} A.m2  per needle [manual value]")
-    if _inertia_auto:
-        _area_solid = 0.5 * needle_len * needle_width
-        _area_hole = np.pi * (args.pivot_radius**2) if args.pivot_radius > 0.0 else 0.0
-        _mass_g = args.steel_density * max(0.0, _area_solid - _area_hole) * args.needle_thickness * 1e3
-        if args.pivot_radius > 0.0:
-            if args.pivot_mass is not None:
-                _pivot_mass_g = args.pivot_mass * 1e3
-            else:
-                _pivot_mass_g = args.pivot_density * np.pi * (args.pivot_radius**2) * args.pivot_thickness * 1e3
-            _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle (blade: {_mass_g:.2e}g, pivot: {_pivot_mass_g:.2e}g)")
-        else:
-            _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle (blade: {_mass_g:.2e}g)")
-    else:
-        _print(f"  Inertia      : {inertia:.3e} kg.m2  per needle [manual value]")
+        forc_schedule = None
+        t_sim = args.t_sim
+
+    protocol = FieldProtocol(
+        mode=args.field_mode,
+        Bmax=B_ext,
+        phi=phi,
+        t_sim=t_sim,
+        field_delay=args.field_delay,
+        t_pulse=args.t_pulse,
+        sine_freq=args.field_freq,
+        hyst_spacing=args.hyst_spacing,
+        hyst_log_k=args.hyst_log_k,
+        forc=forc_schedule,
+        demag_freq=args.demag_freq,
+        demag_cycles=args.demag_cycles,
+    )
+
+    backend = select_backend(args.use_gpu)
+    dtype = np.float32 if args.float32 else np.float64
+    tensor_bytes = 3.0 * geom.K * geom.K * np.dtype(dtype).itemsize
+    if tensor_bytes > args.tensor_mem_limit_gb * 1e9:
+        raise MemoryError(
+            f"Dipolar tensor would require {tensor_bytes/1e9:.2f} GB. "
+            f"Increase --tensor_mem_limit_gb or reduce grid size."
+        )
+
+    tensor = precompute_dipolar_tensor(
+        geom.xs,
+        geom.ys,
+        cutoff_m,
+        cutoff_shells,
+        backend,
+        pbc=args.pbc,
+        Lx=geom.Lx,
+        Ly=geom.Ly,
+        n_images=args.n_images,
+        dtype=dtype,
+    )
+
+    xp = backend.xp
+    theta = backend.asarray(geom.theta0, dtype=dtype)
+    omega = xp.zeros(geom.K, dtype=dtype)
+
     if args.damping_noise > 0.0:
-        _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air) [+/- {args.damping_noise*100:.1f}% noise]")
+        damping_np = args.damping * (1.0 + args.damping_noise * rng.uniform(-1.0, 1.0, geom.K))
+        damping_np = np.maximum(damping_np, 0.0)
+        damping = backend.asarray(damping_np, dtype=dtype)
     else:
-        _print(f"  Damping      : {args.damping:.3e} N.m.s/rad  (air)")
-    _print(f"  Q            : {q_val_str}  ({q_desc})")
-    _print(f"  External Field: {fmt_field(B_ext_mag)}  phi={phi_ext_deg:.1f} degrees")
-    _print(f"  Components   : Bx={fmt_field(abs(Bext_x))}  By={fmt_field(abs(Bext_y))}")
-    field_mode_str = args.field_mode
-    _print(f"  Field Mode   : {field_mode_str}")
-    _print(f"  Noise Seed   : {args.seed}")
-    _print(f"{'═'*62}\n")
+        damping = float(args.damping)
 
-    if pbc_warning_msg:
-        _print(pbc_warning_msg)
-    _print(f"  B_dipolar ref: {fmt_field(B_ref)}  (Between neighbours)")
-    if B_ext_mag > 0:
-        ratio = B_ext_mag / B_ref
-        dom = "DOMINANT" if ratio > 1 else "weak"
-        _print(f"  B_ext/B_ref  : {ratio:.3f}  (External Field - {dom})")
-    _print()
+    Q = omega0 * inertia / args.damping if args.damping > 0 else math.inf
+    n_steps = max(1, int(math.ceil(t_sim / dt)))
+    log_every = max(1, args.log_every)
+    flip_threshold = math.radians(args.flip_angle_deg)
 
-    # Wait for user confirmation to proceed (with a 10-second countdown reading single keypress)
-    if sys.stdin.isatty():
-        import select
-        import tty
-        import termios
-        import os as _os
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            for remaining in range(10, 0, -1):
-                sys.stdout.write(f"\rProceed ?  [y/n] {remaining:<2} ")
-                sys.stdout.flush()
-                rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
-                if rlist:
-                    char = _os.read(fd, 1).decode('utf-8', errors='ignore').strip().lower()
-                    if char == 'n':
-                        sys.stdout.write("\nAborted.\n")
-                        sys.stdout.flush()
-                        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                        sys.exit(0)
-                    else:
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
-                        break
-            else:
-                sys.stdout.write("\rProceed ?  [y/n] Proceeding by default...\n")
-                sys.stdout.flush()
-        except Exception:
-            pass
-        finally:
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except Exception:
-                pass
+    # Initial field and torque.
+    f0 = protocol.at(0.0)
+    cos_phi = math.cos(phi)
+    sin_phi = math.sin(phi)
 
-    ext_kwargs = dict(B_ext=B_ext_mag, phi_ext_deg=phi_ext_deg,
-                      r_halo=r_halo, halo_mode=args.halo_mode,
-                      domain_tol_deg=args.domain_tol)
+    def torque_and_field(th, bx, by):
+        mx = moment * xp.cos(th)
+        my = moment * xp.sin(th)
+        Bdx = tensor.Axx @ mx + tensor.Axy @ my
+        Bdy = tensor.Axy @ mx + tensor.Ayy @ my
+        return mx * (Bdy + by) - my * (Bdx + bx)
 
-    _x_span = (xs.max() - xs.min()) + 4 * needle_len
-    _y_span = (ys.max() - ys.min()) + 6 * needle_len
-    _aspect = _x_span / _y_span if _y_span > 0 else 1.0
-    _base   = 8.0
-    if _aspect >= 1.0:
-        _fw = min(_base * _aspect, 20.0)
-        _fh = _fw / _aspect
-    else:
-        _fh = min(_base / _aspect, 20.0)
-        _fw = _fh * _aspect
-    figsize_main = (max(_fw, 6.0), max(_fh, 6.0))
+    tau = torque_and_field(theta, f0.bx, f0.by)
+    sigma_prev = xp.where(xp.cos(theta - phi) >= 0.0, 1, -1)
+    flip_field_acc = 0
+    flip_angle_acc = 0
 
-    ext_kwargs['figsize_inches'] = figsize_main
+    invI = 1.0 / inertia
+    dt2_half = 0.5 * dt * dt
+    b_half = damping * dt * 0.5 * invI
+    coeff_omega = (1.0 - b_half) / (1.0 + b_half)
+    coeff_tau = dt * 0.5 * invI / (1.0 + b_half)
 
-    if args.make_images:
-        fig0, _ = plot_state(thetas_init, xs, ys,
-                             title="Initial state (random)",
-                             needle_len=needle_len, needle_width=needle_width,
-                             **ext_kwargs)
-        plt.tight_layout()
-        plt.savefig("compass_initial.png",
-                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-        plt.close(fig0)
-        _print("Initial State Saved.")
+    tag = args.tag or f"{args.geometry}_{args.field_mode}_N{args.N}_M{args.M}_seed{seed}"
+    csv_path = data_dir / f"{tag}.csv"
+    meta_path = meta_dir / f"{tag}.json"
+    state_path = state_dir / f"{tag}_final.npz"
 
-    frame_dir   = None
-    final_video = None
-    if args.video and not args.make_images:
-        _print(f"  Warning: --video '{args.video}' was requested along with "
-               f"--make_images 0. Ignoring --video.")
-        args.video = None
-
-    if args.video:
-        import os
-        if not os.path.splitext(args.video)[1]:
-            args.video = args.video + ".mp4"
-        final_video = next_available_path(args.video)
-        _print(f"  Video filename: '{final_video}'")
-        base      = os.path.splitext(final_video)[0]
-        frame_dir = base + "_frames"
-        _print(f"Integrating and saving frames at '{frame_dir}/'...")
-    else:
-        _print("Integrating inertial dynamics...")
-
-    thetas_eq, omegas_eq, thetas_hist, n_frames, sim_dt, stop_reason, field_log = relax(
-        thetas_init.copy(), xs, ys,
-        t_sim=args.t_sim,
-        dt_factor=args.dt_factor,
+    config = SimulationConfig(
+        geometry=args.geometry,
+        N=args.N,
+        M=args.M,
+        R=args.R,
+        center_distance=2.0 * args.R,
+        needle_frac=args.needle_frac,
+        needle_len=geom.needle_len,
+        needle_width=geom.needle_width,
+        use_legacy_size_from_R=bool(args.use_legacy_size_from_R),
+        needle_thickness=needle_thickness,
+        steel_density=args.steel_density,
+        steel_Ms=steel_Ms,
+        moment=moment,
         inertia=inertia,
         damping=args.damping,
         damping_noise=args.damping_noise,
-        cutoff=cutoff,
-        ext_field=(Bext_x, Bext_y),
-        moment=moment,
+        t_sim=t_sim,
+        dt_factor=args.dt_factor,
         field_mode=args.field_mode,
-        field_freq=args.field_freq,
-        frame_dir=frame_dir,
-        frame_every=args.frame_every,
-        needle_len=needle_len,
-        needle_width=needle_width,
-        r_halo=r_halo,
-        frame_dpi=args.dpi,
-        figsize_inches=figsize_main,
-        pbc=bool(args.pbc),
-        Lx=Lx_period,
-        Ly=Ly_period,
-        n_images=args.pbc_images,
-        B_ext=B_ext_mag,
-        phi_ext_deg=phi_ext_deg,
-        use_gpu=bool(args.gpu),
-        show_progress=bool(args.progress_bar),
-        halo_mode=args.halo_mode,
-        domain_tol_deg=args.domain_tol,
-        make_images=bool(args.make_images),
-        hyst_spacing=args.hyst_spacing,
-        hyst_log_k=args.hyst_log_k,
-        field_delay=args.field_delay,
-        t_pulse=args.t_pulse,
-        torque_tol=args.torque_tol,
-        t_sim_full=bool(args.t_sim_full),
-        hyst_autoscale=bool(args.hyst_autoscale),
-        forc_Br_min=args.forc_Br_min,
-        forc_n_curves=args.forc_n_curves,
-        forc_t_sat=args.forc_t_sat,
-        forc_t_ramp_down=args.forc_t_ramp_down,
-        forc_t_ramp_up=args.forc_t_ramp_up,
-        forc_sweep=args.forc_sweep,
-        forc_rate=args.forc_rate,
-        demag=args.demag,
-        demag_freq=args.demag_freq,
-        demag_cycles=args.demag_cycles,
-        demag_temp=args.demag_temp,
-        demag_delay=args.demag_delay,
+        B_ext=B_ext,
+        phi_ext_deg=args.phi_ext_deg,
+        cutoff_m=cutoff_m,
+        cutoff_shells=cutoff_shells,
+        pbc=args.pbc,
+        n_images=args.n_images,
+        seed=seed,
+        backend=backend.name,
+        log_every=log_every,
+        flip_angle_deg=args.flip_angle_deg,
+        domain_tol_deg=args.domain_tol_deg,
     )
-    frames_str = f"  ({n_frames} frames saved)" if n_frames else ""
-    _print(f"Integration completed - {stop_reason}{frames_str}")
 
-    import csv as _csv, os as _os
-    if args.video and final_video:
-        csv_path = _os.path.splitext(final_video)[0] + ".csv"
-    else:
-        csv_path = "compass_field_log.csv"
+    metadata = {
+        "program": "compassV02.py",
+        "version": "2.0.2",
+        "created_unix_time": time.time(),
+        "tag": tag,
+        "config": asdict(config),
+        "derived": {
+            "K": geom.K,
+            "r_nn_m": geom.r_nn,
+            "center_distance_default_m": CENTER_DISTANCE_DEFAULT,
+            "Lx_m": geom.Lx,
+            "Ly_m": geom.Ly,
+            "needle_len_m": geom.needle_len,
+            "needle_width_m": geom.needle_width,
+            "B_ref_T": B_ref,
+            "B_eff_T": B_eff,
+            "omega0_rad_s": omega0,
+            "T0_s": T0,
+            "dt_s": dt,
+            "n_steps": n_steps,
+            "Q": Q,
+            "cutoff_policy": cutoff_policy,
+            "tensor_bytes": tensor_bytes,
+            "dtype": "float32" if args.float32 else "float64",
+        },
+        "notes": {
+            "S1": "polar order |<exp(i theta)>|",
+            "S2": "nematic/director order |<exp(2 i theta)>|",
+            "flip_field": "accumulated sign changes relative to the drive axis since previous log row",
+            "flip_angle": "accumulated rotations larger than flip_angle_deg since previous log row",
+            "E_dip": "-0.5 sum_i m_i dot B_i^dip",
+            "E_ext": "-sum_i m_i dot B_ext",
+            "E_kin": "0.5 I sum_i omega_i^2",
+        },
+    }
 
-    if args.field_mode == 'forc':
-        header = ['t_s', 'B_applied_T', 'M_proj', 'S', 'B_r']
-        if args.forc_sweep == 'up':
-            rows = [row[:5] for row in field_log if row[5] == 'up']
-        elif args.forc_sweep == 'down':
-            rows = [row[:5] for row in field_log if row[5] == 'down']
-        else: # both
-            rows = [row[:5] for row in field_log if row[5] in ('up', 'down')]
-    elif args.csv_order == 'B':
-        header = ['B_applied_T', 'M_proj', 'S', 't_s']
-        rows   = [(row_el[1], row_el[2], row_el[3], row_el[0]) for row_el in field_log]
-    else:
-        header = ['t_s', 'B_applied_T', 'M_proj', 'S']
-        rows   = field_log
+    if args.verbose:
+        print(f"Backend      : {backend.name}")
+        print(f"Geometry     : {args.geometry}, K={geom.K}, r_nn={geom.r_nn:.6g} m")
+        print(f"Needle       : L={geom.needle_len*1e3:.3f} mm, W={geom.needle_width*1e3:.3f} mm, t={needle_thickness*1e3:.3f} mm")
+        print(f"Center dist. : {2.0*args.R*1e3:.3f} mm (R={args.R*1e3:.3f} mm)")
+        print(f"B_ref        : {B_ref*1e3:.6g} mT")
+        print(f"B_ext        : {B_ext*1e3:.6g} mT")
+        print(f"omega0, T0   : {omega0:.6g} rad/s, {T0:.6g} s")
+        print(f"dt, n_steps  : {dt:.6g} s, {n_steps}")
+        print(f"Q            : {Q:.6g}")
+        print(f"cutoff       : {cutoff_m:.6g} m = {cutoff_shells:.3g} r_nn")
+        print(f"tensor       : {tensor_bytes/1e6:.1f} MB")
+        print(f"output       : {csv_path}")
 
-    with open(csv_path, 'w', newline='') as f:
-        w = _csv.writer(f)
-        w.writerow(header)
-        w.writerows(rows)
-    _print(f"  CSV saved: {csv_path}  ({len(rows)} points)")
+    fieldnames = [
+        "step",
+        "t_s",
+        "Bx_T",
+        "By_T",
+        "B_scalar_T",
+        "branch",
+        "forc_index",
+        "Mx",
+        "My",
+        "M_proj",
+        "S1",
+        "S2",
+        "theta_director_rad",
+        "q_axis",
+        "flip_field",
+        "flip_angle",
+        "E_dip_J",
+        "E_ext_J",
+        "E_kin_J",
+        "E_total_J",
+        "omega_rms_rad_s",
+        "omega_max_rad_s",
+    ]
 
-    if args.make_images:
-        title_eq = (f"Equilibrium — {args.geometry} {args.N}×{args.M}"
-                    + (f"  |  B={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
-                       if B_ext_mag > 0 else ""))
-        fig1, _ = plot_state(thetas_eq, xs, ys,
-                             title=title_eq,
-                             needle_len=needle_len, needle_width=needle_width,
-                             **ext_kwargs)
-        plt.tight_layout()
-        plt.savefig("compass_equilibrium.png",
-                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-        plt.close(fig1)
-        _print("Equilibrium state saved.")
+    t_start = time.perf_counter()
+    with open(csv_path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
 
-        fig2, axes = plt.subplots(1, 2, figsize=(15, 7), facecolor='#1A1A2E')
-        margin = needle_len * 1.6
-        yspan_lattice = ys.max() - ys.min() + 2 * margin
-        yspan = yspan_lattice / 0.8
-        for ax_ in axes:
-            ax_.set_facecolor('#16213E')
-            ax_.set_aspect('equal')
-            ax_.set_xlim(xs.min() - margin, xs.max() + margin)
-            ax_.set_ylim(ys.min() - margin, ys.min() - margin + yspan)
-            ax_.tick_params(left=False, bottom=False,
-                            labelleft=False, labelbottom=False)
-            for sp in ax_.spines.values():
-                sp.set_edgecolor('#2C3E50')
+        def write_row(step: int, t: float, f: FieldState):
+            nonlocal flip_field_acc, flip_angle_acc
+            met = compute_metrics(theta, omega, tensor, moment, inertia, f.bx, f.by, phi, backend)
+            writer.writerow(
+                {
+                    "step": step,
+                    "t_s": f"{t:.12g}",
+                    "Bx_T": f"{f.bx:.12g}",
+                    "By_T": f"{f.by:.12g}",
+                    "B_scalar_T": f"{f.B_scalar:.12g}",
+                    "branch": f.branch,
+                    "forc_index": f.curve_index,
+                    "Mx": f"{met.Mx:.12g}",
+                    "My": f"{met.My:.12g}",
+                    "M_proj": f"{met.M_proj:.12g}",
+                    "S1": f"{met.S1:.12g}",
+                    "S2": f"{met.S2:.12g}",
+                    "theta_director_rad": f"{met.theta_director:.12g}",
+                    "q_axis": f"{met.q_axis:.12g}",
+                    "flip_field": int(flip_field_acc),
+                    "flip_angle": int(flip_angle_acc),
+                    "E_dip_J": f"{met.E_dip:.12g}",
+                    "E_ext_J": f"{met.E_ext:.12g}",
+                    "E_kin_J": f"{met.E_kin:.12g}",
+                    "E_total_J": f"{(met.E_dip + met.E_ext + met.E_kin):.12g}",
+                    "omega_rms_rad_s": f"{met.omega_rms:.12g}",
+                    "omega_max_rad_s": f"{met.omega_max:.12g}",
+                }
+            )
+            flip_field_acc = 0
+            flip_angle_acc = 0
 
-        axes[0].set_title("Initial State", color='#ECF0F1',
-                          fontsize=12, fontfamily='monospace')
-        axes[1].set_title("Dipolar Equilibrium", color='#ECF0F1',
-                          fontsize=12, fontfamily='monospace')
+        write_row(0, 0.0, f0)
 
-        N_g, M_g = thetas_init.shape
-        _nd0, _ns0 = draw_halos_batch(axes[0], xs, ys, thetas_init,
-                                      needle_len, r_halo=r_halo,
-                                      halo_mode=args.halo_mode,
-                                      domain_tol_deg=args.domain_tol)
-        _nd1, _ns1 = draw_halos_batch(axes[1], xs, ys, thetas_eq,
-                                      needle_len, r_halo=r_halo,
-                                      halo_mode=args.halo_mode,
-                                      domain_tol_deg=args.domain_tol)
-        if args.halo_mode == 'domains':
-            axes[0].set_title(
-                f"Initial State — {_ns0} main domains "
-                f"(out of {_nd0})", color='#ECF0F1', fontsize=12,
-                fontfamily='monospace')
-            axes[1].set_title(
-                f"Dipolar Equilibrium — {_ns1} main domains "
-                f"(out of {_nd1})", color='#ECF0F1', fontsize=12,
-                fontfamily='monospace')
+        for step in range(1, n_steps + 1):
+            t = step * dt
+            f = protocol.at(t)
 
-        draw_compass_batch(axes[0], xs, ys, thetas_init,
-                           length=needle_len, width=needle_width)
-        draw_compass_batch(axes[1], xs, ys, thetas_eq,
-                           length=needle_len, width=needle_width)
+            theta_old = theta
+            accel = (tau - damping * omega) * invI
+            theta_new = theta + omega * dt + accel * dt2_half
+            theta_new = (theta_new + math.pi) % (2.0 * math.pi) - math.pi
 
-        draw_ext_field_on_lattice(axes[0], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
-        draw_ext_field_on_lattice(axes[1], xs, ys, B_ext_mag, phi_ext_deg, needle_len)
+            tau_new = torque_and_field(theta_new, f.bx, f.by)
+            omega_new = omega * coeff_omega + (tau + tau_new) * coeff_tau
 
-        bfield_str = (f"  |  B_ext={fmt_field(B_ext_mag)} @ {phi_ext_deg:.0f}°"
-                      if B_ext_mag > 0 else "")
-        fig2.suptitle(
-            f"Array {args.geometry} {args.N}×{args.M}"
-            f"  |  R={args.R*100:.1f} cm  2R={2*args.R*100:.1f} cm"
-            f"{bfield_str}  |  2D dipolar interaction",
-            color='#BDC3C7', fontsize=11, fontfamily='monospace')
-        plt.tight_layout()
-        plt.savefig("compass_comparison.png",
-                    dpi=args.dpi, bbox_inches='tight', facecolor='#1A1A2E')
-        plt.close(fig2)
-        _print("Comparison saved.")
+            sigma_new = xp.where(xp.cos(theta_new - phi) >= 0.0, 1, -1)
+            flip_field_acc += int(safe_float(xp.sum(sigma_new != sigma_prev)))
+            dtheta_step = (theta_new - theta_old + math.pi) % (2.0 * math.pi) - math.pi
+            flip_angle_acc += int(safe_float(xp.sum(xp.abs(dtheta_step) >= flip_threshold)))
+            sigma_prev = sigma_new
 
-        plot_order_parameter([th for th, _ in thetas_hist],
-                             "compass_order_param.png",
-                             dt=sim_dt)
+            theta = theta_new
+            omega = omega_new
+            tau = tau_new
 
-    if final_video and frame_dir and n_frames > 0:
-        import shutil
-        ok = render_video(frame_dir, final_video, fps=args.fps, use_gpu=bool(args.gpu))
-        if ok and not args.keep_frames:
-            shutil.rmtree(frame_dir)
-            _print(f"  Frames folder removed: {frame_dir}/")
-        elif not ok:
-            _print(f"  PNG frames kept at: {frame_dir}/")
+            if step % log_every == 0 or step == n_steps:
+                write_row(step, t, f)
 
-    _elapsed_wall_time = _time.perf_counter() - _start_wall_time
-    _print(f"\nCompleted in {_elapsed_wall_time:.2f} sec")
+            if args.progress and step % max(1, n_steps // 100) == 0:
+                elapsed = time.perf_counter() - t_start
+                rate = step / max(elapsed, 1e-12)
+                print(f"\r{100*step/n_steps:6.2f}%  step {step}/{n_steps}  {rate:8.0f} steps/s", end="", flush=True)
+
+    if args.progress:
+        print()
+    backend.sync()
+
+    theta_cpu = backend.to_cpu(theta)
+    omega_cpu = backend.to_cpu(omega)
+    domain_stats = domain_statistics(theta_cpu, geom.xs, geom.ys, geom.r_nn, args.domain_tol_deg)
+    metadata["domain_statistics_final"] = domain_stats
+    metadata["runtime_s"] = time.perf_counter() - t_start
+
+    np.savez_compressed(
+        state_path,
+        xs=geom.xs,
+        ys=geom.ys,
+        theta=theta_cpu,
+        omega=omega_cpu,
+        r_nn=geom.r_nn,
+        metadata_json=json.dumps(metadata),
+    )
+
+    with open(meta_path, "w") as fh:
+        json.dump(metadata, fh, indent=2)
+
+    if args.make_plot:
+        try:
+            make_quick_plot(csv_path, out_dir / f"{tag}_quicklook.png")
+        except Exception as exc:
+            print(f"[warning] quick plot failed: {exc}")
+
+    return csv_path, meta_path, state_path
 
 
-if __name__ == '__main__':
-    main()
+# =============================================================================
+# Quick plotting
+# =============================================================================
+
+
+
+def make_quick_plot(csv_path: Path, png_path: Path):
+    """Simple diagnostic plot. Kept separate so the simulation engine has no plotting dependency at runtime unless requested."""
+    import matplotlib.pyplot as plt
+
+    data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding=None)
+    B = np.asarray(data["B_scalar_T"], dtype=float) * 1e3
+    M = np.asarray(data["M_proj"], dtype=float)
+    t = np.asarray(data["t_s"], dtype=float)
+    S1 = np.asarray(data["S1"], dtype=float)
+    S2 = np.asarray(data["S2"], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(6.5, 5.0))
+    ax.plot(B, M, lw=1.2)
+    ax.set_xlabel("B along drive axis (mT)")
+    ax.set_ylabel("M projection")
+    ax.set_title("M(B)")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=160)
+    plt.close(fig)
+
+    fig2, ax2 = plt.subplots(figsize=(7.0, 4.5))
+    ax2.plot(t, S1, label="S1 polar", lw=1.2)
+    ax2.plot(t, S2, label="S2 director", lw=1.2)
+    ax2.set_xlabel("t (s)")
+    ax2.set_ylabel("order parameter")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+    fig2.tight_layout()
+    fig2.savefig(png_path.with_name(png_path.stem + "_order.png"), dpi=160)
+    plt.close(fig2)
+
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Research-grade inertial simulation of dipolar compass-needle arrays.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    g = p.add_argument_group("lattice geometry")
+    g.add_argument("--geometry", choices=["square", "triangular", "honeycomb"], default="square")
+    g.add_argument("--N", type=int, default=16, help="number of rows or nominal honeycomb height")
+    g.add_argument("--M", type=int, default=16, help="number of columns or nominal honeycomb width")
+    g.add_argument("--R", type=float, default=R_DEFAULT, help="half the centre-to-centre distance between pivots [m]; default gives 13 mm spacing")
+    g.add_argument("--needle_frac", type=float, default=0.80, help="legacy blade length fraction of 2R, used only with --use_legacy_size_from_R")
+    g.add_argument("--needle_len", type=float, default=NEEDLE_LEN_DEFAULT, help="physical needle blade length [m]")
+    g.add_argument("--needle_width", type=float, default=NEEDLE_WIDTH_DEFAULT, help="physical needle blade width [m]")
+    g.add_argument("--use_legacy_size_from_R", type=int, choices=[0, 1], default=0, help="if 1, set blade size from needle_frac*2R; if 0, use explicit needle_len/needle_width")
+
+    g = p.add_argument_group("needle physical properties")
+    g.add_argument("--moment", type=float, default=None, help="override magnetic moment [A m^2]")
+    g.add_argument("--inertia", type=float, default=None, help="override moment of inertia [kg m^2]")
+    g.add_argument("--needle_thickness", type=float, default=NEEDLE_THICKNESS_DEFAULT)
+    g.add_argument("--steel_density", type=float, default=STEEL_DENSITY_DEFAULT)
+    g.add_argument("--steel_Ms", type=float, default=STEEL_MS_SATURATION_DEFAULT, help="saturation magnetization [A/m]")
+    g.add_argument("--steel_Bsat", type=float, default=None, help="optional Bsat [T], overrides steel_Ms via Ms=Bsat/mu0")
+    g.add_argument("--pivot_radius", type=float, default=0.0)
+    g.add_argument("--pivot_thickness", type=float, default=0.0)
+    g.add_argument("--pivot_density", type=float, default=8500.0)
+    g.add_argument("--pivot_mass", type=float, default=None)
+    g.add_argument("--damping", type=float, default=DAMPING_DEFAULT)
+    g.add_argument("--damping_noise", type=float, default=0.0, help="relative uniform random damping variation per needle")
+
+    g = p.add_argument_group("time integration")
+    g.add_argument("--t_sim", type=float, default=2.0, help="simulation time [s], except FORC and demag modes")
+    g.add_argument("--dt_factor", type=float, default=0.04, help="dt/T0")
+    g.add_argument("--noise", type=float, default=1.5, help="initial angular noise amplitude [rad]")
+    g.add_argument("--seed", type=int, default=None)
+    g.add_argument("--log_every", type=int, default=10, help="write one CSV row every this many integration steps")
+    g.add_argument("--flip_angle_deg", type=float, default=90.0, help="threshold for large-rotation activity counter")
+
+    g = p.add_argument_group("dipolar cutoff and boundaries")
+    g.add_argument("--cutoff_shells", type=float, default=3.5, help="cutoff in units of r_nn")
+    g.add_argument("--cutoff_m", type=float, default=None, help="absolute cutoff [m], overrides cutoff_shells")
+    g.add_argument("--pbc", action="store_true", help="periodic boundary conditions using finite images")
+    g.add_argument("--n_images", type=int, default=1, help="number of periodic images in each direction")
+    g.add_argument("--tensor_mem_limit_gb", type=float, default=6.0)
+    g.add_argument("--float32", action="store_true", help="use float32 tensor/state to save memory; float64 is preferred for final data")
+
+    g = p.add_argument_group("field protocol")
+    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default="static")
+    g.add_argument("--B_ext", type=float, default=None, help="field amplitude [T]; if omitted, B_max_factor*B_ref")
+    g.add_argument("--B_max_factor", type=float, default=8.0, help="B_ext = factor * B_ref if B_ext omitted")
+    g.add_argument("--phi_ext_deg", type=float, default=0.0, help="field direction")
+    g.add_argument("--field_freq", type=float, default=1.0, help="sine frequency [Hz]")
+    g.add_argument("--field_delay", type=float, default=0.0, help="delay for step/pulse protocols [s]")
+    g.add_argument("--t_pulse", type=float, default=None, help="pulse duration [s]")
+    g.add_argument("--hyst_spacing", choices=["linear", "log"], default="linear")
+    g.add_argument("--hyst_log_k", type=float, default=5.0)
+
+    g = p.add_argument_group("FORC protocol")
+    g.add_argument("--forc_Br_min", type=float, default=None, help="minimum reversal field [T]; default -Bmax")
+    g.add_argument("--forc_n_curves", type=int, default=30)
+    g.add_argument("--forc_t_sat", type=float, default=0.05)
+    g.add_argument("--forc_t_ramp_down", type=float, default=0.10)
+    g.add_argument("--forc_t_ramp_up", type=float, default=0.20)
+    g.add_argument("--forc_rate", type=float, default=None, help="field ramp rate [T/s]; overrides fixed FORC ramp times")
+
+    g = p.add_argument_group("demagnetization")
+    g.add_argument("--demag_freq", type=float, default=2.0)
+    g.add_argument("--demag_cycles", type=int, default=20)
+    g.add_argument("--t_relax_after", type=float, default=2.0, help="extra relaxation after demag mode")
+
+    g = p.add_argument_group("output and performance")
+    g.add_argument("--out_dir", default="compassV2_output")
+    g.add_argument("--tag", default=None)
+    g.add_argument("--use_gpu", action="store_true")
+    g.add_argument("--progress", action="store_true")
+    g.add_argument("--verbose", action="store_true")
+    g.add_argument("--make_plot", action="store_true")
+    g.add_argument("--domain_tol_deg", type=float, default=15.0)
+
+    return p
+
+
+
+def main(argv: Optional[Iterable[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    csv_path, meta_path, state_path = run_simulation(args)
+    print(f"CSV      : {csv_path}")
+    print(f"Metadata : {meta_path}")
+    print(f"Final NPZ: {state_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
