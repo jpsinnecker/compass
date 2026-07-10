@@ -22,6 +22,8 @@
 \usepackage{listings}
 \usepackage{caption}
 \usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black,
             citecolor=blue!50!black}
 \captionsetup{font=small, labelfont=bf}
@@ -128,6 +130,112 @@ A critical point: the report should no longer claim a change of ``universality c
 \section{Physical model}
 \label{sec:model}
 % ======================================================================
+
+
+\subsection{Needle geometry used in the model}
+
+The physical needle used to motivate the simulator is a flat diamond-shaped steel pointer with a central pivot disk, as shown in the uploaded prototype photographs. In the numerical model this object is reduced to a rigid planar rotor with center fixed at a lattice site. Its detailed shape is used only to estimate the moment of inertia and magnetic moment; the dipolar interaction itself treats the needle as a point dipole located at the pivot.
+
+Figure~\ref{fig:needle_geometry} summarizes the geometric idealization. The drawn prototype dimensions are approximately a total tip-to-tip length $L\simeq\SI{10}{mm}$, maximum width $W\simeq\SI{3}{mm}$, pivot diameter $d_p\simeq\SI{2}{mm}$, and sheet thickness $t\simeq\SI{0.26}{mm}$. In the code, the working parameters are the lattice scale $R$, the needle fraction \code{needle\_frac}, the sheet thickness, and optional pivot parameters. For the simplified analytical estimates one may regard the magnetic steel part as a thin lamina, while the dark central disk contributes an optional additional pivot inertia.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    >=Latex,
+    scale=0.76,
+    every node/.style={font=\small},
+    dim/.style={Latex-Latex,thin},
+    lab/.style={fill=white,inner sep=1.5pt},
+    steel/.style={draw=black!70,line width=0.7pt},
+    north/.style={fill=blue!65!black},
+    south/.style={fill=gray!12},
+    pivot/.style={fill=black!55,draw=black!80,line width=0.5pt}
+]
+% top-view coordinates: 10 mm by 3 mm, drawn in arbitrary units
+\coordinate (Ltip) at (-5,0);
+\coordinate (Rtip) at (5,0);
+\coordinate (Top)  at (0,1.5);
+\coordinate (Bot)  at (0,-1.5);
+\coordinate (C)    at (0,0);
+
+% two magnetic halves of the diamond needle
+\path[steel,north] (Ltip) -- (Top) -- (C) -- (Bot) -- cycle;
+\path[steel,south] (C) -- (Top) -- (Rtip) -- (Bot) -- cycle;
+\draw[steel] (Ltip) -- (Top) -- (Rtip) -- (Bot) -- cycle;
+\draw[black!45,dashed] (Top) -- (Bot);
+
+% central pivot / bearing disk
+\shade[ball color=black!50] (C) circle (0.55);
+\draw[pivot] (C) circle (0.55);
+\draw[white,line width=0.45pt] (C) circle (0.22);
+
+% magnetic moment and angle
+\draw[->,very thick,red!70!black] (C) -- (3.7,0) node[above,pos=0.72,lab] {$\vect m_i$};
+\draw[->,blue!70!black] (C) ++(0.9,0) arc[start angle=0,end angle=24,radius=0.9];
+\draw[->,black!55] (C) -- ++(3.3,1.45) node[right] {$\theta_i$};
+\node[blue!80!black] at (-2.45,0.55) {N};
+\node[black!70] at (2.45,0.55) {S};
+
+% length and width dimensions
+\draw[dim] (-5,-2.25) -- (5,-2.25) node[midway,below,lab] {$L\simeq\SI{10}{mm}$};
+\draw[thin] (-5,-1.72) -- (-5,-2.55);
+\draw[thin] (5,-1.72) -- (5,-2.55);
+\draw[dim] (5.75,-1.5) -- (5.75,1.5) node[midway,right,lab] {$W\simeq\SI{3}{mm}$};
+\draw[thin] (5.25,-1.5) -- (6.05,-1.5);
+\draw[thin] (5.25,1.5) -- (6.05,1.5);
+
+% pivot diameter callout
+\draw[dim] (-0.55,1.95) -- (0.55,1.95) node[midway,above,lab] {$d_p\simeq\SI{2}{mm}$};
+\draw[thin] (-0.55,0.55) -- (-0.55,2.12);
+\draw[thin] (0.55,0.55) -- (0.55,2.12);
+
+% compact model-reduction note, placed below the top view to avoid overlap
+\node[align=center,font=\small,text width=15.2cm] at (0,-4.35)
+{Top view: two-colour diamond pointer with central pivot. The simulation keeps only $(\vect r_i,\theta_i)$ and $\vect m_i$; dimensions motivate $I$, $m$, and the optional pivot correction.};
+
+% side-view inset: same horizontal scale and center as the top view
+\begin{scope}[shift={(0,-6.85)}]
+  \draw[steel,fill=gray!18] (-5,0) rectangle (5,0.28);
+  \draw[thin] (-5,0.28) -- (-5,1.32);
+  \draw[thin] (5,0.28) -- (5,1.32);
+  \draw[dim] (-5,1.28) -- (5,1.28) node[midway,above,lab] {$L\simeq\SI{10}{mm}$};
+  \draw[pivot,fill=black!45] (-0.55,0.28) rectangle (0.55,1.05);
+  \draw[black!65,line width=0.35pt] (-0.55,1.05) -- (0.55,1.05);
+  \draw[dim] (5.45,0) -- (5.45,0.28) node[midway,right,lab] {$t\simeq\SI{0.26}{mm}$};
+  \draw[dim] (0.95,0.28) -- (0.95,1.05) node[midway,right,lab] {$h_p\simeq\SI{2}{mm}$};
+  \node[align=center,font=\small,text width=15.2cm] at (0,-1.15) {Side view: steel lamina and rectangular pivot cross-section, drawn with the same length scale and center as the top view.};
+\end{scope}
+\end{tikzpicture}
+\caption{Idealized geometry of the compass needle used by \code{compassV2.py}, based on the uploaded photographs. The actual dynamics keeps only the pivot position and angle, but the dimensions of the lamina and pivot are used to motivate $I$, $m$, and the optional pivot correction.}
+\label{fig:needle_geometry}
+\end{figure}
+
+
+
+The same physical needle is then replicated on one of the lattice geometries used by the simulator. Figures~\ref{fig:square_geometry}--\ref{fig:honeycomb_geometry} show the default clean geometries exported by the code. The three panels should be read as geometry definitions rather than as simulation snapshots: every marker is a fixed pivot position, and the coloured diamond at that point represents the initial angular state of the needle. The relevant common length scale is the nearest-neighbour spacing $r_{\rm nn}$, controlled by the circumscribed radius $R$ of the needle cell; in the default construction $r_{\rm nn}\simeq2R$ for all geometries. This common spacing is essential because it makes the dipolar reference field, natural frequency, and quality factor comparable across square, triangular, and honeycomb arrays.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/square_default_geometry_clean_colored.png}
+\caption{Square-lattice geometry used by \code{compassV2.py}. Pivots lie on a rectangular grid with four nearest neighbours in the bulk. This is the least frustrated of the three default geometries and provides the natural baseline for interpreting domains, hysteresis loops, and avalanche activity. Because the principal lattice directions are orthogonal, field sweeps along $x$ or $y$ have a simple relation to rows and columns of needles.}
+\label{fig:square_geometry}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/triangular_default_geometry_clean_colored.png}
+\caption{Triangular-lattice geometry. Each bulk pivot has six nearest neighbours, giving the highest local coordination among the default arrays. The equilateral triangular connectivity introduces strong geometric competition for dipolar alignment, so this geometry is expected to be especially sensitive to frustration, overshoot, and damping-controlled pathway selection. It is therefore a key test case for distinguishing purely static dipolar effects from genuinely dynamical inertial effects.}
+\label{fig:triangular_geometry}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/honeycomb_default_geometry_clean_colored.png}
+\caption{Honeycomb-lattice geometry. The honeycomb array can be viewed as a triangular construction with systematic removal of sites, producing hexagonal voids and three nearest neighbours per bulk pivot. This lower coordination changes both the available domain-wall paths and the local reversal constraints. It also gives a geometry closer in spirit to artificial-spin-ice networks, while retaining the continuous-angle compass-needle dynamics of the present model.}
+\label{fig:honeycomb_geometry}
+\end{figure}
+
+Together, these three geometries define the structural axis of the proposed research programme. The square lattice is the ordered reference case; the triangular lattice maximizes local coordination and frustration; and the honeycomb lattice reduces coordination while introducing extended hexagonal motifs. Comparing them at fixed $R$, magnetic moment $m$, inertia $I$, damping $b$, and field protocol is what allows the project to ask whether observed differences in hysteresis, avalanches, or relaxation are caused by geometry rather than by a change of physical units or numerical scale.
 
 \subsection{Degrees of freedom}
 
