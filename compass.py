@@ -32,11 +32,33 @@ Major improvements relative to compass.py V79
    S1 is polar order. S2 is nematic/director order and is essential for
    compass-lattice studies where opposite directions may cancel magnetically.
 
-3. Avalanche activity is exported directly:
-   flip_field counts sign changes relative to the selected drive axis.
-   flip_angle counts rotations larger than --flip_angle_deg in one time step.
-   These are accumulated over each logging interval and should be used for
-   avalanche statistics instead of the continuous order parameter S1.
+3. Avalanche activity is exported directly (V2.1 hardened counters):
+   flip_field counts COMMITTED sign reversals relative to the drive axis,
+   using a hysteretic (Schmitt-trigger) angular dead band of half-width
+   --flip_band_deg around the perpendicular, plus a dwell requirement of
+   --flip_dwell_T0 natural periods in the new state. A single underdamped
+   needle ringing across the axis therefore contributes exactly one event
+   per genuine reversal, not one event per zero crossing.
+   flip_angle counts COMMITTED rest-angle displacement events: a needle
+   registers an event only when its angle has moved by more than
+   --flip_angle_deg away from its last settled reference angle AND it has
+   settled there (|omega| below --flip_settle_frac * omega0 for the dwell
+   window). The reference angle is then updated. This channel is
+   geometry-agnostic and detects partial reversals into frustrated local
+   minima that never leave the drive-axis dead band.
+   With --event_log, every committed event is written to a per-run CSV
+   (step, t, needle_id, channel, theta) for offline spatio-temporal
+   avalanche clustering.
+
+3b. Numerical stability monitor:
+   The local instantaneous stiffness frequency omega_loc = sqrt(m|B_i|/I)
+   is monitored every step from the already-computed total field. Steps
+   where max_i(omega_loc) * dt exceeds --dt_guard_alpha are counted and
+   reported in metadata and at exit. With --dt_guard_substep, flagged
+   steps are re-integrated globally with 4 sub-steps (all needles; a
+   partial/local substep would desynchronize the coupled field). Note
+   that state-dependent stepping formally breaks symplecticity, so the
+   guard is off by default; the monitor itself is always on and free.
 
 4. Energy accounting:
    E_dip = -1/2 sum_i m_i · B_i^dip,
@@ -777,6 +799,12 @@ class SimulationConfig:
     backend: str
     log_every: int
     flip_angle_deg: float
+    flip_band_deg: float
+    flip_dwell_T0: float
+    flip_settle_frac: float
+    dt_guard_alpha: float
+    dt_guard_substep: bool
+    event_log: bool
     domain_tol_deg: float
 
 
@@ -917,22 +945,76 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     log_every = max(1, args.log_every)
     flip_threshold = math.radians(args.flip_angle_deg)
 
+    # ------------------------------------------------------------------
+    # V2.1 hardened flip detection: derived quantities.
+    #
+    # Drive-axis channel (flip_field): a needle is in state +1 when its
+    # projection cos(theta - phi) >= +u_thresh, in state -1 when it is
+    # <= -u_thresh, and "undecided" inside the dead band. The dead band is
+    # angular: half-width flip_band_deg measured FROM THE PERPENDICULAR to
+    # the drive axis, so u_thresh = sin(flip_band_deg). A state change is
+    # committed only after the candidate state has persisted for
+    # n_dwell_steps consecutive steps.
+    #
+    # Rest-angle channel (flip_angle): each needle carries a reference
+    # angle theta_ref (its last settled orientation). An event is
+    # committed when |wrap(theta - theta_ref)| >= flip_threshold AND
+    # |omega| <= omega_settle, sustained for n_dwell_steps. theta_ref is
+    # then updated. This channel needs no knowledge of the local energy
+    # landscape and works identically for all lattice geometries.
+    # ------------------------------------------------------------------
+    u_thresh = math.sin(math.radians(args.flip_band_deg))
+    n_dwell_steps = max(1, int(round(args.flip_dwell_T0 * T0 / dt)))
+    omega_settle = args.flip_settle_frac * omega0
+
     # Initial field and torque.
     f0 = protocol.at(0.0)
     cos_phi = math.cos(phi)
     sin_phi = math.sin(phi)
 
     def torque_and_field(th, bx, by):
+        """Return (torque, Bx_total, By_total) per needle.
+
+        The total field components are returned because they are already
+        computed by the matrix-vector products; the stability monitor uses
+        them at zero additional matvec cost.
+        """
         mx = moment * xp.cos(th)
         my = moment * xp.sin(th)
         Bdx = tensor.Axx @ mx + tensor.Axy @ my
         Bdy = tensor.Axy @ mx + tensor.Ayy @ my
-        return mx * (Bdy + by) - my * (Bdx + bx)
+        Btx = Bdx + bx
+        Bty = Bdy + by
+        return mx * Bty - my * Btx, Btx, Bty
 
-    tau = torque_and_field(theta, f0.bx, f0.by)
-    sigma_prev = xp.where(xp.cos(theta - phi) >= 0.0, 1, -1)
+    tau, Btx, Bty = torque_and_field(theta, f0.bx, f0.by)
+
+    # Drive-axis Schmitt state. Needles initially inside the dead band get
+    # state 0 (undecided); their first commitment is not counted as a flip.
+    u0 = xp.cos(theta - phi)
+    sigma_state = xp.where(u0 >= u_thresh, 1, xp.where(u0 <= -u_thresh, -1, 0)).astype(xp.int8)
+    ff_pending = xp.zeros(geom.K, dtype=xp.int8)
+    ff_count = xp.zeros(geom.K, dtype=xp.int32)
+
+    # Rest-angle channel state.
+    theta_ref = theta.copy()
+    fa_count = xp.zeros(geom.K, dtype=xp.int32)
+
     flip_field_acc = 0
     flip_angle_acc = 0
+    flip_field_total = 0
+    flip_angle_total = 0
+
+    # Event log buffer: (step, t, needle_id, channel, theta_committed).
+    # event_path is assigned after the run tag is constructed below.
+    event_buffer: List[Tuple[int, float, int, str, float]] = []
+    event_path: Optional[Path] = None
+
+    # Stability monitor.
+    guard_alpha = float(args.dt_guard_alpha)
+    guard_flagged_steps = 0
+    guard_substepped_steps = 0
+    guard_max_ratio = 0.0
 
     invI = 1.0 / inertia
     dt2_half = 0.5 * dt * dt
@@ -941,6 +1023,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     coeff_tau = dt * 0.5 * invI / (1.0 + b_half)
 
     tag = args.tag or f"{args.geometry}_{args.field_mode}_N{args.N}_M{args.M}_seed{seed}"
+    if args.event_log:
+        event_path = data_dir / f"{tag}_events.csv"
     csv_path = data_dir / f"{tag}.csv"
     meta_path = meta_dir / f"{tag}.json"
     initial_state_path = state_dir / f"{tag}_initial.npz"
@@ -976,12 +1060,27 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         backend=backend.name,
         log_every=log_every,
         flip_angle_deg=args.flip_angle_deg,
+        flip_band_deg=args.flip_band_deg,
+        flip_dwell_T0=args.flip_dwell_T0,
+        flip_settle_frac=args.flip_settle_frac,
+        dt_guard_alpha=args.dt_guard_alpha,
+        dt_guard_substep=bool(args.dt_guard_substep),
+        event_log=bool(args.event_log),
         domain_tol_deg=args.domain_tol_deg,
     )
 
+    # Nominal drive sweep rate, logged so rate can be a first-class campaign
+    # axis (athermal deterministic dynamics is rate-dependent by construction).
+    if args.field_mode == "hysteresis":
+        sweep_rate_T_s = abs(B_ext) / max(t_sim / 5.0, 1e-30)
+    elif args.field_mode == "forc" and args.forc_rate is not None:
+        sweep_rate_T_s = float(args.forc_rate)
+    else:
+        sweep_rate_T_s = None
+
     metadata = {
         "program": "compassV02.py",
-        "version": "2.0.2",
+        "version": "2.1.0",
         "source_file_timestamp": SOURCE_FILE_TIMESTAMP,
         "created_unix_time": time.time(),
         "created_datetime_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1006,12 +1105,17 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "cutoff_policy": cutoff_policy,
             "tensor_bytes": tensor_bytes,
             "dtype": "float32" if args.float32 else "float64",
+            "u_thresh": u_thresh,
+            "n_dwell_steps": n_dwell_steps,
+            "omega_settle_rad_s": omega_settle,
+            "sweep_rate_T_per_s": sweep_rate_T_s,
+            "sweep_rate_Bref_per_T0": (sweep_rate_T_s * T0 / B_ref) if (sweep_rate_T_s and B_ref > 0.0) else None,
         },
         "notes": {
             "S1": "polar order |<exp(i theta)>|",
             "S2": "nematic/director order |<exp(2 i theta)>|",
-            "flip_field": "accumulated sign changes relative to the drive axis since previous log row",
-            "flip_angle": "accumulated rotations larger than flip_angle_deg since previous log row",
+            "flip_field": "COMMITTED drive-axis reversals since previous log row (Schmitt band flip_band_deg + dwell flip_dwell_T0); ringing-proof",
+            "flip_angle": "COMMITTED rest-angle displacement events since previous log row (>= flip_angle_deg from last settled angle, |omega| settled); geometry-agnostic",
             "E_dip": "-0.5 sum_i m_i dot B_i^dip",
             "E_ext": "-sum_i m_i dot B_ext",
             "E_kin": "0.5 I sum_i omega_i^2",
@@ -1107,23 +1211,110 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
 
         write_row(0, 0.0, f0)
 
+        def verlet_step(th, om, ta, bx, by, dt_s):
+            """One damped velocity-Verlet step of size dt_s. Returns new state."""
+            bh = damping * dt_s * 0.5 * invI
+            c_om = (1.0 - bh) / (1.0 + bh)
+            c_ta = dt_s * 0.5 * invI / (1.0 + bh)
+            acc = (ta - damping * om) * invI
+            th_n = th + om * dt_s + 0.5 * dt_s * dt_s * acc
+            th_n = (th_n + math.pi) % (2.0 * math.pi) - math.pi
+            ta_n, btx, bty = torque_and_field(th_n, bx, by)
+            om_n = om * c_om + (ta + ta_n) * c_ta
+            return th_n, om_n, ta_n, btx, bty
+
+        def flush_events():
+            if event_path is None or not event_buffer:
+                return
+            new_file = not event_path.exists()
+            with open(event_path, "a", newline="") as efh:
+                ew = csv.writer(efh)
+                if new_file:
+                    ew.writerow(["step", "t_s", "needle_id", "channel", "theta_rad"])
+                ew.writerows(event_buffer)
+            event_buffer.clear()
+
         for step in range(1, n_steps + 1):
             t = step * dt
             f = protocol.at(t)
 
-            theta_old = theta
-            accel = (tau - damping * omega) * invI
-            theta_new = theta + omega * dt + accel * dt2_half
+            theta_new = theta + omega * dt + (tau - damping * omega) * invI * dt2_half
             theta_new = (theta_new + math.pi) % (2.0 * math.pi) - math.pi
-
-            tau_new = torque_and_field(theta_new, f.bx, f.by)
+            tau_new, Btx, Bty = torque_and_field(theta_new, f.bx, f.by)
             omega_new = omega * coeff_omega + (tau + tau_new) * coeff_tau
 
-            sigma_new = xp.where(xp.cos(theta_new - phi) >= 0.0, 1, -1)
-            flip_field_acc += int(safe_float(xp.sum(sigma_new != sigma_prev)))
-            dtheta_step = (theta_new - theta_old + math.pi) % (2.0 * math.pi) - math.pi
-            flip_angle_acc += int(safe_float(xp.sum(xp.abs(dtheta_step) >= flip_threshold)))
-            sigma_prev = sigma_new
+            # --------------------------------------------------------------
+            # Stability monitor: local stiffness frequency from |B_i|.
+            # tau_i = (m x B_i)_z, so the linearized local frequency is
+            # bounded by sqrt(m |B_i| / I). Uses fields already computed.
+            # --------------------------------------------------------------
+            B2max = safe_float(xp.max(Btx * Btx + Bty * Bty))
+            ratio = math.sqrt(moment * math.sqrt(B2max) * invI) * dt
+            if ratio > guard_max_ratio:
+                guard_max_ratio = ratio
+            if ratio > guard_alpha:
+                guard_flagged_steps += 1
+                if args.dt_guard_substep:
+                    # Re-integrate this step globally with 4 sub-steps.
+                    # A partial (per-needle) substep is not an option: the
+                    # dipolar field is global and would desynchronize.
+                    guard_substepped_steps += 1
+                    th_s, om_s, ta_s = theta, omega, tau
+                    dt_s = 0.25 * dt
+                    for k_sub in range(4):
+                        f_s = protocol.at((step - 1) * dt + (k_sub + 1) * dt_s)
+                        th_s, om_s, ta_s, Btx, Bty = verlet_step(th_s, om_s, ta_s, f_s.bx, f_s.by, dt_s)
+                    theta_new, omega_new, tau_new = th_s, om_s, ta_s
+
+            # --------------------------------------------------------------
+            # Channel A: drive-axis reversal (flip_field), Schmitt + dwell.
+            # --------------------------------------------------------------
+            u = xp.cos(theta_new - phi)
+            cand = xp.where(u >= u_thresh, 1, xp.where(u <= -u_thresh, -1, 0)).astype(xp.int8)
+            in_new_state = (cand != 0) & (cand != sigma_state)
+            same_as_pending = in_new_state & (cand == ff_pending)
+            ff_count = xp.where(same_as_pending, ff_count + 1,
+                                xp.where(in_new_state, 1, 0)).astype(xp.int32)
+            ff_pending = xp.where(in_new_state, cand, 0).astype(xp.int8)
+            commit_ff = ff_count >= n_dwell_steps
+            n_commit_ff = int(safe_float(xp.sum(commit_ff)))
+            if n_commit_ff > 0:
+                # First commitment of initially undecided needles (state 0)
+                # establishes the state without counting as a reversal.
+                real_flip = commit_ff & (sigma_state != 0)
+                n_real = int(safe_float(xp.sum(real_flip)))
+                flip_field_acc += n_real
+                flip_field_total += n_real
+                if event_path is not None and n_real > 0:
+                    ids = backend.to_cpu(xp.where(real_flip)[0])
+                    ths = backend.to_cpu(theta_new)
+                    event_buffer.extend(
+                        (step, t, int(i), "field", float(ths[int(i)])) for i in ids
+                    )
+                sigma_state = xp.where(commit_ff, ff_pending, sigma_state).astype(xp.int8)
+                ff_count = xp.where(commit_ff, 0, ff_count).astype(xp.int32)
+                ff_pending = xp.where(commit_ff, 0, ff_pending).astype(xp.int8)
+
+            # --------------------------------------------------------------
+            # Channel B: rest-angle displacement (flip_angle), settle + dwell.
+            # --------------------------------------------------------------
+            disp = xp.abs(wrap_angle(theta_new - theta_ref)) >= flip_threshold
+            settled = xp.abs(omega_new) <= omega_settle
+            cond = disp & settled
+            fa_count = xp.where(cond, fa_count + 1, 0).astype(xp.int32)
+            commit_fa = fa_count >= n_dwell_steps
+            n_commit_fa = int(safe_float(xp.sum(commit_fa)))
+            if n_commit_fa > 0:
+                flip_angle_acc += n_commit_fa
+                flip_angle_total += n_commit_fa
+                if event_path is not None:
+                    ids = backend.to_cpu(xp.where(commit_fa)[0])
+                    ths = backend.to_cpu(theta_new)
+                    event_buffer.extend(
+                        (step, t, int(i), "angle", float(ths[int(i)])) for i in ids
+                    )
+                theta_ref = xp.where(commit_fa, theta_new, theta_ref)
+                fa_count = xp.where(commit_fa, 0, fa_count).astype(xp.int32)
 
             theta = theta_new
             omega = omega_new
@@ -1131,11 +1322,15 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
 
             if step % log_every == 0 or step == n_steps:
                 write_row(step, t, f)
+                if len(event_buffer) >= 4096:
+                    flush_events()
 
             if args.progress and step % max(1, n_steps // 100) == 0:
                 elapsed = time.perf_counter() - t_start
                 rate = step / max(elapsed, 1e-12)
                 print(f"\r{100*step/n_steps:6.2f}%  step {step}/{n_steps}  {rate:8.0f} steps/s", end="", flush=True)
+
+        flush_events()
 
     if args.progress:
         print()
@@ -1146,6 +1341,26 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     domain_stats = domain_statistics(theta_cpu, geom.xs, geom.ys, geom.r_nn, args.domain_tol_deg)
     metadata["domain_statistics_final"] = domain_stats
     metadata["runtime_s"] = time.perf_counter() - t_start
+    metadata["flip_statistics"] = {
+        "flip_field_total_committed": int(flip_field_total),
+        "flip_angle_total_committed": int(flip_angle_total),
+        "u_thresh": u_thresh,
+        "n_dwell_steps": int(n_dwell_steps),
+        "omega_settle_rad_s": omega_settle,
+    }
+    metadata["stability_monitor"] = {
+        "dt_guard_alpha": guard_alpha,
+        "flagged_steps": int(guard_flagged_steps),
+        "substepped_steps": int(guard_substepped_steps),
+        "max_omega_local_dt": guard_max_ratio,
+        "note": "omega_local = sqrt(m|B_i|/I); flagged when max_i(omega_local)*dt > alpha",
+    }
+    if event_path is not None:
+        metadata["event_log_path"] = str(event_path)
+    if guard_flagged_steps > 0 and not args.dt_guard_substep:
+        print(f"[warning] stability monitor flagged {guard_flagged_steps} steps "
+              f"(max omega_local*dt = {guard_max_ratio:.3f} > alpha = {guard_alpha}). "
+              f"Consider smaller --dt_factor or --dt_guard_substep, and record in quality control.")
 
     np.savez_compressed(
         state_path,
@@ -1393,7 +1608,13 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--noise", type=float, default=1.5, help="initial angular noise amplitude [rad]")
     g.add_argument("--seed", type=int, default=None)
     g.add_argument("--log_every", type=int, default=10, help="write one CSV row every this many integration steps")
-    g.add_argument("--flip_angle_deg", type=float, default=90.0, help="threshold for large-rotation activity counter")
+    g.add_argument("--flip_angle_deg", type=float, default=90.0, help="rest-angle displacement threshold for the committed flip_angle channel")
+    g.add_argument("--flip_band_deg", type=float, default=30.0, help="Schmitt dead-band half-width around the perpendicular to the drive axis [deg]")
+    g.add_argument("--flip_dwell_T0", type=float, default=0.5, help="dwell time required to commit a flip, in units of T0")
+    g.add_argument("--flip_settle_frac", type=float, default=0.05, help="|omega| settling threshold as a fraction of omega0 for the flip_angle channel")
+    g.add_argument("--event_log", action="store_true", help="write per-event CSV (step,t,needle_id,channel,theta) for offline avalanche clustering")
+    g.add_argument("--dt_guard_alpha", type=float, default=0.35, help="stability monitor threshold on max_i sqrt(m|B_i|/I)*dt")
+    g.add_argument("--dt_guard_substep", action="store_true", help="re-integrate flagged steps with 4 global sub-steps (breaks strict symplecticity; exploratory)")
 
     g = p.add_argument_group("dipolar cutoff and boundaries")
     g.add_argument("--cutoff_shells", type=float, default=3.5, help="cutoff in units of r_nn")
