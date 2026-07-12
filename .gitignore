@@ -1,0 +1,32 @@
+# Generated simulation/plot artifacts.
+# Note: this does NOT retroactively untrack files already committed before
+# this .gitignore existed (e.g. tests/reference/**/*.csv, tests/reference/**/*.npz,
+# which are intentionally-committed test fixtures, not throwaway output) --
+# it only stops *new* generated files of these kinds from being added.
+*.png
+*.mp4
+*.csv
+*.npz
+
+# LaTeX build byproducts (not the .tex source or the .pdf deliverable).
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+*.nav
+*.snm
+
+# Archived/zipped result bundles.
+*.zip
+
+# Python bytecode cache.
+__pycache__/
+*.pyc
+
+# pytest cache.
+.pytest_cache/
