@@ -109,7 +109,7 @@ def _bar(done, total, label="", extra="", width=36):
 
 def derive_needle_geometry(R, needle_frac=2.0/3.0, needle_thickness=0.26e-3):
     needle_len   = needle_frac * 2.0 * R
-    needle_width = needle_len * 0.30
+    needle_width = needle_len * _CFG.physics.needle_geometry.default_width_to_length_ratio
     thickness    = needle_thickness
     return needle_len, needle_width, thickness
 

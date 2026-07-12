@@ -87,7 +87,7 @@ def _compute_derived_params(R=R_DEFAULT):
     """Derive needle geometry and moment/inertia from physical parameters,
     consistent with compass.py main() and damping_sweep.py V01/V02."""
     needle_len   = NEEDLE_FRAC * 2.0 * R
-    needle_width = needle_len * _PHYS.needle_width_to_length_ratio
+    needle_width = needle_len * _CFG.physics.needle_geometry.default_width_to_length_ratio
     thickness    = NEEDLE_THICKNESS
     inertia = cs.compute_inertia_from_geometry(
         needle_len, needle_width, thickness, density=STEEL_DENSITY,
