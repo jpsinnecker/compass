@@ -1,0 +1,122 @@
+% ======================================================================
+% Abstract — one page, no section headings, max 3 references
+% ======================================================================
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\geometry{top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathptmx}        % Times New Roman text + math
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{parskip}
+
+% --- No indent, no extra space between paragraphs ---
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\singlespacing
+
+\definecolor{codeblue}{rgb}{0.1,0.2,0.6}
+\hypersetup{colorlinks=true, linkcolor=codeblue, urlcolor=codeblue,
+    pdftitle={Abstract: Inertia and Damping in Compass-Needle Lattices},
+    pdfauthor={J. P. Sinnecker}}
+
+% --- Dynamic 24 h compile-time stamp ---
+\newcount\hours \newcount\minutes \newcount\temp
+\hours=\time \divide\hours by 60
+\minutes=\time \temp=\hours \multiply\temp by 60 \advance\minutes by -\temp
+\def\compileTime{%
+  \ifnum\hours<10 0\fi\the\hours:\ifnum\minutes<10 0\fi\the\minutes}
+
+% --- Suppress page number ---
+\pagestyle{empty}
+
+% --- Compact title spacing ---
+\usepackage{titling}
+\setlength{\droptitle}{-2.8em}
+\pretitle{\begin{center}\large\bfseries}
+\posttitle{\par\end{center}\vspace{2pt}}
+\preauthor{\begin{center}\normalsize\bfseries}
+\postauthor{\par\end{center}\vspace{0pt}}
+\predate{\begin{center}\small\itshape}
+\postdate{\par\end{center}\vspace{6pt}}
+
+\title{Influence of Inertia and Viscous Damping on the Magnetic Hysteresis
+and First-Order Reversal Curve (FORC) Diagrams of Compass-Needle Lattices}
+\author{J.~P.~Sinnecker\\[1pt]
+\normalfont\small\itshape
+Centro Brasileiro de Pesquisas F\'isicas (CBPF), Rio de Janeiro, Brazil}
+\date{\today\ at \compileTime}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+% -----------------------------------------------------------------------
+% BODY — single paragraph, no label, single-spaced, Times New Roman 12 pt
+% -----------------------------------------------------------------------
+\noindent
+The collective behavior of two-dimensional arrays of magnetic dipoles has attracted
+sustained interest in the context of artificial spin ice (ASI) and nanostructured
+magnetic islands fabricated by nanolithography.
+Classic thermodynamic studies of compass-needle lattices~\cite{prb1998} and the
+introduction of First-Order Reversal Curve (FORC) diagrams~\cite{roberts2000}
+established the conceptual tools now widely used to map coercive and interaction
+field distributions in magnetically ordered arrays.
+However, existing models rely on quasi-static or Monte Carlo approaches that omit
+physical rotational inertia ($I$) and viscous damping ($b$), effectively assuming
+an infinite-damping limit ($Q\!\to\!0$); variable FORC sweep rates further introduce
+relaxation artifacts that distort coercive-field scaling and mask cooperative switching
+cascades~\cite{ruta2017}.
+We address these gaps with a Newtonian rotational molecular-dynamics model---integrated
+by a Velocity-Verlet scheme---in which each needle obeys
+$I\ddot{\theta}_{i} = \tau_{i}^{\text{dip}} + \tau_{i}^{\text{ext}} - b\dot{\theta}_{i}$,
+with $I$ auto-calibrated from a rectangular blade plus a central cylindrical brass pivot.
+Hysteresis loops and FORC diagrams are computed for square, triangular, and honeycomb
+geometries across a wide range of quality factors $Q=\omega_{0}I/b$, and under a
+strictly constant field sweep rate $R=|dB/dt|$ that eliminates rate-artifact
+contamination.
+Inertia delays switching, dynamically inflates the coercive field, and generates
+phase-coherent oscillations at high $Q$; the resulting FORC broadening mimics
+structural disorder.
+Crucially, the mechanical damping ratio $b/I$ maps directly onto the phenomenological
+Gilbert damping parameter $\alpha$ of thin-film nanomagnets, establishing this
+macroscopic system as a transparent analog for nanolithography-fabricated magnetic
+island arrays and providing quantitative guidance for interpreting FORC measurements
+on nanopatterned samples.
+
+% -----------------------------------------------------------------------
+% REFERENCES — no heading, single-spaced, same font
+% -----------------------------------------------------------------------
+\vspace{4pt}
+\begin{singlespace}
+\begin{thebibliography}{9}
+\setlength{\itemsep}{0pt}
+\setlength{\parsep}{0pt}
+
+\bibitem{prb1998}
+E.~Olive and P.~Molho,
+\emph{Thermodynamic study of a lattice of compass needles in dipolar interaction},
+Phys.\ Rev.\ B \textbf{58}, 9238 (1998).
+
+\bibitem{roberts2000}
+A.~P.~Roberts, C.~R.~Pike, and K.~L.~Verosub,
+\emph{First-order reversal curve diagrams: A new tool for characterizing the
+magnetic properties of natural samples},
+J.\ Geophys.\ Res.\ Solid Earth \textbf{105}, 28461 (2000).
+
+\bibitem{ruta2017}
+S.~Ruta \emph{et al.},
+\emph{First order reversal curves and intrinsic parameter determination
+for magnetic materials},
+Sci.\ Rep.\ \textbf{7}, 45218 (2017).
+
+\end{thebibliography}
+\end{singlespace}
+
+\end{document}

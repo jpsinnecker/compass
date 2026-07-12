@@ -1,0 +1,42 @@
+% XIII LAW3M 2026 abstract
+% Prepared according to the abstract template: one page, Times 12 pt body, up to three references.
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage[normalem]{ulem}
+\usepackage{microtype}
+\geometry{top=2.0cm,bottom=2.0cm,left=2.2cm,right=2.2cm}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\singlespacing
+
+\begin{document}
+
+\begin{center}
+{\bfseries\fontsize{14}{16}\selectfont XIII LAW3M - Abstract Submission Template}\par
+\vspace{6pt}
+{\bfseries\fontsize{14}{16}\selectfont
+dipolar compass-needle arrays as a controllable analogue for spin-ice dynamics:\\
+hysteresis, damping, and magnetic avalanches}\par
+\vspace{10pt}
+{\bfseries\fontsize{12}{14}\selectfont \uline{Jo\~ao~P.~Sinnecker}}\par
+\vspace{6pt}
+{\itshape\fontsize{12}{14}\selectfont Centro Brasileiro de Pesquisas F\'isicas (CBPF), Rio de Janeiro, Brazil}\par
+\end{center}
+\vspace{10pt}
+
+Artificial spin-ice arrays of lithographically patterned magnetic nanoislands provide a direct route to study how local dipolar coupling produces collective magnetic states~[1]. However, in nanofabricated systems the effective damping is a material property and cannot be tuned independently of geometry, spacing, and switching-barrier disorder. One may ask, therefore, why not simulate monodomain nanoisland arrays directly. The answer is that a macroscopic compass needle obeying Newton's second law for rotation, $I\ddot{\theta}_{i} = \tau_{i}^{\rm dip} + \tau_{i}^{\rm ext} - b\dot{\theta}_{i}$, provides something nanoisland models cannot: a single, continuously tunable control parameter --- the quality factor $Q = \omega_0 I/b$, where $\omega_0 = \sqrt{mB_{\rm ref}/I}$ is the natural precession frequency set by nearest-neighbour dipolar coupling --- that allows the same dipolar lattice to be driven from the overdamped limit ($Q \ll 1$, slow monotonic reversal, narrow loops) to the underdamped limit ($Q \gg 1$, inertial overshoot and chain-reaction reversal cascades), and directly through the critical-damping crossover ($Q \approx 1$) by changing only $b$. This systematic tunability is what motivates the use of compass-needle arrays~[3] as a minimal, transparent model for spin-ice dynamics. Here we use it to address a question that remains open in the artificial-spin-ice literature~[2]: does the dynamical regime set by damping control the universality class of magnetic avalanches, and does the answer depend on the lattice geometry? Simulations are performed on $30\times30$ square, triangular, and honeycomb arrays --- macroscopic analogues of the square, kagome, and brick-wall spin-ice geometries --- sweeping $Q$ over two decades and applying five-ramp hysteresis cycles. Avalanche size distributions are extracted and fitted by maximum-likelihood power-law estimation, and waiting-time distributions between successive events are analysed to discriminate between Poisson and scale-free (SOC-like) inter-event timing. Preliminary results already reveal the central signal: the power-law exponent $\tau$ increases systematically with $Q$ in all three geometries, from $\tau \approx 1.2$--$1.3$ near the crossover to $\tau \approx 1.7$--$1.8$ in the underdamped limit, while the hysteresis loop area and coercive field grow monotonically as the system becomes overdamped. The triangular lattice additionally shows non-monotonic domain-size behaviour with $Q$ absent from the other geometries, a candidate signature of frustration-inertia coupling. These results suggest that inertial dynamics, commonly neglected in spin-ice models, is a relevant variable for classifying the avalanche universality of dipolar arrays, and the compass-needle platform provides a clean experimental route to test this in the laboratory.
+\vspace{6pt}
+
+[1] S.~H.~Skj{\ae}rv{\o} \textit{et al.}, Nat. Rev. Phys. \textbf{2}, 13 (2020).\par
+[2] K.~A.~Dahmen, Y.~Ben-Zion and J.~T.~Uhl, Nat. Phys. \textbf{7}, 554 (2011).\par
+[3] R.~L.~Novak and J.~P.~Sinnecker, J. Magn. Magn. Mater. \textbf{272--276}, 1557 (2004).
+
+\end{document}

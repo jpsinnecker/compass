@@ -1,0 +1,852 @@
+% ======================================================================
+% User Guide for the compass_sim Project — Version V2.0.2 / Report V52
+% Updated for compass.py / compassV02.py, July 2026
+% ======================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codeblue}{rgb}{0.1,0.2,0.6}
+\definecolor{darkgray}{rgb}{0.3,0.3,0.3}
+
+\lstset{
+    backgroundcolor=\color{codegray},
+    basicstyle=\small\ttfamily,
+    breaklines=true,
+    columns=fullflexible,
+    commentstyle=\color{darkgray}\itshape,
+    frame=single,
+    keepspaces=true,
+    keywordstyle=\color{codeblue}\bfseries,
+    showstringspaces=false
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codeblue,
+    urlcolor=codeblue,
+    pdftitle={User Guide: Compass-Needle Lattice Simulator - Version V2.0.2},
+    pdfauthor={J. P. Sinnecker}
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+
+\newcount\hours
+\newcount\minutes
+\newcount\temp
+\hours=\time
+\divide\hours by 60
+\minutes=\time
+\temp=\hours
+\multiply\temp by 60
+\advance\minutes by -\temp
+\def\compileTime{\ifnum\hours<10 0\fi\the\hours:\ifnum\minutes<10 0\fi\the\minutes}
+
+\title{\textbf{User Guide: Compass-Needle Lattice Simulator}\\[1ex]
+\large Practical reference for \code{compass.py} / \code{compassV02.py} V2.0.2}
+\author{\textbf{J.~P.~Sinnecker}}
+\date{Guide version: July 2026, aligned with Report V52\\
+Source code timestamp: \code{2026-07-10T11:50:24-03:00}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+This guide describes the current research branch of the compass-needle lattice simulator, distributed as \code{compass.py} or \code{compassV02.py}. The code simulates two-dimensional arrays of rigid compass needles as fixed-center point magnetic dipoles with continuous in-plane angular dynamics. Version V2.0.2 emphasizes reproducible numerical experiments: explicit physical parameters, explicit cutoff conventions, timestamped metadata, CPU/GPU backends, native research observables, avalanche counters, energy accounting, First-Order Reversal Curve protocols, demagnetization protocols, initial and final state snapshots, and automatic lattice PNG figures. This document replaces the older V78 user guide and is consistent with the updated project report V52 and the latest uploaded code.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ======================================================================
+\section{What changed relative to the older user guide}
+\label{sec:changes}
+% ======================================================================
+
+The earlier user guide described the V78/V79 family of the simulator. The current code is a research-grade V2.0.2 branch. The most important changes are:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{File identity and reproducibility.} The source file contains a timestamp, stored in the constant \code{SOURCE\_FILE\_TIMESTAMP}. Each run writes this value to the JSON metadata together with \code{created\_datetime\_utc} and \code{created\_datetime\_local}.
+    \item \textbf{Output tree.} Each run writes \code{data/}, \code{meta/}, \code{states/}, and \code{images/} subdirectories under \code{--out\_dir}.
+    \item \textbf{Initial and final states.} The code now saves both \code{states/<tag>\_initial.npz} and \code{states/<tag>\_final.npz}. The initial snapshot is saved before time integration, after lattice generation, physical-parameter derivation, field-protocol construction, tensor precomputation, and metadata assembly.
+    \item \textbf{Automatic lattice PNGs.} Every run automatically generates \code{images/<tag>\_initial\_lattice.png}, \code{images/<tag>\_final\_lattice.png}, and \code{images/<tag>\_initial\_final.png}. The option \code{--make\_plot} is now only for additional CSV diagnostic plots.
+    \item \textbf{New plotting controls.} Automatic lattice figures are controlled by \code{--png\_dpi}, \code{--png\_transparent}, \code{--png\_with\_axes}, and \code{--png\_no\_panel\_titles}.
+    \item \textbf{Research observables.} The CSV now contains magnetization components, polar and nematic order parameters, director angle, square-axis population, activity counters, energy terms, and angular-velocity diagnostics.
+    \item \textbf{Explicit cutoff convention.} \code{--cutoff\_shells} gives a cutoff in units of the measured nearest-neighbour distance $r_{\rm nn}$; \code{--cutoff\_m} gives an absolute cutoff in metres and overrides \code{--cutoff\_shells}.
+    \item \textbf{Field protocols.} Supported protocols are \code{static}, \code{hysteresis}, \code{forc}, \code{sine}, \code{step\_up}, \code{step\_pos}, \code{step\_down}, \code{step\_neg}, \code{pulse}, \code{demag\_rot}, and \code{demag\_linear}.
+\end{enumerate}
+
+% ======================================================================
+\section{Quick start}
+\label{sec:quickstart}
+% ======================================================================
+
+Assume the current source file has been saved locally as \code{compass.py}. If the downloaded file has another name, for example \code{compass(3).py} or \code{compassV02.py}, rename or copy it:
+
+\begin{lstlisting}[language=bash]
+cp compassV02.py compass.py
+# or, if your browser saved the uploaded file as compass(3).py:
+cp 'compass(3).py' compass.py
+\end{lstlisting}
+
+Check that the local file is the current branch:
+
+\begin{lstlisting}[language=bash]
+python3 compass.py --help | grep -E "png|state|out_dir|tag|verbose"
+\end{lstlisting}
+
+A current V2.0.2 file should show the output options \code{--out\_dir}, \code{--tag}, \code{--verbose}, and the PNG options \code{--png\_dpi}, \code{--png\_transparent}, \code{--png\_with\_axes}, and \code{--png\_no\_panel\_titles}.
+
+Run a short smoke test:
+
+\begin{lstlisting}[language=bash]
+rm -rf v02_png_test
+
+python3 compass.py \
+  --field_mode static \
+  --geometry square \
+  --N 3 --M 3 \
+  --t_sim 0.005 \
+  --out_dir v02_png_test \
+  --tag static_quick \
+  --verbose
+\end{lstlisting}
+
+Expected files:
+
+\begin{lstlisting}[language=bash]
+v02_png_test/data/static_quick.csv
+v02_png_test/meta/static_quick.json
+v02_png_test/states/static_quick_initial.npz
+v02_png_test/states/static_quick_final.npz
+v02_png_test/images/static_quick_initial_lattice.png
+v02_png_test/images/static_quick_final_lattice.png
+v02_png_test/images/static_quick_initial_final.png
+\end{lstlisting}
+
+% ======================================================================
+\section{Installation and dependencies}
+\label{sec:install}
+% ======================================================================
+
+The simulator is a single Python script. The required runtime dependencies are minimal:
+
+\begin{itemize}[leftmargin=*]
+    \item Python 3.10 or later is recommended.
+    \item \code{numpy} is required.
+    \item \code{matplotlib} is required for automatic PNG generation and optional quick plots.
+    \item \code{cupy} is optional and only needed for GPU execution with \code{--use\_gpu}.
+\end{itemize}
+
+A typical CPU-only environment can be prepared with:
+
+\begin{lstlisting}[language=bash]
+python3 -m pip install numpy matplotlib
+\end{lstlisting}
+
+If using Anaconda or Miniconda:
+
+\begin{lstlisting}[language=bash]
+conda create -n compass-v02 python=3.11 numpy matplotlib
+conda activate compass-v02
+\end{lstlisting}
+
+GPU support requires a CuPy build compatible with the installed CUDA version. If \code{--use\_gpu} is requested but CuPy is unavailable or fails to initialize, the code falls back to CPU/NumPy and prints a warning.
+
+% ======================================================================
+\section{Physical model}
+\label{sec:model}
+% ======================================================================
+
+The simulator treats each compass needle as a rigid point magnetic dipole located at a fixed pivot and free to rotate in the sample plane. For needle $i$ the equation of motion is
+
+\begin{equation}
+I\ddot{\theta}_i = \tau_i^{\rm dip} + \tau_i^{\rm ext} - b\dot{\theta}_i,
+\label{eq:eom}
+\end{equation}
+
+where $I$ is the moment of inertia, $b$ is the viscous damping coefficient, $\theta_i$ is the in-plane angular coordinate, $\tau_i^{\rm dip}$ is the dipolar torque from all other needles within the cutoff, and $\tau_i^{\rm ext}$ is the torque from the external field.
+
+The magnetic moment of each needle is
+
+\begin{equation}
+\vect m_i = m (\cos\theta_i,\sin\theta_i),
+\end{equation}
+
+and the dipolar field at site $i$ is computed from
+
+\begin{equation}
+\vect B_i^{\rm dip} = \frac{\mu_0}{4\pi}\sum_{j\ne i}\left[\frac{3(\vect m_j\cdot\hat{\vect r}_{ij})\hat{\vect r}_{ij}-\vect m_j}{r_{ij}^3}\right].
+\end{equation}
+
+The torque is the out-of-plane component of $\vect m_i\times\vect B_i$:
+
+\begin{equation}
+\tau_i = m_{x,i}(B_{y,i}^{\rm dip}+B_y^{\rm ext}) - m_{y,i}(B_{x,i}^{\rm dip}+B_x^{\rm ext}).
+\end{equation}
+
+\subsection{Physical default dimensions}
+
+The current code separates the lattice spacing from the physical needle size. This is an important correction relative to older visualization-oriented versions. The default constants are:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Quantity & Code symbol & Default value \\
+\midrule
+Centre-to-centre pivot spacing & \code{CENTER\_DISTANCE\_DEFAULT} & \SI{13}{mm} \\
+Half spacing used internally & \code{R\_DEFAULT} & \SI{6.5}{mm} \\
+Needle blade length & \code{NEEDLE\_LEN\_DEFAULT} & \SI{10}{mm} \\
+Needle blade width & \code{NEEDLE\_WIDTH\_DEFAULT} & \SI{3}{mm} \\
+Needle thickness & \code{NEEDLE\_THICKNESS\_DEFAULT} & \SI{0.4}{mm} \\
+Steel density & \code{STEEL\_DENSITY\_DEFAULT} & \SI{7850}{kg.m^{-3}} \\
+Steel saturation magnetization & \code{STEEL\_MS\_SATURATION\_DEFAULT} & \SI{1.59e6}{A.m^{-1}} \\
+Damping coefficient & \code{DAMPING\_DEFAULT} & \SI{5e-8}{N.m.s.rad^{-1}} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The magnetic steel blade is approximated as a rhombus of area $A=L W/2$. The magnetic moment is estimated as
+
+\begin{equation}
+m = M_s t\left(\frac{LW}{2} - \pi r_p^2\right),
+\end{equation}
+
+where $r_p$ is an optional pivot-hole radius. The moment of inertia is estimated for a thin rhombus-shaped lamina, with optional subtraction of the pivot hole and optional addition of a central pivot mass.
+
+\subsection{Reference field and natural time scale}
+
+The code defines a reference dipolar field using the actual nearest-neighbour distance $r_{\rm nn}$ measured from the generated lattice:
+
+\begin{equation}
+B_{\rm ref}=\frac{\mu_0}{4\pi}\frac{2m}{r_{\rm nn}^3}.
+\end{equation}
+
+If \code{--B\_ext} is not supplied, the applied field amplitude is set to
+
+\begin{equation}
+B_{\rm ext}=\code{B\_max\_factor}\,B_{\rm ref},
+\end{equation}
+
+with default \code{B\_max\_factor=8.0}. The natural angular frequency used to set the timestep is
+
+\begin{equation}
+\omega_0 = \sqrt{\frac{m B_{\rm eff}}{I}}, \qquad B_{\rm eff}=\max(|B_{\rm ext}|,B_{\rm ref}),
+\end{equation}
+
+and
+
+\begin{equation}
+\Delta t = \code{dt\_factor}\,\frac{2\pi}{\omega_0}.
+\end{equation}
+
+The default value is \code{--dt\_factor 0.04}. The damping regime is summarized by
+
+\begin{equation}
+Q=\frac{\omega_0 I}{b}.
+\end{equation}
+
+% ======================================================================
+\section{Lattice geometries}
+\label{sec:geometry}
+% ======================================================================
+
+The option \code{--geometry} selects the spatial arrangement of fixed pivots. The supported choices are \code{square}, \code{triangular}, and \code{honeycomb}.
+
+\begin{longtable}{p{0.22\linewidth}p{0.70\linewidth}}
+\caption{Lattice geometries supported by the current code.}\label{tab:geometries}\\
+\toprule
+Geometry & Description \\
+\midrule
+\endfirsthead
+\toprule
+Geometry & Description \\
+\midrule
+\endhead
+\code{square} & $N\times M$ rectangular grid with nearest neighbours along orthogonal directions. Bulk coordination is four. This is the natural baseline for domains, hysteresis loops, and avalanche counting. \\
+\code{triangular} & Offset-row triangular lattice with higher local coordination and stronger geometrical frustration. Bulk coordination is six for large arrays away from boundaries. \\
+\code{honeycomb} & Honeycomb-like finite grid with hexagonal holes and lower coordination. The nominal size is controlled by \code{--N} and \code{--M}; the actual number of pivots $K$ is written to metadata because finite masks and boundaries determine the final site count. \\
+\bottomrule
+\end{longtable}
+
+For all geometries the code measures $r_{\rm nn}$ directly from the generated coordinates and stores it in both the state files and metadata. This is more reliable than assuming a value from nominal lattice parameters.
+
+% ======================================================================
+\section{Dipolar tensor, cutoff, and boundary conditions}
+\label{sec:tensor}
+% ======================================================================
+
+For efficiency the code precomputes three interaction matrices, \code{Axx}, \code{Axy}, and \code{Ayy}, such that the dipolar field can be evaluated by matrix-vector products:
+
+\begin{align}
+B_x^{\rm dip} &= A_{xx} m_x + A_{xy} m_y,\\
+B_y^{\rm dip} &= A_{xy} m_x + A_{yy} m_y.
+\end{align}
+
+The cutoff can be specified in two ways:
+
+\begin{itemize}[leftmargin=*]
+    \item \code{--cutoff\_shells <value>} specifies the cutoff as a multiple of the measured nearest-neighbour distance $r_{\rm nn}$. The default is \code{3.5}.
+    \item \code{--cutoff\_m <value>} specifies the absolute cutoff in metres. If supplied, it overrides \code{--cutoff\_shells}.
+\end{itemize}
+
+The metadata stores both the physical cutoff in metres and the equivalent number of nearest-neighbour shells, together with a \code{cutoff\_policy} field indicating which convention was used.
+
+Periodic boundary conditions are activated with \code{--pbc}. The number of replicated images in each direction is controlled by \code{--n\_images}. For finite experimental compass arrays, free boundaries are often the physically relevant default; PBC should be used as a controlled modelling choice.
+
+The approximate memory required by the tensor is
+
+\begin{equation}
+3K^2 \times \mathrm{sizeof(dtype)},
+\end{equation}
+
+where $K$ is the number of needles. The option \code{--tensor\_mem\_limit\_gb} prevents accidental construction of tensors larger than the requested limit. \code{--float32} can reduce memory use, but \code{float64} remains preferable for final data whenever feasible.
+
+% ======================================================================
+\section{Field protocols}
+\label{sec:protocols}
+% ======================================================================
+
+The external field is described by a scalar protocol $B(t)$ and a direction angle \code{--phi\_ext\_deg}. Except for \code{demag\_rot}, the vector field is
+
+\begin{equation}
+\vect B(t)=B(t)(\cos\phi,\sin\phi).
+\end{equation}
+
+\begin{longtable}{p{0.19\linewidth}p{0.55\linewidth}p{0.20\linewidth}}
+\caption{Field protocols supported by \code{compass.py} / \code{compassV02.py}.}\label{tab:field_protocols}\\
+\toprule
+Mode & Meaning & Main options \\
+\midrule
+\endfirsthead
+\toprule
+Mode & Meaning & Main options \\
+\midrule
+\endhead
+\code{static} & Constant field for \code{--t\_sim}. & \code{--B\_ext}, \code{--B\_max\_factor}, \code{--phi\_ext\_deg} \\
+\code{hysteresis} & Five-branch major loop: $0\to+B\to0\to-B\to0\to+B$. & \code{--t\_sim}, \code{--hyst\_spacing}, \code{--hyst\_log\_k} \\
+\code{forc} & Sequence of First-Order Reversal Curves: saturation, ramp down to reversal field $B_r$, ramp up to $B_{\max}$. & \code{--forc\_n\_curves}, \code{--forc\_Br\_min}, \code{--forc\_t\_sat}, ramps or rate \\
+\code{sine} & Sinusoidal field $B_{\max}\sin(2\pi f t)$. & \code{--field\_freq}, \code{--t\_sim} \\
+\code{step\_up} / \code{step\_pos} & Field is zero before \code{--field\_delay} and equals $B_{\max}$ after the delay. & \code{--field\_delay}, \code{--t\_sim} \\
+\code{step\_down} / \code{step\_neg} & Field equals $B_{\max}$ before \code{--field\_delay} and is zero afterward. & \code{--field\_delay}, \code{--t\_sim} \\
+\code{pulse} & Field is zero, then on for \code{--t\_pulse}, then zero again. & \code{--field\_delay}, \code{--t\_pulse}, \code{--t\_sim} \\
+\code{demag\_rot} & Rotating field with linearly decaying envelope, followed by relaxation. & \code{--demag\_freq}, \code{--demag\_cycles}, \code{--t\_relax\_after} \\
+\code{demag\_linear} & Fixed-direction field with linearly decaying amplitude, followed by relaxation. & \code{--demag\_freq}, \code{--demag\_cycles}, \code{--t\_relax\_after} \\
+\bottomrule
+\end{longtable}
+
+For \code{forc} and demagnetization modes, the effective simulation time is computed internally from the protocol parameters. For all other modes, \code{--t\_sim} sets the total duration.
+
+% ======================================================================
+\section{Output files and data products}
+\label{sec:outputs}
+% ======================================================================
+
+Every run creates a structured output directory:
+
+\begin{lstlisting}[language=bash]
+<out_dir>/
+  data/
+    <tag>.csv
+  meta/
+    <tag>.json
+  states/
+    <tag>_initial.npz
+    <tag>_final.npz
+  images/
+    <tag>_initial_lattice.png
+    <tag>_final_lattice.png
+    <tag>_initial_final.png
+\end{lstlisting}
+
+If \code{--tag} is omitted, the code builds a tag from geometry, field mode, lattice size, and seed. For reproducible campaigns, it is better to supply explicit tags.
+
+\subsection{CSV time series}
+
+The CSV file is the main time-series output. The current header is:
+
+\begin{lstlisting}
+step,t_s,Bx_T,By_T,B_scalar_T,branch,forc_index,
+Mx,My,M_proj,S1,S2,theta_director_rad,q_axis,
+flip_field,flip_angle,E_dip_J,E_ext_J,E_kin_J,E_total_J,
+omega_rms_rad_s,omega_max_rad_s
+\end{lstlisting}
+
+\begin{longtable}{p{0.26\linewidth}p{0.66\linewidth}}
+\caption{Meaning of the current CSV columns.}\label{tab:csv_columns}\\
+\toprule
+Column & Meaning \\
+\midrule
+\endfirsthead
+\toprule
+Column & Meaning \\
+\midrule
+\endhead
+\code{step}, \code{t\_s} & Integration step and physical time in seconds. \\
+\code{Bx\_T}, \code{By\_T}, \code{B\_scalar\_T} & Field components and scalar protocol value in tesla. \\
+\code{branch}, \code{forc\_index} & Protocol branch label and FORC curve index. \code{forc\_index=-1} outside FORC. \\
+\code{Mx}, \code{My}, \code{M\_proj} & Mean polar magnetization components and projection along the drive axis. \\
+\code{S1} & Polar order parameter $|\langle e^{i\theta}\rangle|$. \\
+\code{S2} & Nematic/director order parameter $|\langle e^{2i\theta}\rangle|$. Useful when antiparallel needles cancel polar magnetization but remain aligned as axes. \\
+\code{theta\_director\_rad} & Director angle $\frac{1}{2}\arg\langle e^{2i\theta}\rangle$. \\
+\code{q\_axis} & Population imbalance between $x$-like and $y$-like axes. Mainly meaningful for square-type director analysis. \\
+\code{flip\_field} & Count of sign changes relative to the drive axis accumulated since the previous CSV row. \\
+\code{flip\_angle} & Count of rotations larger than \code{--flip\_angle\_deg} since the previous CSV row. \\
+\code{E\_dip\_J}, \code{E\_ext\_J}, \code{E\_kin\_J}, \code{E\_total\_J} & Dipolar, external, kinetic, and total energy in joules. \\
+\code{omega\_rms\_rad\_s}, \code{omega\_max\_rad\_s} & Root-mean-square and maximum angular velocity. \\
+\bottomrule
+\end{longtable}
+
+\subsection{JSON metadata}
+
+The JSON file records the exact run configuration and derived physical quantities. Important fields include:
+
+\begin{itemize}[leftmargin=*]
+    \item \code{program}, \code{version}, and \code{source\_file\_timestamp};
+    \item \code{created\_unix\_time}, \code{created\_datetime\_utc}, and \code{created\_datetime\_local};
+    \item \code{config}: the full effective simulation configuration;
+    \item \code{derived}: $K$, $r_{\rm nn}$, $L_x$, $L_y$, needle size, $B_{\rm ref}$, $B_{\rm eff}$, $\omega_0$, $T_0$, $\Delta t$, number of steps, $Q$, cutoff policy, tensor memory, and dtype;
+    \item \code{domain\_statistics\_final}: connected-component statistics of final polar domains;
+    \item \code{runtime\_s}: wall-clock runtime.
+\end{itemize}
+
+\subsection{NPZ state files}
+
+The initial and final NPZ files contain:
+
+\begin{lstlisting}
+xs, ys, theta, omega, r_nn, metadata_json
+\end{lstlisting}
+
+These files are sufficient to regenerate lattice images without rerunning the simulation. The state files are also the correct starting point for custom domain, correlation, or spatial Fourier analysis.
+
+\subsection{Automatic lattice PNGs}
+
+The code always generates three lattice figures:
+
+\begin{itemize}[leftmargin=*]
+    \item \code{<tag>\_initial\_lattice.png}: clean lattice drawing of the initial state;
+    \item \code{<tag>\_final\_lattice.png}: clean lattice drawing of the final state;
+    \item \code{<tag>\_initial\_final.png}: side-by-side comparison.
+\end{itemize}
+
+The figure style follows the project convention: a blue half for one compass pole, a white half for the opposite pole, and a small grey central pivot. The options are:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Option & Effect \\
+\midrule
+\code{--png\_dpi} & Resolution of automatic PNG files; default \code{300}. \\
+\code{--png\_transparent} & Save transparent background. \\
+\code{--png\_with\_axes} & Include axes, grid, labels, and titles. \\
+\code{--png\_no\_panel\_titles} & Remove Initial/Final titles from the side-by-side panel. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The option \code{--make\_plot} is independent from these lattice images. When supplied, it adds CSV-based quicklook plots such as an $M(B)$ curve and an order-parameter plot.
+
+% ======================================================================
+\section{Command-line reference}
+\label{sec:cli}
+% ======================================================================
+
+This section groups the most important command-line parameters. Use \code{python3 compass.py --help} for the complete live reference from the installed file.
+
+\begin{longtable}{p{0.31\linewidth}p{0.61\linewidth}}
+\caption{Main command-line options.}\label{tab:cli}\\
+\toprule
+Option(s) & Meaning \\
+\midrule
+\endfirsthead
+\toprule
+Option(s) & Meaning \\
+\midrule
+\endhead
+\code{--geometry} & Choose \code{square}, \code{triangular}, or \code{honeycomb}. \\
+\code{--N}, \code{--M} & Nominal number of rows and columns. For honeycomb, $K$ is determined by the finite mask and should be read from metadata. \\
+\code{--R} & Half the centre-to-centre pivot spacing. Default \SI{6.5}{mm}. \\
+\code{--needle\_len}, \code{--needle\_width}, \code{--needle\_thickness} & Physical blade dimensions. \\
+\code{--use\_legacy\_size\_from\_R} & If set to \code{1}, uses the old visualization convention in which needle length follows \code{needle\_frac*2R}. The research default is \code{0}. \\
+\code{--moment}, \code{--inertia} & Directly override magnetic moment or moment of inertia. \\
+\code{--steel\_density}, \code{--steel\_Ms}, \code{--steel\_Bsat} & Material parameters used when deriving $m$ and $I$. \code{--steel\_Bsat} overrides \code{--steel\_Ms}. \\
+\code{--pivot\_radius}, \code{--pivot\_thickness}, \code{--pivot\_density}, \code{--pivot\_mass} & Optional pivot/hole corrections to inertia and magnetic moment. \\
+\code{--damping}, \code{--damping\_noise} & Uniform damping and optional relative random damping variation per needle. \\
+\code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, timestep factor, initial angular noise, random seed, and CSV logging cadence. \\
+\code{--cutoff\_shells}, \code{--cutoff\_m} & Dipolar cutoff convention. Absolute cutoff overrides shell cutoff. \\
+\code{--pbc}, \code{--n\_images} & Periodic boundary conditions and finite image count. \\
+\code{--tensor\_mem\_limit\_gb}, \code{--float32} & Memory protection and optional single precision. \\
+\code{--field\_mode} & Select field protocol. \\
+\code{--B\_ext}, \code{--B\_max\_factor}, \code{--phi\_ext\_deg} & Field amplitude and direction. \\
+\code{--field\_freq}, \code{--field\_delay}, \code{--t\_pulse} & Parameters for sine, step, and pulse protocols. \\
+\code{--hyst\_spacing}, \code{--hyst\_log\_k} & Hysteresis branch spacing. \\
+\code{--forc\_Br\_min}, \code{--forc\_n\_curves}, \code{--forc\_t\_sat}, \code{--forc\_t\_ramp\_down}, \code{--forc\_t\_ramp\_up}, \code{--forc\_rate} & FORC protocol controls. \\
+\code{--demag\_freq}, \code{--demag\_cycles}, \code{--t\_relax\_after} & Demagnetization protocol controls. \\
+\code{--out\_dir}, \code{--tag} & Output root and run label. \\
+\code{--use\_gpu}, \code{--progress}, \code{--verbose} & Execution diagnostics. \\
+\code{--make\_plot} & Add CSV diagnostic quick plots. Does not control lattice PNGs. \\
+\code{--png\_dpi}, \code{--png\_transparent}, \code{--png\_with\_axes}, \code{--png\_no\_panel\_titles} & Controls automatic lattice PNGs. \\
+\code{--domain\_tol\_deg} & Angular tolerance used for final polar-domain connected-component statistics. \\
+\bottomrule
+\end{longtable}
+
+% ======================================================================
+\section{Recommended test commands}
+\label{sec:tests}
+% ======================================================================
+
+\subsection{Batch test of the ordinary field modes}
+
+\begin{lstlisting}[language=bash]
+mkdir -p field_mode_tests
+
+for mode in static hysteresis sine step_up step_down pulse demag_rot demag_linear
+do
+  python3 compass.py \
+    --field_mode "$mode" \
+    --geometry square \
+    --N 5 --M 5 \
+    --t_sim 0.20 \
+    --field_delay 0.05 \
+    --t_pulse 0.05 \
+    --demag_cycles 3 \
+    --demag_freq 2.0 \
+    --t_relax_after 0.20 \
+    --noise 0.5 \
+    --seed 1 \
+    --out_dir "field_mode_tests/$mode" \
+    --tag "${mode}_quick" \
+    --verbose
+done
+\end{lstlisting}
+
+Each run should create initial and final NPZ files and the three automatic lattice PNG files. For example, the \code{static} run should create:
+
+\begin{lstlisting}[language=bash]
+field_mode_tests/static/images/static_quick_initial_lattice.png
+field_mode_tests/static/images/static_quick_final_lattice.png
+field_mode_tests/static/images/static_quick_initial_final.png
+\end{lstlisting}
+
+\subsection{FORC smoke test}
+
+FORC runs should be tested separately because their total duration is constructed from the FORC schedule rather than directly from \code{--t\_sim}.
+
+\begin{lstlisting}[language=bash]
+python3 compass.py \
+  --field_mode forc \
+  --geometry square \
+  --N 5 --M 5 \
+  --forc_n_curves 4 \
+  --forc_t_sat 0.01 \
+  --forc_t_ramp_down 0.02 \
+  --forc_t_ramp_up 0.03 \
+  --noise 0.5 \
+  --seed 1 \
+  --out_dir field_mode_tests/forc_quick \
+  --tag forc_quick \
+  --verbose
+\end{lstlisting}
+
+\subsection{Geometry smoke tests}
+
+\begin{lstlisting}[language=bash]
+for geom in square triangular honeycomb
+do
+  python3 compass.py \
+    --field_mode static \
+    --geometry "$geom" \
+    --N 6 --M 6 \
+    --t_sim 0.02 \
+    --noise 0.5 \
+    --seed 3 \
+    --out_dir "geometry_tests/$geom" \
+    --tag "${geom}_static" \
+    --verbose
+done
+\end{lstlisting}
+
+Inspect the corresponding \code{images/} directories to confirm that the lattice positions and initial/final orientations are plausible.
+
+% ======================================================================
+\section{Example research runs}
+\label{sec:examples}
+% ======================================================================
+
+\subsection{Hysteresis loop with automatic figures}
+
+\begin{lstlisting}[language=bash]
+python3 compass.py \
+  --field_mode hysteresis \
+  --geometry square \
+  --N 20 --M 20 \
+  --t_sim 2.0 \
+  --noise 1.5 \
+  --seed 11 \
+  --out_dir results/square_hysteresis \
+  --tag square_N20_hyst_seed11 \
+  --make_plot \
+  --verbose
+\end{lstlisting}
+
+This produces the standard CSV, metadata, initial/final NPZ state files, the three lattice PNGs, and optional CSV quick plots.
+
+\subsection{Damping comparison}
+
+\begin{lstlisting}[language=bash]
+for damping in 1e-9 3e-9 1e-8 3e-8 1e-7
+do
+  python3 compass.py \
+    --field_mode hysteresis \
+    --geometry square \
+    --N 16 --M 16 \
+    --t_sim 2.0 \
+    --damping "$damping" \
+    --noise 1.5 \
+    --seed 21 \
+    --out_dir "results/damping_$damping" \
+    --tag "square_hyst_b_${damping}" \
+    --verbose
+done
+\end{lstlisting}
+
+Use the JSON metadata to read the effective $Q$ for each run, rather than inferring it manually.
+
+\subsection{Rotating demagnetization followed by relaxation}
+
+\begin{lstlisting}[language=bash]
+python3 compass.py \
+  --field_mode demag_rot \
+  --geometry triangular \
+  --N 18 --M 18 \
+  --demag_freq 2.0 \
+  --demag_cycles 10 \
+  --t_relax_after 1.0 \
+  --noise 1.5 \
+  --seed 9 \
+  --out_dir results/triangular_demag_rot \
+  --tag tri_N18_demag_rot_seed9 \
+  --verbose
+\end{lstlisting}
+
+\subsection{Transparent PNGs for figures or slides}
+
+\begin{lstlisting}[language=bash]
+python3 compass.py \
+  --field_mode static \
+  --geometry honeycomb \
+  --N 8 --M 8 \
+  --t_sim 0.02 \
+  --noise 0.7 \
+  --seed 4 \
+  --out_dir results/honeycomb_static \
+  --tag honeycomb_static_transparent \
+  --png_transparent \
+  --png_no_panel_titles \
+  --verbose
+\end{lstlisting}
+
+% ======================================================================
+\section{Reading results in Python}
+\label{sec:read_results}
+% ======================================================================
+
+A minimal reader for the CSV and metadata is:
+
+\begin{lstlisting}[language=Python]
+from pathlib import Path
+import json
+import numpy as np
+
+run = Path("results/square_hysteresis")
+tag = "square_N20_hyst_seed11"
+
+csv = np.genfromtxt(run / "data" / f"{tag}.csv",
+                    delimiter=",", names=True, dtype=None, encoding=None)
+
+with open(run / "meta" / f"{tag}.json") as f:
+    meta = json.load(f)
+
+print("K =", meta["derived"]["K"])
+print("Q =", meta["derived"]["Q"])
+print("B_ref =", meta["derived"]["B_ref_T"], "T")
+print("source timestamp =", meta["source_file_timestamp"])
+
+B_mT = csv["B_scalar_T"] * 1e3
+M = csv["M_proj"]
+S2 = csv["S2"]
+flips = csv["flip_field"]
+\end{lstlisting}
+
+A minimal reader for a saved state is:
+
+\begin{lstlisting}[language=Python]
+import numpy as np
+import json
+
+state = np.load("results/square_hysteresis/states/square_N20_hyst_seed11_final.npz")
+xs = state["xs"]
+ys = state["ys"]
+theta = state["theta"]
+omega = state["omega"]
+r_nn = float(state["r_nn"])
+metadata = json.loads(str(state["metadata_json"]))
+\end{lstlisting}
+
+% ======================================================================
+\section{Troubleshooting}
+\label{sec:troubleshooting}
+% ======================================================================
+
+\subsection{The run creates \code{data/}, \code{meta/}, and \code{states/}, but no \code{images/}}
+
+This usually means the local file is not the current V2.0.2 code. Verify:
+
+\begin{lstlisting}[language=bash]
+python3 compass.py --help | grep -E "png|state|out_dir|tag|verbose"
+grep -n "initial_lattice\|final_lattice\|initial_final\|png_dpi" compass.py
+\end{lstlisting}
+
+If the PNG options are missing, replace the local file with the latest \code{compass.py} / \code{compassV02.py}.
+
+\subsection{A command reports \code{unrecognized arguments}}
+
+Check that the file being executed is the current file:
+
+\begin{lstlisting}[language=bash]
+which python3
+pwd
+ls -al compass.py compassV02.py
+python3 compass.py --help | head -40
+\end{lstlisting}
+
+The most common cause is running an older \code{compass.py} while editing or downloading \code{compassV02.py} in another directory.
+
+\subsection{The run is too slow or uses too much memory}
+
+Reduce \code{--N} and \code{--M}, lower \code{--cutoff\_shells}, use \code{--float32} for exploratory runs, or reduce the number of periodic images. For final data, prefer \code{float64} if memory allows.
+
+\subsection{The FORC run takes much longer than expected}
+
+The total FORC duration is approximately the sum over curves of saturation time, ramp-down time, and ramp-up time. Reduce \code{--forc\_n\_curves} for a smoke test, then increase it for production.
+
+\subsection{The lattice images look cropped or too small}
+
+Use \code{--png\_with\_axes} for debugging. The clean default removes axes and uses a tight bounding box, which is best for reports but can look visually different from plotting-window output.
+
+% ======================================================================
+\section{Recommended workflow}
+\label{sec:workflow}
+% ======================================================================
+
+For a reproducible research campaign, use the following workflow:
+
+\begin{enumerate}[leftmargin=*]
+    \item Verify the code version with \code{--help} and by checking \code{SOURCE\_FILE\_TIMESTAMP}.
+    \item Run the static smoke test and confirm that \code{images/} is created.
+    \item Run one small test for each field mode.
+    \item Inspect the JSON metadata for $K$, $r_{\rm nn}$, $B_{\rm ref}$, $Q$, cutoff policy, and runtime.
+    \item For each production parameter set, store the complete output directory, not only the CSV file.
+    \item Analyze magnetization, $S_1$, $S_2$, flip counters, and energies together. Avoid interpreting a single observable as the full state of the system.
+    \item Use multiple seeds for any claim about avalanche statistics or domain distributions.
+    \item Treat PBC, cutoff, damping, and field protocol as part of the scientific definition of the experiment and report them explicitly.
+\end{enumerate}
+
+% ======================================================================
+\section{Scientific caveat}
+\label{sec:caveat}
+% ======================================================================
+
+The simulator is a continuous-angle inertial dipolar model. It is not a literal micromagnetic model of nanolithographic artificial spin ice. It does not include shape-anisotropy switching astroids, intrinsic switching-field distributions, domain-wall reversal, material-specific Gilbert damping, or finite-size micromagnetic texture inside each island. Its value is that it isolates what follows from geometry, long-range anisotropic dipolar coupling, inertia, damping, and field history alone. That makes it especially useful as a clean reference model for interpreting hysteresis, FORC structure, avalanches, relaxation, and director memory in mechanically realizable compass-needle arrays.
+
+% ======================================================================
+\appendix
+\section{Complete minimal command set}
+\label{app:commands}
+% ======================================================================
+
+\subsection{Static}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode static --geometry square --N 6 --M 6 \
+  --t_sim 0.10 --noise 0.5 --seed 1 \
+  --out_dir tests/static --tag static_test --verbose
+\end{lstlisting}
+
+\subsection{Hysteresis}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode hysteresis --geometry square --N 8 --M 8 \
+  --t_sim 0.50 --noise 1.5 --seed 2 \
+  --out_dir tests/hysteresis --tag hysteresis_test --verbose
+\end{lstlisting}
+
+\subsection{Sinusoidal field}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode sine --geometry square --N 6 --M 6 \
+  --t_sim 1.00 --field_freq 2.0 --noise 0.5 --seed 3 \
+  --out_dir tests/sine --tag sine_test --verbose
+\end{lstlisting}
+
+\subsection{Pulse}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode pulse --geometry square --N 6 --M 6 \
+  --t_sim 0.60 --field_delay 0.10 --t_pulse 0.20 \
+  --noise 1.0 --seed 4 \
+  --out_dir tests/pulse --tag pulse_test --verbose
+\end{lstlisting}
+
+\subsection{FORC}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode forc --geometry square --N 6 --M 6 \
+  --forc_n_curves 5 --forc_t_sat 0.02 \
+  --forc_t_ramp_down 0.04 --forc_t_ramp_up 0.06 \
+  --noise 1.0 --seed 5 \
+  --out_dir tests/forc --tag forc_test --verbose
+\end{lstlisting}
+
+\subsection{Rotating demagnetization}
+\begin{lstlisting}[language=bash]
+python3 compass.py --field_mode demag_rot --geometry square --N 6 --M 6 \
+  --demag_freq 2.0 --demag_cycles 5 --t_relax_after 0.50 \
+  --noise 1.5 --seed 6 \
+  --out_dir tests/demag_rot --tag demag_rot_test --verbose
+\end{lstlisting}
+
+\section{Version log}
+\label{app:version_log}
+
+\begin{longtable}{p{0.22\linewidth}p{0.16\linewidth}p{0.54\linewidth}}
+\toprule
+Version & Date & Notes \\
+\midrule
+\endfirsthead
+\toprule
+Version & Date & Notes \\
+\midrule
+\endhead
+V78/V79 guide family & June--July 2026 & Older visual-simulator documentation with field modes and campaign examples, but before the V2 research-output refactoring. \\
+V2.0.2 code branch & 10 July 2026 & Explicit cutoff conventions, physical needle dimensions independent of lattice spacing, research observables, activity counters, energy accounting, CPU/GPU tensor backend, timestamped metadata, initial and final state files, and automatic lattice PNG figures. \\
+Report V52 & 10 July 2026 & Report updated to match \code{compass(3).py} / \code{compassV02.py}, including CSV header, metadata fields, output directory structure, and automatic PNG behavior. \\
+This user guide & July 2026 & User-facing operational guide updated to match the newest report and the current \code{compass.py} workflow. \\
+\bottomrule
+\end{longtable}
+
+\end{document}

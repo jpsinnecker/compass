@@ -1,0 +1,3 @@
+step,t_s,Bx_T,By_T,B_scalar_T,branch,forc_index,Mx,My,M_proj,S1,S2,theta_director_rad,q_axis,flip_field,flip_angle,E_dip_J,E_ext_J,E_kin_J,E_total_J,omega_rms_rad_s,omega_max_rad_s
+0,0,0,0,0,static,-1,1,0,1,1,1,0,1,0,0,-0.000381624731897,-0,0,-0.000381624731897,0,0
+1,0.00127705498676,0,0,0,static,-1,0.999993442752,0,0.999993442752,0.999993442752,0.999973772117,0,1,0,0,-0.000381843083424,-0,1.64009409907e-07,-0.000381679074014,4.89487169143,18.5004152741

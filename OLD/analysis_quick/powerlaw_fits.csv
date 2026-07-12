@@ -1,0 +1,10 @@
+geometry,damp_idx,Q_mean,tau,tau_err,xmin,ks,n_tail,n_total,n_seeds
+honeycomb,0,15.0,,,,,0,5,1
+honeycomb,1,0.8660254037844386,,,,,0,6,1
+honeycomb,2,0.05,,,,,0,3,1
+square,0,15.0,,,,,0,6,1
+square,1,0.8660254037844386,,,,,0,4,1
+square,2,0.05,,,,,0,4,1
+triangular,0,15.0,,,,,0,11,1
+triangular,1,0.8660254037844386,,,,,0,4,1
+triangular,2,0.05,,,,,0,3,1

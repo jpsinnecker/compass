@@ -1,0 +1,785 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{siunitx}
+
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codeblue}{rgb}{0.1,0.2,0.6}
+\definecolor{darkgray}{rgb}{0.35,0.35,0.35}
+\definecolor{commentgreen}{rgb}{0.0,0.45,0.0}
+\definecolor{warnorange}{rgb}{0.75,0.35,0.0}
+
+\lstset{
+    backgroundcolor=\color{codegray},
+    basicstyle=\small\ttfamily,
+    breaklines=true,
+    columns=fullflexible,
+    commentstyle=\color{commentgreen}\itshape,
+    frame=single,
+    keepspaces=true,
+    keywordstyle=\color{codeblue}\bfseries,
+    language=bash,
+    showstringspaces=false,
+    numbers=none,
+    xleftmargin=6pt
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codeblue,
+    urlcolor=codeblue,
+    pdftitle={Damping Sweep \& Analysis Campaign Manual --- compass\_sim},
+    pdfauthor={J. P. Sinnecker / Antigravity IDE}
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\param}[1]{\texttt{--#1}}
+\newcommand{\warn}[1]{\textcolor{warnorange}{\textbf{#1}}}
+
+\title{\textbf{Damping Sweep \& Analysis Campaign Manual}\\[1ex]
+\large\textit{compass\_sim --- scripts \file{damping\_sweep.py},
+\file{damping\_sweepV02.py},\\
+\file{sweep\_damping\_hysteresis.py},
+\file{damping\_sweep\_analysis.py}}\\[1ex]
+\normalsize Manual revision: July 2026}
+\author{J.~P.~Sinnecker}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ======================================================================
+\section{Overview}
+\label{sec:overview}
+% ======================================================================
+
+This manual describes the Python simulation-campaign suite built to study
+the central scientific question of the \texttt{compass\_sim} project:
+
+\begin{quote}
+\itshape ``Does the viscous damping coefficient control the universality
+class of avalanches and the shape of the hysteresis loop in classical
+two-dimensional dipolar arrays, and does this depend on the lattice
+geometry (square, triangular, honeycomb)?''
+\end{quote}
+
+\noindent The suite consists of four scripts:
+
+\begin{center}
+\begin{tabular}{lp{10cm}}
+\toprule
+Script & Role \\
+\midrule
+\file{damping\_sweep.py} & Sequential campaign runner (hysteresis + relaxation) \\
+\file{damping\_sweepV02.py} & Parallel campaign runner (\texttt{ProcessPoolExecutor});
+  same physics as V01, adds \param{n\_workers} and \param{resume} \\
+\file{sweep\_damping\_hysteresis.py} & Earlier standalone script; now physically
+  consistent with V01/V02 after corrections \\
+\file{damping\_sweep\_analysis.py} & Post-processing: metrics, power-law fitting,
+  waiting-time distribution, autocorrelation, plots \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+\textbf{The sweep execution proceeds in two stages per configuration:}
+\begin{description}
+\item[Stage 1 --- Hysteresis.] A five-ramp cycle
+  ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$)
+  sweeps the external field to trace the hysteresis loop and capture
+  avalanche events.
+\item[Stage 2 --- Free relaxation.] The external field is set to zero and the
+  system relaxes freely from its post-hysteresis state; magnetic-domain sizes
+  and counts are measured in the final configuration.
+\end{description}
+
+% ======================================================================
+\section{Physical Model and Parameter Derivation}
+\label{sec:physics}
+% ======================================================================
+
+\subsection{Equations of motion}
+
+Each needle $i$ satisfies Newton's second law for rotation:
+\begin{equation}
+  I\,\ddot{\theta}_i = \tau_i^{\mathrm{dip}} + \tau_i^{\mathrm{ext}} - b\,\dot{\theta}_i
+\end{equation}
+where $I$ is the moment of inertia [kg\,m$^2$], $b$ is the viscous damping
+coefficient [N\,m\,s/rad], and the torques arise from dipolar coupling and
+the external field.
+
+\subsection{Quality factor $Q$}
+
+The dimensionless quality factor characterises the dynamical regime:
+\begin{equation}
+  Q = \frac{\omega_0 I}{b}, \qquad
+  \omega_0 = \sqrt{\frac{m B_{\mathrm{ref}}}{I}}, \qquad
+  B_{\mathrm{ref}} = \frac{\mu_0}{4\pi}\frac{2m}{r_{\mathrm{nn}}^3}
+\end{equation}
+where $m$ is the needle magnetic moment [A\,m$^2$], $r_{\mathrm{nn}}$ is the
+nearest-neighbour distance ($= 2R$ for all implemented geometries), and
+$B_{\mathrm{ref}}$ is the dipolar field between nearest neighbours.
+
+\medskip
+\noindent Three dynamical regimes are identified:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Regime & Condition & Physical behaviour \\
+\midrule
+Underdamped & $Q \gg 1$ & Needles oscillate before settling; chain-reaction avalanches \\
+Critically damped & $Q \approx 1$ & Fastest settling with no overshoot \\
+Overdamped & $Q \ll 1$ & Slow monotonic relaxation; narrow hysteresis loops \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Needle geometry and physical parameters}
+
+All scripts derive moment of inertia $I$ and magnetic moment $m$ from the
+physical geometry of the needle blade and its pivot pin using
+\texttt{compass.py}'s authoritative functions:
+
+\begin{align}
+  &\text{\code{compute\_inertia\_from\_geometry}(needle\_len, needle\_width, thickness,
+    density, pivot\_*)} \label{eq:inertia}\\
+  &\text{\code{compute\_moment\_from\_geometry}(needle\_len, needle\_width, thickness, Ms)}
+    \label{eq:moment}
+\end{align}
+
+\noindent where the needle geometry is derived from the circumscribed radius $R$
+and the needle fraction $f$:
+\begin{equation}
+  L_{\mathrm{needle}} = f \times 2R, \qquad
+  W_{\mathrm{needle}} = 0.22 \times L_{\mathrm{needle}}, \qquad
+  f = 0.80\ \text{(default)}
+\end{equation}
+
+\noindent The pivot pin contributes an additive term to $I$ (Eq.\,\ref{eq:inertia});
+if \param{pivot\_radius}~$= 0$ (the default), the pivot contribution is zero.
+
+\warn{Important}: in earlier versions of \file{sweep\_damping\_hysteresis.py},
+the module-level fallback constants \code{cs.MOMENT\_DEFAULT} and
+\code{cs.INERTIA\_DEFAULT} were used instead of the geometry-derived values.
+This is now fixed --- all scripts call the same geometry functions as
+\code{compass.py\,main()}.
+
+% ======================================================================
+\section{\texttt{damping\_sweep.py} --- Serial Campaign}
+\label{sec:v01}
+% ======================================================================
+
+\subsection{Operation}
+
+\file{damping\_sweep.py} imports \texttt{compass.py} and calls its
+\code{relax()} function for each combination:
+\[
+  \text{geometry} \times \text{damping/}Q \times \text{seed}
+\]
+Runs are executed sequentially on a single CPU core.
+
+The damping grid is built once using the \textit{square} geometry as reference
+and then the same physical damping values $b$ are applied to the other
+geometries.  Because $r_{\mathrm{nn}}$ (and therefore $Q$) differs slightly
+between geometries, the actual $Q$ of every run is computed and stored in its
+metadata JSON.
+
+\subsection{Command-line interface}
+
+\begin{longtable}{p{4.6cm}p{2.0cm}p{8.0cm}}
+\toprule
+Flag & Default & Description \\
+\midrule
+\endhead
+\param{out\_dir} & \textit{required} & Output directory \\
+\param{grid\_n} & 30 & Grid dimension $N = M$ (total needles $= N^2$) \\
+\param{n\_seeds} & 5 & Random seeds per (geometry, damping) \\
+\param{n\_dampings} & 8 & Points in the $Q$ grid \\
+\param{Q\_min} & 0.05 & Minimum quality factor \\
+\param{Q\_max} & 15.0 & Maximum quality factor \\
+\param{geometries} & \textit{all three} & Comma-separated: \texttt{square,triangular,honeycomb} \\
+\param{R} & 0.025 & Circumscribed needle radius [m] \\
+\param{B\_max\_factor} & 8.0 & $B_{\max} = \text{factor} \times B_{\mathrm{ref}}$ \\
+\param{t\_sim\_periods} & 40.0 & Simulation duration in units of $T_0 = 2\pi/\omega_0$ \\
+\param{pbc} & 0 & Periodic boundary conditions (0 = off) \\
+\param{use\_gpu} & 0 & GPU acceleration via CuPy (0 = off) \\
+\param{skip\_relax\_stage} & 0 & Omit Stage~2 (domain statistics) \\
+\param{damping\_noise} & 0.0 & Relative per-needle damping variation (e.g.\ 0.05 = 5\%) \\
+\param{needle\_frac} & 0.80 & Blade length fraction of $2R$ \\
+\param{needle\_thickness} & 0.0004 & Steel blade thickness [m] \\
+\param{steel\_density} & 7850.0 & Blade steel density [kg\,m$^{-3}$] \\
+\param{steel\_Bsat} & \textit{None} & Override saturation flux density [T] \\
+\param{moment} & \textit{None} & Override magnetic moment [A\,m$^2$] \\
+\param{inertia} & \textit{None} & Override moment of inertia [kg\,m$^2$] \\
+\param{pivot\_radius} & 0.0 & Pivot pin radius [m] \\
+\param{pivot\_thickness} & 0.0 & Pivot pin thickness [m] \\
+\param{pivot\_density} & 8500.0 & Pivot pin material density [kg\,m$^{-3}$] \\
+\param{pivot\_mass} & \textit{None} & Override pivot mass directly [kg] \\
+\param{dt\_factor} & 0.05 & Time step $\Delta t$ as fraction of $T_0$ \\
+\param{noise} & 1.5 & Initial angle noise [rad] \\
+\param{domain\_tol} & 15.0 & Angular tolerance for domain clustering [\textdegree] \\
+\param{quick\_test} & 0 & If 1: $N=12$, 1 seed, 3 dampings, 8 periods --- pipeline check \\
+\bottomrule
+\end{longtable}
+
+\subsection{Output structure}
+
+\begin{lstlisting}
+<out_dir>/
++-- manifest.csv              # one row per run (stage, tag, Q, paths, ...)
++-- hysteresis/
+|   +-- square_damp00_seed00.csv   # columns: t, B, M, S
+|   +-- ...
++-- relax/
+|   +-- square_damp00_seed00.csv
+|   +-- ...
++-- meta/
+    +-- square_damp00_seed00_hyst.json   # full physical parameters + Q
+    +-- square_damp00_seed00_relax.json  # + domain_sizes list
+\end{lstlisting}
+
+CSV column names are \texttt{t, B, M, S} where \texttt{S} is the integer
+spin-flip count at each integration step (number of needles that reversed
+orientation).
+
+% ======================================================================
+\section{\texttt{damping\_sweepV02.py} --- Parallel Campaign}
+\label{sec:v02}
+% ======================================================================
+
+V02 retains the full parameter set of V01 and adds two features:
+
+\subsection{Parallel execution with worker sandboxing}
+
+\texttt{ProcessPoolExecutor} distributes runs across \param{n\_workers}
+processes.  Each worker is initialised in a private scratch directory
+(\texttt{\_scratch/worker\_xxxx/}) so that \texttt{hysteresis\_loop.csv}
+and other simulator side-effect files do not collide.
+
+\warn{Never combine \texttt{--n\_workers $>$ 1} with \texttt{--use\_gpu 1}}:
+multiple processes cannot safely share a single GPU context.
+
+\subsection{Incremental manifest and resume}
+
+\texttt{manifest.csv} is appended and flushed after \textit{each} completed
+run.  An interrupted campaign can be resumed with \param{resume~1}; the script
+reads the existing manifest, identifies completed (stage, tag) pairs, and
+skips them.
+
+\subsection{V02-specific flags}
+
+\begin{tabular}{p{3.5cm}p{2.2cm}p{9cm}}
+\toprule
+Flag & Default & Description \\
+\midrule
+\param{n\_workers} & 1 & Number of parallel processes \\
+\param{resume} & 0 & If 1, skips runs already in \texttt{manifest.csv} \\
+\bottomrule
+\end{tabular}
+
+\subsection{Suppression of \texttt{compass.py} terminal output}
+
+Each call to \code{relax()} inside V01 and V02 is wrapped with
+\code{contextlib.redirect\_stdout(open(os.devnull,~`w'))}, so that
+\texttt{compass.py}'s own status lines
+(\textit{``Pre calculated Dipolar Tensor...''},
+\textit{``[Ctrl+I to stop...]''},
+\textit{``Hysteresis data saved: hysteresis\_loop.csv''})
+are discarded during campaign runs.
+This is essential for the progress bar to work correctly: any
+\texttt{\textbackslash n} printed to stdout advances the terminal cursor and
+breaks the \texttt{\textbackslash r} overwrite trick used by the bar.
+Stderr output (Python exceptions, warnings) is \textit{not} redirected and
+reaches the terminal normally; errors are therefore still visible.
+
+% ======================================================================
+\section{Terminal Progress Bar}
+\label{sec:progressbar}
+% ======================================================================
+
+All three campaign/analysis scripts share an identical helper function
+\code{\_bar(done, total, label, extra, width=36)} that renders a
+one-line overwriting progress bar:
+
+\begin{lstlisting}
+  HYSTERESIS [########################............]    2/3   66.7%  square_damp01_seed00  Q=0.866  0.3s
+  RELAX      [####################################]    3/3  100.0%  square_damp02_seed00  Q=0.050  nd=105
+  CAMPAIGN   [##############################......]    5/6   83.3%  HYST square_damp02_seed00  Q=0.050  [1 active]
+\end{lstlisting}
+
+\noindent (In the actual terminal the filled blocks are rendered as \texttt{U+2588} and the
+empty blocks as \texttt{U+2591}; in the parallel bar suffix the hourglass \texttt{U+231B}
+precedes the active-worker count.)
+
+\noindent The bar uses Unicode block characters (U+2588 filled / U+2591 light shade);
+no external dependencies are required.  Behaviour:
+\begin{itemize}
+  \item Called with \texttt{done=0} before the loop to show the empty bar;
+    called after each completed job with the updated count.
+  \item While $\texttt{done} < \texttt{total}$, the line is overwritten
+    via \texttt{\textbackslash r} (carriage return) --- the cursor returns
+    to column~0 and the new bar overwrites the previous one on the same
+    terminal line.
+  \item When $\texttt{done} = \texttt{total}$ the line ends with
+    \texttt{\textbackslash n}, advancing to the next line.
+\end{itemize}
+
+\noindent The \texttt{extra} field shows context specific to each script:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Script & Label & Extra info \\
+\midrule
+\file{damping\_sweep.py} hysteresis & \texttt{HYSTERESIS} & last tag $\cdot$ $Q$ $\cdot$ wall time \\
+\file{damping\_sweep.py} relaxation & \texttt{RELAX} & last tag $\cdot$ $Q$ $\cdot$ \texttt{n\_domains} \\
+\file{damping\_sweepV02.py} serial & \texttt{CAMPAIGN} & stage $\cdot$ tag $\cdot$ $Q$ $\cdot$ wall time \\
+\file{damping\_sweepV02.py} parallel & \texttt{CAMPAIGN} & stage $\cdot$ tag $\cdot$ $Q$ $\cdot$ \texttt{[N active]} \\
+\file{damping\_sweep\_analysis.py} hyst & \texttt{HYSTERESIS} & current tag \\
+\file{damping\_sweep\_analysis.py} relax & \texttt{RELAX} & current tag \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\warn{Note}: the progress bar requires that \texttt{compass.py}'s own stdout
+be suppressed (see Section~\ref{sec:v02}).  If compass.py prints
+a newline between two bar updates the \texttt{\textbackslash r} trick fails
+and each update appears on a new line instead of overwriting the previous one.
+
+% ======================================================================
+\section{\texttt{sweep\_damping\_hysteresis.py} --- Standalone Script}
+\label{sec:standalone}
+% ======================================================================
+
+This is an earlier standalone script that runs only Stage~1 (hysteresis) with
+hard-coded geometry and a per-run scratch directory.  Its output is compatible
+with \file{damping\_sweep\_analysis.py}.
+
+\subsection{Corrections applied (July 2026)}
+
+Three bugs present in the original version were corrected:
+
+\begin{enumerate}
+  \item \textbf{CUTOFF fixed}: the interaction cutoff was \texttt{8.0} (treated
+    as metres by \code{relax()}, which uses units of $r_{\mathrm{nn}}$, giving
+    a physically incorrect $8\,r_{\mathrm{nn}}$ cutoff instead of the intended
+    $3.5\,r_{\mathrm{nn}}$).  Corrected to \texttt{CUTOFF = 3.5}, consistent
+    with V01/V02 and the \texttt{compass.py} CLI default.
+
+  \item \textbf{MOMENT/INERTIA fixed}: the script used
+    \code{cs.MOMENT\_DEFAULT} and \code{cs.INERTIA\_DEFAULT} (module-level
+    fallback values) instead of calling the geometry derivation functions.
+    Now uses \code{cs.compute\_moment\_from\_geometry()} and
+    \code{cs.compute\_inertia\_from\_geometry()}, making results
+    cross-comparable with V01/V02.
+
+  \item \textbf{$B_{\max}$ and CSV columns fixed}: \code{B\_MAX} was a hard-coded
+    constant; it is now computed dynamically as \texttt{B\_MAX\_FACTOR~$\times$~$B_{\mathrm{ref}}$}.
+    CSV column names corrected from \texttt{B\_proj, M\_proj} to \texttt{B, M}
+    so that \file{damping\_sweep\_analysis.py} can read the files without
+    modification.  A \texttt{damp\_idx} field was also added to metadata.
+\end{enumerate}
+
+\subsection{Limitations}
+
+\file{sweep\_damping\_hysteresis.py} runs sequentially (no \param{n\_workers})
+and does not generate Stage~2 relaxation data.  For new campaigns, prefer
+\file{damping\_sweepV02.py}.
+
+% ======================================================================
+\section{\texttt{damping\_sweep\_analysis.py} --- Post-Processing}
+\label{sec:analysis}
+% ======================================================================
+
+The analysis script reads the directory produced by any of the sweep scripts
+(identified via \texttt{manifest.csv}) and computes all metrics.
+
+\subsection{Hysteresis loop metrics}
+
+\begin{description}
+  \item[Loop area.]  $\displaystyle A = \tfrac{1}{2}\left|\sum_{k} B_k\,M_{k+1} - B_{k+1}\,M_k\right|$
+    (shoelace formula applied to the closed loop in the $B$--$M$ plane).
+    Measures energy dissipated per cycle.
+
+  \item[Coercive field $B_c$.]  Linear interpolation of $B$ where $M$ crosses
+    zero.  The median over all such crossings in the cycle is reported.
+
+  \item[Remanence $M_r$.]  Linear interpolation of $M$ at the time-indices
+    where $B = 0$.  The median is reported.
+\end{description}
+
+\subsection{Avalanche detection --- two methods}
+
+Both methods are applied to every hysteresis run; their results are saved
+separately so that the two approaches can be compared.
+
+\paragraph{Method 1: $dM/dB$ proxy (MAD-based).}
+The field cycle is split into monotonic ramps at its turning points.  Within
+each ramp, the derivative $dM/dB$ is computed and a robust threshold is set
+using the Median Absolute Deviation:
+\begin{equation}
+  \text{threshold} = \operatorname{median}(dM/dB) + \kappa \cdot \operatorname{MAD}(dM/dB)
+\end{equation}
+where $\kappa = $ \param{mad\_threshold} (default 4.0).  Contiguous steps above
+the threshold form one avalanche; its size is $s = \sum |dM|$ over those steps.
+
+\paragraph{Method 2: spin-flip counter (\texttt{S} column).}
+A cleaner alternative using the integer \texttt{S} column written by
+\texttt{compass.py} at each integration step.  An avalanche is a maximal run
+of consecutive steps with $S > 0$; its size is $\sum S$ over the run.
+This method involves no numerical differentiation and is immune to numerical
+drift near inflection points.
+
+The S-column method also returns the \textbf{inter-arrival times}
+(waiting times between consecutive avalanche starts), used in
+Section~\ref{sec:waiting_time}.
+
+\subsection{Power-law exponent $\tau$ --- MLE fit (Clauset--Shalizi--Newman)}
+
+To stabilise the MLE estimate, avalanche sizes are \textit{aggregated across
+all seeds} for each (geometry, damp\_idx) combination before fitting.  The
+procedure follows Clauset, Shalizi \& Newman 2009:
+
+\begin{enumerate}
+  \item For candidate lower bounds $x_{\min}$ (quantiles of the sample), compute
+    the MLE estimator for the continuous power-law exponent:
+    \begin{equation}
+      \hat{\tau} = 1 + n\left[\sum_{i=1}^n \ln\!\left(\frac{s_i}{x_{\min}}\right)\right]^{-1}
+    \end{equation}
+  \item Evaluate the KS distance $D$ between the empirical CDF and the
+    theoretical power-law CDF.
+  \item Select the $x_{\min}$ that minimises $D$.
+  \item Discard fits with fewer than 15 tail points.
+\end{enumerate}
+
+If the \texttt{powerlaw} package is installed it is used instead of the
+built-in fallback (same methodology; the package is the canonical
+Clauset~2009 reference implementation).
+
+\subsection{Power-law versus log-normal likelihood-ratio test (LRT)}
+\label{sec:lrt}
+
+For each aggregated (geometry, damp\_idx) sample, a Vuong-style
+likelihood-ratio test distinguishes whether the data favours a power law
+over a log-normal, following Clauset~2009 \S4:
+\[
+  R = \sum_{i} \ln\frac{p_{\mathrm{PL}}(s_i)}{p_{\mathrm{LN}}(s_i)}, \qquad
+  p = \operatorname{erfc}\!\left(\frac{|R|}{\sqrt{2}\,\hat{\sigma}_{R}\sqrt{n}}\right)
+\]
+$R > 0$ and $p < 0.10$ is recorded as ``power-law preferred''.  The columns
+\texttt{lrt\_R}, \texttt{lrt\_p}, and \texttt{lrt\_favors\_powerlaw} appear in
+\file{powerlaw\_fits.csv} and \file{powerlaw\_fits\_S.csv}.
+
+\subsection{Waiting-time distribution between avalanches}
+\label{sec:waiting_time}
+
+From the S-column inter-arrival times, the analysis fits two models:
+
+\begin{description}
+  \item[Exponential (Poisson process).]  MLE: $\hat{\lambda} = 1/\langle\tau\rangle$.
+  \item[Power law.]  MLE as above.
+\end{description}
+
+The reported metrics include:
+\begin{itemize}
+  \item Mean inter-arrival time $\langle\tau_w\rangle$.
+  \item Coefficient of variation $\mathrm{CV} = \sigma_{\tau_w}/\langle\tau_w\rangle$
+    ($\mathrm{CV} \gg 1$ signals bursty / SOC-like timing).
+  \item LRT statistic: $\Lambda = 2(\mathcal{L}_{\mathrm{PL}} - \mathcal{L}_{\mathrm{Exp}})$;
+    positive values indicate departure from Poisson.
+\end{itemize}
+
+\subsection{Temporal autocorrelation of $M(t)$}
+\label{sec:autocorr}
+
+Motivated by the 2025 echo-state / memory-capacity result for ASI
+(\textit{Taniguchi, Sci. Rep.\ 2025}), the script computes the
+normalised autocorrelation function
+\begin{equation}
+  C(\ell) = \frac{\langle M_c(t)\,M_c(t+\ell)\rangle}{\mathrm{var}(M)}
+\end{equation}
+for lags up to $25\%$ of the run length.  The correlation time is
+\begin{equation}
+  \tau_{\mathrm{corr}} = \int_0^{\ell^*} C(\ell)\,d\ell
+\end{equation}
+where $\ell^*$ is the lag of the first zero-crossing of $C$.
+The prediction is that $\tau_{\mathrm{corr}}$ peaks near $Q \approx 1$
+(critical damping).
+
+\subsection{Output files}
+
+\begin{longtable}{p{5.5cm}p{9.5cm}}
+\toprule
+File & Contents \\
+\midrule
+\endhead
+\file{summary\_hysteresis.csv} & Per-run metrics: area, $B_c$, $M_r$,
+  avalanche counts (both methods), waiting-time statistics, $\tau_{\mathrm{corr}}$ \\
+\file{summary\_relax.csv} & Per-run domain statistics from Stage~2 \\
+\file{aggregated\_loop\_metrics.csv} & Mean $\pm$ std of area, $B_c$, $M_r$
+  aggregated over seeds \\
+\file{powerlaw\_fits.csv} & MLE results ($\tau$, $\tau_{\mathrm{err}}$, $x_{\min}$, KS,
+  LRT) using the $dM/dB$ avalanche sizes \\
+\file{powerlaw\_fits\_S.csv} & Same, using the spin-flip counter (S-column) sizes \\
+\file{area\_vs\_Q.png} & Loop area vs.\ $Q$ (by geometry) \\
+\file{Bc\_vs\_Q.png} & Coercive field vs.\ $Q$ \\
+\file{Mr\_vs\_Q.png} & Remanence vs.\ $Q$ \\
+\file{tau\_vs\_Q.png} & \textbf{Central result:} avalanche exponent $\tau$ vs.\ $Q$
+  ($dM/dB$ method) \\
+\file{tau\_vs\_Q\_Scol.png} & Same, using S-column sizes (cross-check) \\
+\file{avalanche\_histograms.png} & Log-log $P(s)$ histograms with MLE fit lines \\
+\file{domain\_size\_vs\_Q.png} & Mean domain size and domain count vs.\ $Q$ \\
+\file{waiting\_time\_vs\_Q.png} & Mean IAT and LRT statistic vs.\ $Q$ \\
+\file{autocorr\_vs\_Q.png} & Correlation time $\tau_{\mathrm{corr}}$ of $M(t)$ vs.\ $Q$ \\
+\bottomrule
+\end{longtable}
+
+\subsection{Analysis command-line interface}
+
+\begin{tabular}{p{4cm}p{2.2cm}p{8.5cm}}
+\toprule
+Flag & Default & Description \\
+\midrule
+\param{sweep\_dir} & \textit{required} & Directory written by a sweep script \\
+\param{out\_dir} & \textit{required} & Where to save analysis results \\
+\param{mad\_threshold} & 4.0 & MAD multiplier $\kappa$ for Method~1 avalanche detection \\
+\param{forc\_dir} & \textit{None} & (Stub) Directory for FORC output; not yet implemented \\
+\bottomrule
+\end{tabular}
+
+% ======================================================================
+\section{Practical Recipes}
+\label{sec:recipes}
+% ======================================================================
+
+\subsection{Pipeline verification (quick test)}
+
+\begin{lstlisting}
+# Serial (V01): 12x12 grid, 1 seed, 3 dampings, 8 periods -- finishes in seconds
+python3 damping_sweep.py --out_dir "$(pwd)/quicktest" --quick_test 1
+
+# Parallel (V02, 2 workers): same reduced parameters
+rm -rf /tmp/bartest
+python3 damping_sweepV02.py \
+    --out_dir /tmp/bartest --quick_test 1 \
+    --n_workers 2 --geometries square
+
+# Analyse immediately
+python3 damping_sweep_analysis.py \
+    --sweep_dir /tmp/bartest \
+    --out_dir   /tmp/bartest/analysis
+\end{lstlisting}
+
+\noindent During the V02 quick test, six jobs complete and you should see the
+progress bar smoothly fill from~0\% to~100\% on a single terminal line, with
+the active-worker countdown decreasing in the suffix.
+
+\subsection{Standard campaign (CPU, parallel)}
+
+\begin{lstlisting}
+# 8 dampings x 3 geometries x 5 seeds = 240 hysteresis runs + 240 relax
+python3 damping_sweepV02.py \
+    --out_dir "$(pwd)/results" \
+    --n_workers 4
+
+# Post-process
+python3 damping_sweep_analysis.py \
+    --sweep_dir "$(pwd)/results" \
+    --out_dir  "$(pwd)/results/analysis"
+\end{lstlisting}
+
+\subsection{Resume an interrupted campaign}
+
+\begin{lstlisting}
+python3 damping_sweepV02.py \
+    --out_dir "$(pwd)/results" \
+    --n_workers 4 --resume 1
+\end{lstlisting}
+
+\subsection{GPU machine}
+\label{sec:gpu}
+
+On a machine with a CUDA GPU and CuPy installed, use \param{use\_gpu~1}
+with \textbf{exactly one worker}.  The GPU accelerates the dipolar
+tensor matrix--vector product inside \code{relax()} (the ``step
+matriz-vetor~V40'' operation), typically by a factor of 10--50$\times$
+for a 30$\times$30 array; one fast serial worker beats multiple slow
+CPU workers.
+
+\warn{Never set both \texttt{--use\_gpu~1} and \texttt{--n\_workers~$>$~1}:}
+multiple processes cannot share a single CUDA context and the campaign
+will crash.
+
+\begin{lstlisting}
+# Verify CuPy installation first
+python3 -c "import cupy; print('CuPy OK, devices:', cupy.cuda.runtime.getDeviceCount())"
+
+# Quick GPU test (6 jobs, should complete in a few seconds on any GPU)
+rm -rf /tmp/gpu_test
+python3 damping_sweepV02.py \
+    --out_dir /tmp/gpu_test --quick_test 1 \
+    --geometries square --use_gpu 1 --n_workers 1
+
+# Full production campaign on GPU
+python3 damping_sweepV02.py \
+    --out_dir ~/results/law3m_gpu \
+    --grid_n 30 --n_seeds 8 --n_dampings 14 \
+    --Q_min 0.02 --Q_max 30.0 \
+    --geometries square,triangular,honeycomb \
+    --t_sim_periods 80.0 --B_max_factor 8.0 \
+    --damping_noise 0.05 --dt_factor 0.04 \
+    --use_gpu 1 --n_workers 1 --resume 1
+\end{lstlisting}
+
+\noindent Install CuPy matching your CUDA version if not yet present:
+\begin{lstlisting}
+pip install cupy-cuda12x   # or cupy-cuda11x, cupy-cuda118, etc.
+\end{lstlisting}
+
+\subsection{LAW3M 2026 --- Recommended production campaign}
+\label{sec:law3m}
+
+This is the parameter set designed to produce the key figures for the
+LAW3M~2026 conference contribution on ``Inertial effects on avalanche
+universality classes in classical dipolar lattices''.
+
+\begin{lstlisting}
+# STAGE 1: Run the campaign overnight (approx. 6-8 h on 4 cores)
+# 14 Q-values x 3 geometries x 8 seeds = 336 hysteresis + 336 relax runs
+
+python3 damping_sweepV02.py \
+    --out_dir  ~/results/law3m_2026 \
+    --grid_n   30            \  # 30x30 = 900 needles per run
+    --n_seeds  8             \  # 8 noise realisations per (geometry,Q)
+    --n_dampings 14          \  # 14 Q-points from Q=0.02 to Q=30
+    --Q_min    0.02          \  # deep overdamped: monotonic M(B)
+    --Q_max    30.0          \  # deep underdamped: inertial overshoot
+    --geometries square,triangular,honeycomb \
+    --t_sim_periods 80.0     \  # 80 T0 per cycle (5 segments)
+    --B_max_factor  8.0      \  # B_max = 8 x B_ref (ensures saturation)
+    --damping_noise 0.05     \  # 5% per-needle variation (realistic disorder)
+    --dt_factor 0.04         \  # finer step; important at large Q
+    --n_workers 4            \
+    --resume 1
+
+# STAGE 2: Analysis
+python3 damping_sweep_analysis.py \
+    --sweep_dir ~/results/law3m_2026 \
+    --out_dir   ~/results/law3m_2026/analysis \
+    --mad_threshold 3.5
+\end{lstlisting}
+
+\medskip
+\noindent\textbf{Key figures for the conference presentation:}
+\begin{enumerate}
+  \item \file{tau\_vs\_Q.png} and \file{tau\_vs\_Q\_Scol.png} ---
+    the central physics result: does $\tau$ vary with $Q$? Does it differ
+    by geometry?
+  \item \file{autocorr\_vs\_Q.png} --- memory/correlation time vs.\ $Q$;
+    tests the echo-state prediction.
+  \item \file{avalanche\_histograms.png} --- visual $P(s)$ comparison between
+    the underdamped ($Q \approx 30$) and overdamped ($Q \approx 0.02$) limits.
+  \item Side-by-side video frames from \texttt{compass.py} direct calls (see
+    below) illustrating chain-reaction vs.\ sluggish switching.
+\end{enumerate}
+
+\subsection{Demo animations (underdamped vs.\ overdamped)}
+
+\begin{lstlisting}
+# Underdamped (Q~15): inertial overshoot, chain-reaction avalanches
+python3 compass.py --N 20 --M 20 --geometry square \
+    --field_mode hysteresis --B_ext 0.003 --t_sim 25 \
+    --damping 2.4e-7 --dt_factor 0.04 \
+    --frame_dir ~/frames/underdamped --frame_every 5
+
+# Overdamped (Q~0.05): sluggish monotonic switching
+python3 compass.py --N 20 --M 20 --geometry square \
+    --field_mode hysteresis --B_ext 0.003 --t_sim 25 \
+    --damping 7.0e-5 --dt_factor 0.04 \
+    --frame_dir ~/frames/overdamped --frame_every 5
+\end{lstlisting}
+
+% ======================================================================
+\section{Physical Parameter Reference}
+\label{sec:params}
+% ======================================================================
+
+Default values for a tabletop steel needle with $R = 0.025$\,m and
+$f = 0.80$:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Quantity & Symbol & Value & Unit \\
+\midrule
+Needle half-length & $L/2$ & 20.0 & mm \\
+Needle width & $W$ & 4.4 & mm \\
+Needle thickness & $e$ & 0.4 & mm \\
+Steel density & $\rho$ & 7850 & kg\,m$^{-3}$ \\
+Saturation magnetisation & $M_s$ & $1.59 \times 10^6$ & A\,m$^{-1}$ \\
+Magnetic moment (derived) & $m$ & $\approx 5.6 \times 10^{-5}$ & A\,m$^2$ \\
+Moment of inertia (derived) & $I$ & $\approx 7.6 \times 10^{-9}$ & kg\,m$^2$ \\
+Nearest-neighbour distance & $r_{\mathrm{nn}}$ & 50 & mm \\
+Dipolar reference field & $B_{\mathrm{ref}}$ & $\approx 0.36$ & mT \\
+Natural frequency & $\omega_0$ & $\approx 22.8$ & rad\,s$^{-1}$ \\
+Natural period & $T_0$ & $\approx 0.276$ & s \\
+Default damping & $b$ & $5\times 10^{-8}$ & N\,m\,s\,rad$^{-1}$ \\
+Corresponding $Q$ & & $\approx 3.5$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ======================================================================
+\section{Notes and Caveats}
+\label{sec:caveats}
+% ======================================================================
+
+\begin{itemize}
+  \item \textbf{Avalanche statistics require large samples.}  A single 30$\times$30
+    hysteresis run may yield only $\mathcal{O}(10)$--$\mathcal{O}(100)$ events.
+    The analysis aggregates over all seeds before the MLE fit; fewer than
+    8 seeds at any (geometry, $Q$) point typically gives unstable $\tau$ estimates.
+
+  \item \textbf{Method~2 (S-column) preferred.}  The $dM/dB$ MAD method is sensitive
+    to the threshold multiplier $\kappa$ and to numerical noise near field
+    inflection points.  The S-column method counts discrete needle reversals
+    with no free parameters; use \file{tau\_vs\_Q\_Scol.png} as the primary result
+    and \file{tau\_vs\_Q.png} as a cross-check.
+
+  \item \textbf{Do not mix GPU with $n_{\mathrm{workers}} > 1$.}  Multiple worker
+    processes cannot safely share a CUDA context.  See
+    Section~\ref{sec:gpu} for the correct GPU workflow.
+
+  \item \textbf{Progress bar requires a real terminal.}  The \texttt{\textbackslash r}
+    overwrite trick works only when stdout is connected to an interactive
+    terminal (TTY).  When output is piped (e.g.\ \texttt{| tee log.txt} or
+    redirected to a file), each bar update appears on a new line in the file.
+    This is cosmetic only; the campaign data are unaffected.
+
+  \item \textbf{Pivot parameters default to zero.}  If the physical experiment uses
+    a metallic pivot pin that contributes to $I$, specify \param{pivot\_radius},
+    \param{pivot\_thickness}, and \param{pivot\_density} (or \param{pivot\_mass})
+    to maintain consistency between the simulation and the tabletop apparatus.
+
+  \item \textbf{The cutoff is in units of $r_{\mathrm{nn}}$.}  The \param{cutoff}
+    argument passed to \code{relax()} is expressed as a multiple of the
+    nearest-neighbour distance ($r_{\mathrm{nn}} = 2R$), \textit{not} in metres.
+    The default value of 3.5 includes up to $\approx$third-shell neighbours.
+\end{itemize}
+
+\end{document}
