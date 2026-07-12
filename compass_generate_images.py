@@ -49,21 +49,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon, Circle
 
+from sim_config import load_config
+
+_CFG = load_config()
+_RENDER_PHYS = _CFG.physics.needle_render
+
 
 # ---------------------------------------------------------------------------
 # Visual style
 # ---------------------------------------------------------------------------
 
-BLUE_NORTH = "#0017B8"
-WHITE_SOUTH = "#F2F2F2"
-EDGE = "#4D4D4D"
-PIVOT = "#777777"
-BACKGROUND = "white"
+BLUE_NORTH = _RENDER_PHYS.colors["blue_north"]
+WHITE_SOUTH = _RENDER_PHYS.colors["white_south"]
+EDGE = _RENDER_PHYS.colors["edge"]
+PIVOT = _RENDER_PHYS.colors["pivot"]
+BACKGROUND = _RENDER_PHYS.colors["background"]
 
-PIVOT_RADIUS_FRAC = 0.085
-PIVOT_INNER_RADIUS_FRAC = 0.025
+PIVOT_RADIUS_FRAC = _RENDER_PHYS.pivot_radius_frac
+PIVOT_INNER_RADIUS_FRAC = _RENDER_PHYS.pivot_inner_radius_frac
 
-DEFAULT_DPI = 300
+DEFAULT_DPI = _CFG.numerics.rendering.dpi_default
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +150,10 @@ def load_npz_state(npz_path):
     config = metadata.get("config", {})
 
     # Fallbacks keep the script usable with older NPZ files.
-    r_nn = float(d["r_nn"]) if "r_nn" in d.files else float(derived.get("r_nn_m", 1.0))
-    needle_len = float(derived.get("needle_len_m", 0.8 * r_nn))
-    needle_width = float(derived.get("needle_width_m", 0.22 * needle_len))
+    _fallback_cfg = _CFG.physics.compass_generate_images
+    r_nn = float(d["r_nn"]) if "r_nn" in d.files else float(derived.get("r_nn_m", _fallback_cfg.r_nn_fallback))
+    needle_len = float(derived.get("needle_len_m", _fallback_cfg.needle_len_to_r_nn_fallback_ratio * r_nn))
+    needle_width = float(derived.get("needle_width_m", _fallback_cfg.needle_width_to_length_fallback_ratio * needle_len))
 
     return {
         "xs": xs,
@@ -621,17 +627,19 @@ def build_parser():
     p = argparse.ArgumentParser(
         description="Generate PNG images from compass.py CSV and NPZ outputs."
     )
+    run_cfg = _CFG.run.compass_generate_images
 
     p.add_argument(
         "--run_dir",
         type=str,
-        default=".",
+        default=run_cfg.run_dir,
         help="Compass.py output directory. Default: current directory.",
     )
 
     p.add_argument(
         "--recursive",
         action="store_true",
+        default=run_cfg.recursive,
         help="Process all compass.py run directories below --run_dir.",
     )
 
@@ -645,24 +653,28 @@ def build_parser():
     p.add_argument(
         "--transparent",
         action="store_true",
+        default=run_cfg.transparent,
         help="Use transparent background for lattice PNGs.",
     )
 
     p.add_argument(
         "--with_axes",
         action="store_true",
+        default=run_cfg.with_axes,
         help="Show axes/grid on lattice images.",
     )
 
     p.add_argument(
         "--no_panel_titles",
         action="store_true",
+        default=run_cfg.no_panel_titles,
         help="Remove 'Initial state' and 'Final state' titles.",
     )
 
     p.add_argument(
         "--verbose",
         action="store_true",
+        default=run_cfg.verbose,
         help="Print discovered run directories and tags.",
     )
 

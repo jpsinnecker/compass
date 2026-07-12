@@ -52,6 +52,13 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compass as cs
 
+from sim_config import load_config
+
+_CFG = load_config()
+_PHYS = _CFG.physics.damping_sweep
+_NUM = _CFG.numerics.damping_sweep
+_RUN = _CFG.run.damping_sweep
+
 
 # ────────────────────────────────────────────────────────────────────────
 # Fixed physical parameters of the study (same "tabletop" needle in all
@@ -63,11 +70,11 @@ import compass as cs
 # For the LAW3M 2026 campaign (large demonstration needle):
 #   override with --R 0.025 --needle_frac 0.80 --needle_thickness 0.4e-3
 #                  --pivot_radius 0 --pivot_thickness 0
-R_DEFAULT          = 0.0075     # m  — real small needle
-NEEDLE_FRAC        = 2.0/3.0    # same CLI default
-DT_FACTOR          = 0.05       # same CLI default
-CUTOFF_DEFAULT     = 3.5        # in units of r_nn = 2R
-NOISE_DEFAULT      = 1.5        # rad, initial orientation noise
+R_DEFAULT          = _PHYS.R_default      # m  — real small needle
+NEEDLE_FRAC        = _PHYS.needle_frac    # same CLI default
+DT_FACTOR          = _NUM.dt_factor       # same CLI default
+CUTOFF_DEFAULT     = _PHYS.cutoff_default  # in units of r_nn = 2R
+NOISE_DEFAULT      = _PHYS.noise          # rad, initial orientation noise
 
 
 def _bar(done, total, label="", extra="", width=36):
@@ -342,29 +349,29 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out_dir', type=str, required=True)
-    ap.add_argument('--grid_n', type=int, default=30,
+    ap.add_argument('--grid_n', type=int, default=_NUM.grid_n,
                      help='N=M of the grid (default 30 -> 900 needles)')
-    ap.add_argument('--n_seeds', type=int, default=5)
-    ap.add_argument('--n_dampings', type=int, default=8)
-    ap.add_argument('--Q_min', type=float, default=0.05)
-    ap.add_argument('--Q_max', type=float, default=15.0)
-    ap.add_argument('--geometries', type=str, default='square,triangular,honeycomb')
+    ap.add_argument('--n_seeds', type=int, default=_NUM.n_seeds)
+    ap.add_argument('--n_dampings', type=int, default=_NUM.n_dampings)
+    ap.add_argument('--Q_min', type=float, default=_NUM.Q_min)
+    ap.add_argument('--Q_max', type=float, default=_NUM.Q_max)
+    ap.add_argument('--geometries', type=str, default=_RUN.geometries)
     ap.add_argument('--R', type=float, default=R_DEFAULT)
-    ap.add_argument('--B_max_factor', type=float, default=8.0,
+    ap.add_argument('--B_max_factor', type=float, default=_PHYS.B_max_factor,
                      help='B_max = factor * B_ref (dipolar field between neighbors), '
                           'to ensure saturation at the peak of the cycle')
-    ap.add_argument('--t_sim_periods', type=float, default=40.0,
+    ap.add_argument('--t_sim_periods', type=float, default=_NUM.t_sim_periods,
                      help='t_sim in units of T0 = 2*pi/omega0 (natural scale). '
                           'Hysteresis cycle has 5 segments; this is the TOTAL time of the cycle.')
-    ap.add_argument('--pbc', type=int, default=0)
-    ap.add_argument('--use_gpu', type=int, default=0)
-    ap.add_argument('--damping_noise', type=float, default=0.0,
+    ap.add_argument('--pbc', type=int, default=_RUN.pbc)
+    ap.add_argument('--use_gpu', type=int, default=_RUN.use_gpu)
+    ap.add_argument('--damping_noise', type=float, default=_RUN.damping_noise,
                      help='Relative noise amplitude for per-needle damping')
-    ap.add_argument('--skip_relax_stage', type=int, default=0,
+    ap.add_argument('--skip_relax_stage', type=int, default=_RUN.skip_relax_stage,
                      help='If 1, only runs Stage 1 (hysteresis), skips Stage 2 (relaxation/domains)')
-    ap.add_argument('--skip_forc_stage', type=int, default=0,
+    ap.add_argument('--skip_forc_stage', type=int, default=_RUN.skip_forc_stage,
                      help='If 1, skips Stage 3 (FORC measurement)')
-    ap.add_argument('--forc_n_curves', type=int, default=20,
+    ap.add_argument('--forc_n_curves', type=int, default=_NUM.forc_n_curves,
                      help='Number of FORC reversal curves per run (default 20; quick_test uses 3)')
     ap.add_argument('--forc_Br_min', type=float, default=None,
                      help='Minimum reversal field [T] (default: -B_max, i.e. full range)')
@@ -377,15 +384,15 @@ def main():
                      help='Ramp-down time per FORC cycle [s] (default: compass.py default 0.10 s)')
     ap.add_argument('--forc_t_ramp_up', type=float, default=None,
                      help='Ramp-up time per FORC cycle [s] (default: compass.py default 0.20 s)')
-    ap.add_argument('--needle_frac', type=float, default=2.0/3.0,
+    ap.add_argument('--needle_frac', type=float, default=_PHYS.needle_frac,
                      help='Needle length as fraction of 2R. '
                           'Real small needle: 2/3. '
                           'LAW3M large needle: 0.80')
-    ap.add_argument('--needle_thickness', type=float, default=0.26e-3,
+    ap.add_argument('--needle_thickness', type=float, default=_PHYS.needle_thickness,
                      help='Steel blade thickness [m]. '
                           'Real small needle: 0.26e-3. '
                           'LAW3M large needle: 0.4e-3')
-    ap.add_argument('--steel_density', type=float, default=7850.0,
+    ap.add_argument('--steel_density', type=float, default=_PHYS.steel_density,
                      help='Density of the steel [kg/m^3]')
     ap.add_argument('--steel_Bsat', type=float, default=None,
                      help='Saturation flux density of the steel [T]')
@@ -393,33 +400,34 @@ def main():
                      help='Magnetic moment overriding calculation')
     ap.add_argument('--inertia', type=float, default=None,
                      help='Moment of inertia overriding calculation')
-    ap.add_argument('--pivot_radius', type=float, default=1.0e-3,
+    ap.add_argument('--pivot_radius', type=float, default=_PHYS.pivot_radius,
                      help='Pivot pin radius [m] (real needle: 1 mm; '
                           'LAW3M large needle: 0 to ignore pivot)')
-    ap.add_argument('--pivot_thickness', type=float, default=2.0e-3,
+    ap.add_argument('--pivot_thickness', type=float, default=_PHYS.pivot_thickness,
                      help='Pivot pin thickness [m] (real needle: 2 mm; '
                           'LAW3M large needle: 0 to ignore pivot)')
-    ap.add_argument('--pivot_density', type=float, default=8500.0,
+    ap.add_argument('--pivot_density', type=float, default=_PHYS.pivot_density,
                      help='Density of the pivot pin material [kg/m^3]')
     ap.add_argument('--pivot_mass', type=float, default=None,
                      help='Override pivot mass directly [kg] (overrides pivot_radius/thickness/density)')
-    ap.add_argument('--dt_factor', type=float, default=0.05,
+    ap.add_argument('--dt_factor', type=float, default=_NUM.dt_factor,
                      help='Fraction of natural period T0 used as time step dt')
-    ap.add_argument('--noise', type=float, default=1.5,
+    ap.add_argument('--noise', type=float, default=_PHYS.noise,
                      help='Initial orientation noise amplitude [rad]')
-    ap.add_argument('--domain_tol', type=float, default=15.0,
+    ap.add_argument('--domain_tol', type=float, default=_NUM.domain_tol,
                      help='Angular tolerance [degrees] for domain grouping')
-    ap.add_argument('--quick_test', type=int, default=0,
+    ap.add_argument('--quick_test', type=int, default=_RUN.quick_test,
                      help='If 1, overrides n_seeds=1, n_dampings=3, t_sim_periods=8, '
                           'grid_n=12 -- just to validate the pipeline end-to-end')
     args = ap.parse_args()
 
     if args.quick_test:
-        args.n_seeds = 1
-        args.n_dampings = 3
-        args.t_sim_periods = 8.0
-        args.grid_n = 12
-        args.forc_n_curves = 3
+        qt = _NUM.quick_test
+        args.n_seeds = qt.n_seeds
+        args.n_dampings = qt.n_dampings
+        args.t_sim_periods = qt.t_sim_periods
+        args.grid_n = qt.grid_n
+        args.forc_n_curves = qt.forc_n_curves
         print(">>> QUICK_TEST MODE: reduced parameters for pipeline validation <<<")
 
     geometries = args.geometries.split(',')

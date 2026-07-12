@@ -1,13 +1,17 @@
 import numpy as np
 
-density = 7850.0
-thickness = 0.26e-3
-needle_len = 10e-3
-needle_width = 3e-3
-pivot_radius = 1e-3
-pivot_thickness = 2e-3
-pivot_density = 8500.0
-Ms = 1.59e6
+from sim_config import load_config
+
+_CFG = load_config().physics.calc_defaults_temp
+
+density = _CFG.density
+thickness = _CFG.thickness
+needle_len = _CFG.needle_len
+needle_width = _CFG.needle_width
+pivot_radius = _CFG.pivot_radius
+pivot_thickness = _CFG.pivot_thickness
+pivot_density = _CFG.pivot_density
+Ms = _CFG.Ms
 
 # Blade volume & mass
 area_solid = 0.5 * needle_len * needle_width

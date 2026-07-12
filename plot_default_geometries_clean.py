@@ -7,17 +7,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon, Circle
 
-BLUE_NORTH = "#0017B8"
-WHITE_SOUTH = "#F2F2F2"
-EDGE = "#4D4D4D"
-PIVOT = "#777777"
-BACKGROUND = "white"
+from sim_config import load_config
 
-PIVOT_RADIUS_FRAC = 0.085
-PIVOT_INNER_RADIUS_FRAC = 0.025
+_CFG = load_config()
+_RENDER_PHYS = _CFG.physics.needle_render
+_RENDER_NUM = _CFG.numerics.rendering
 
-DEFAULT_DPI = 300
-DEFAULT_FIGSIZE = 6.0
+BLUE_NORTH = _RENDER_PHYS.colors["blue_north"]
+WHITE_SOUTH = _RENDER_PHYS.colors["white_south"]
+EDGE = _RENDER_PHYS.colors["edge"]
+PIVOT = _RENDER_PHYS.colors["pivot"]
+BACKGROUND = _RENDER_PHYS.colors["background"]
+
+PIVOT_RADIUS_FRAC = _RENDER_PHYS.pivot_radius_frac
+PIVOT_INNER_RADIUS_FRAC = _RENDER_PHYS.pivot_inner_radius_frac
+
+DEFAULT_DPI = _RENDER_NUM.dpi_default
+DEFAULT_FIGSIZE = _RENDER_NUM.figsize_default
 
 
 def needle_halves(x, y, theta, length, width):
@@ -196,45 +202,47 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate clean PNG geometry figures from compassV02.py .npz output."
     )
+    run_cfg = _CFG.run.plot_default_geometries_clean
 
     parser.add_argument(
         "--input_dir",
         type=str,
-        default="geometry_figures",
+        default=run_cfg.input_dir,
         help="Input directory. Default: geometry_figures",
     )
 
     parser.add_argument(
         "--input_file",
         type=str,
-        default=None,
+        default=run_cfg.input_file,
         help="Specific .npz final-state file to plot.",
     )
 
     parser.add_argument(
         "--output_file",
         type=str,
-        default=None,
+        default=run_cfg.output_file,
         help="Output PNG file for --input_file or --single.",
     )
 
     parser.add_argument(
         "--output_dir",
         type=str,
-        default=None,
+        default=run_cfg.output_dir,
         help="Output directory for batch mode.",
     )
 
     parser.add_argument(
         "--single",
         action="store_true",
+        default=run_cfg.single,
         help="Treat --input_dir as one compassV02.py output directory.",
     )
 
     parser.add_argument(
         "--tag_suffix",
         type=str,
-        default="_default",
+        default=run_cfg.tag_suffix,
         help="Suffix used for default batch files. Default: _default",
     )
 
@@ -255,6 +263,7 @@ def main():
     parser.add_argument(
         "--transparent",
         action="store_true",
+        default=run_cfg.transparent,
         help="Save PNG with transparent background.",
     )
 

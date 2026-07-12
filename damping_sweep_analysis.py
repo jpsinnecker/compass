@@ -51,6 +51,10 @@ try:
 except ImportError:
     _HAVE_POWERLAW = False
 
+from sim_config import load_config
+
+_CFG = load_config()
+
 
 def _bar(done, total, label="", extra="", width=36):
     """One-line overwriting progress bar."""
@@ -75,16 +79,8 @@ plt.rcParams.update({
     "font.size": 11,
 })
 
-GEOM_COLORS = {
-    "square":     "#2E86AB",
-    "triangular": "#E94560",
-    "honeycomb":  "#3CB371",
-}
-GEOM_MARKERS = {
-    "square":     "o",
-    "triangular": "s",
-    "honeycomb":  "^",
-}
+GEOM_COLORS = _CFG.run.damping_sweep_analysis.geometry_colors
+GEOM_MARKERS = _CFG.run.damping_sweep_analysis.geometry_markers
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1055,7 +1051,7 @@ def main():
     ap.add_argument("--sweep_dir", type=str, required=True,
                      help="Directory written by --out_dir in damping_sweep.py")
     ap.add_argument("--out_dir", type=str, required=True)
-    ap.add_argument("--mad_threshold", type=float, default=4.0,
+    ap.add_argument("--mad_threshold", type=float, default=_CFG.numerics.damping_sweep_analysis.mad_threshold,
                      help="MAD multiplier (threshold in units of MAD) for dM/dB avalanche detection")
     args = ap.parse_args()
 

@@ -59,6 +59,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from sim_config import load_config
+
+_CFG = load_config()
+
 try:
     from scipy.optimize import minimize
     from scipy.special import erfc as _erfc
@@ -442,18 +446,20 @@ def make_ccdf_plot(sizes: np.ndarray, res: Dict, path: Path, title: str):
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Spatio-temporal avalanche clustering "
                                             "and MLE analysis for compassV2.1 event logs.")
+    run_cfg = _CFG.run.avalanche_processor
+    num_cfg = _CFG.numerics.avalanche_processor
     p.add_argument("--runs_dir", required=True, help="directory containing run outputs")
-    p.add_argument("--out_dir", default="avalanche_analysis")
-    p.add_argument("--channels", default="field,angle")
-    p.add_argument("--t_link_T0", default="1,2,4",
+    p.add_argument("--out_dir", default=run_cfg.out_dir)
+    p.add_argument("--channels", default=run_cfg.channels)
+    p.add_argument("--t_link_T0", default=num_cfg.t_link_T0,
                    help="comma list of causal link windows in units of T0 (sensitivity sweep)")
-    p.add_argument("--r_link_rnn", type=float, default=1.05,
+    p.add_argument("--r_link_rnn", type=float, default=num_cfg.r_link_rnn,
                    help="spatial link radius in units of r_nn")
-    p.add_argument("--group_by", default="geometry,field_mode,Q",
+    p.add_argument("--group_by", default=run_cfg.group_by,
                    help="metadata keys defining a physical condition for seed aggregation")
-    p.add_argument("--min_tail", type=int, default=100,
+    p.add_argument("--min_tail", type=int, default=num_cfg.min_tail,
                    help="minimum tail events for any exponent fit")
-    p.add_argument("--make_plot", action="store_true")
+    p.add_argument("--make_plot", action="store_true", default=run_cfg.make_plot)
     args = p.parse_args(argv)
 
     runs_dir = Path(args.runs_dir)

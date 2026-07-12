@@ -110,24 +110,33 @@ except Exception as exc:  # pragma: no cover - environment dependent
     _CUPY_IMPORT_OK = False
     _CUPY_ERROR = str(exc).splitlines()[-1] if str(exc) else type(exc).__name__
 
+from sim_config import load_config
+
+CFG = load_config()
+
 
 # =============================================================================
 # Physical constants and defaults
+#
+# Values are loaded from config.yaml (see sim_config.py); this block only
+# keeps the historical module-level names, since some values (R_DEFAULT) are
+# derived from others and other code in this file references these names
+# directly.
 # =============================================================================
 
-MU0_OVER_4PI = 1.0e-7  # T m / A
-STEEL_DENSITY_DEFAULT = 7850.0  # kg/m^3
-STEEL_MS_SATURATION_DEFAULT = 1.59e6  # A/m, approximately Bsat=2.0 T / mu0
+MU0_OVER_4PI = CFG.physics.constants.mu0_over_4pi  # T m / A
+STEEL_DENSITY_DEFAULT = CFG.physics.compass_engine.steel_density  # kg/m^3
+STEEL_MS_SATURATION_DEFAULT = CFG.physics.compass_engine.steel_ms_saturation  # A/m, approximately Bsat=2.0 T / mu0
 # Default physical apparatus geometry used in the project report.
 # The lattice parameter is defined by the centre-to-centre spacing between
 # neighbouring pivots. In the code the historical variable R is kept as half
 # this distance because the lattice generators use d = 2R.
-CENTER_DISTANCE_DEFAULT = 0.013  # m, centre-to-centre pivot distance
+CENTER_DISTANCE_DEFAULT = CFG.physics.compass_engine.center_distance  # m, centre-to-centre pivot distance
 R_DEFAULT = 0.5 * CENTER_DISTANCE_DEFAULT  # m
-NEEDLE_LEN_DEFAULT = 0.010  # m, physical blade length
-NEEDLE_WIDTH_DEFAULT = 0.003  # m, physical blade width
-NEEDLE_THICKNESS_DEFAULT = 0.0004  # m
-DAMPING_DEFAULT = 5.0e-8  # N m s / rad
+NEEDLE_LEN_DEFAULT = CFG.physics.compass_engine.needle_len  # m, physical blade length
+NEEDLE_WIDTH_DEFAULT = CFG.physics.compass_engine.needle_width  # m, physical blade width
+NEEDLE_THICKNESS_DEFAULT = CFG.physics.compass_engine.needle_thickness  # m
+DAMPING_DEFAULT = CFG.physics.compass_engine.damping  # N m s / rad
 SOURCE_FILE_TIMESTAMP = "2026-07-10T11:50:24-03:00"  # generation/update timestamp
 
 
@@ -1457,10 +1466,13 @@ def _draw_lattice_png(ax, state: Dict[str, object], with_axes: bool = False, tit
     needle_len = float(state["needle_len"])
     needle_width = float(state["needle_width"])
 
-    blue_north = "#0017B8"
-    white_south = "#F2F2F2"
-    edge = "#4D4D4D"
-    pivot = "#777777"
+    colors = CFG.physics.needle_render.colors
+    blue_north = colors["blue_north"]
+    white_south = colors["white_south"]
+    edge = colors["edge"]
+    pivot = colors["pivot"]
+    pivot_radius_frac = CFG.physics.needle_render.pivot_radius_frac
+    pivot_inner_radius_frac = CFG.physics.needle_render.pivot_inner_radius_frac
 
     for x, y, th in zip(xs, ys, theta):
         north_half, south_half = _needle_halves_for_png(float(x), float(y), float(th), needle_len, needle_width)
@@ -1468,9 +1480,9 @@ def _draw_lattice_png(ax, state: Dict[str, object], with_axes: bool = False, tit
                              linewidth=0.8, joinstyle="miter", zorder=2))
         ax.add_patch(Polygon(south_half, closed=True, facecolor=white_south, edgecolor=edge,
                              linewidth=0.8, joinstyle="miter", zorder=2))
-        ax.add_patch(Circle((float(x), float(y)), 0.085 * r_nn, facecolor=pivot,
+        ax.add_patch(Circle((float(x), float(y)), pivot_radius_frac * r_nn, facecolor=pivot,
                             edgecolor=edge, linewidth=0.6, zorder=5))
-        ax.add_patch(Circle((float(x), float(y)), 0.025 * r_nn, facecolor=pivot,
+        ax.add_patch(Circle((float(x), float(y)), pivot_inner_radius_frac * r_nn, facecolor=pivot,
                             edgecolor="white", linewidth=0.35, zorder=6))
 
     margin = 0.8 * r_nn
@@ -1578,15 +1590,21 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    grid_cfg = CFG.numerics.compass_engine.grid
+    time_cfg = CFG.numerics.compass_engine.time
+    tol_cfg = CFG.numerics.compass_engine.tolerances
+    phys_cfg = CFG.physics.compass_engine
+    run_cfg = CFG.run.compass_engine
+
     g = p.add_argument_group("lattice geometry")
-    g.add_argument("--geometry", choices=["square", "triangular", "honeycomb"], default="square")
-    g.add_argument("--N", type=int, default=16, help="number of rows or nominal honeycomb height")
-    g.add_argument("--M", type=int, default=16, help="number of columns or nominal honeycomb width")
+    g.add_argument("--geometry", choices=["square", "triangular", "honeycomb"], default=grid_cfg.geometry)
+    g.add_argument("--N", type=int, default=grid_cfg.N, help="number of rows or nominal honeycomb height")
+    g.add_argument("--M", type=int, default=grid_cfg.M, help="number of columns or nominal honeycomb width")
     g.add_argument("--R", type=float, default=R_DEFAULT, help="half the centre-to-centre distance between pivots [m]; default gives 13 mm spacing")
-    g.add_argument("--needle_frac", type=float, default=0.80, help="legacy blade length fraction of 2R, used only with --use_legacy_size_from_R")
+    g.add_argument("--needle_frac", type=float, default=phys_cfg.needle_frac_legacy, help="legacy blade length fraction of 2R, used only with --use_legacy_size_from_R")
     g.add_argument("--needle_len", type=float, default=NEEDLE_LEN_DEFAULT, help="physical needle blade length [m]")
     g.add_argument("--needle_width", type=float, default=NEEDLE_WIDTH_DEFAULT, help="physical needle blade width [m]")
-    g.add_argument("--use_legacy_size_from_R", type=int, choices=[0, 1], default=0, help="if 1, set blade size from needle_frac*2R; if 0, use explicit needle_len/needle_width")
+    g.add_argument("--use_legacy_size_from_R", type=int, choices=[0, 1], default=phys_cfg.use_legacy_size_from_R, help="if 1, set blade size from needle_frac*2R; if 0, use explicit needle_len/needle_width")
 
     g = p.add_argument_group("needle physical properties")
     g.add_argument("--moment", type=float, default=None, help="override magnetic moment [A m^2]")
@@ -1595,71 +1613,71 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--steel_density", type=float, default=STEEL_DENSITY_DEFAULT)
     g.add_argument("--steel_Ms", type=float, default=STEEL_MS_SATURATION_DEFAULT, help="saturation magnetization [A/m]")
     g.add_argument("--steel_Bsat", type=float, default=None, help="optional Bsat [T], overrides steel_Ms via Ms=Bsat/mu0")
-    g.add_argument("--pivot_radius", type=float, default=0.0)
-    g.add_argument("--pivot_thickness", type=float, default=0.0)
-    g.add_argument("--pivot_density", type=float, default=8500.0)
+    g.add_argument("--pivot_radius", type=float, default=phys_cfg.pivot_radius)
+    g.add_argument("--pivot_thickness", type=float, default=phys_cfg.pivot_thickness)
+    g.add_argument("--pivot_density", type=float, default=phys_cfg.pivot_density)
     g.add_argument("--pivot_mass", type=float, default=None)
     g.add_argument("--damping", type=float, default=DAMPING_DEFAULT)
-    g.add_argument("--damping_noise", type=float, default=0.0, help="relative uniform random damping variation per needle")
+    g.add_argument("--damping_noise", type=float, default=phys_cfg.damping_noise, help="relative uniform random damping variation per needle")
 
     g = p.add_argument_group("time integration")
-    g.add_argument("--t_sim", type=float, default=2.0, help="simulation time [s], except FORC and demag modes")
-    g.add_argument("--dt_factor", type=float, default=0.04, help="dt/T0")
-    g.add_argument("--noise", type=float, default=1.5, help="initial angular noise amplitude [rad]")
-    g.add_argument("--seed", type=int, default=None)
-    g.add_argument("--log_every", type=int, default=10, help="write one CSV row every this many integration steps")
-    g.add_argument("--flip_angle_deg", type=float, default=90.0, help="rest-angle displacement threshold for the committed flip_angle channel")
-    g.add_argument("--flip_band_deg", type=float, default=30.0, help="Schmitt dead-band half-width around the perpendicular to the drive axis [deg]")
-    g.add_argument("--flip_dwell_T0", type=float, default=0.5, help="dwell time required to commit a flip, in units of T0")
-    g.add_argument("--flip_settle_frac", type=float, default=0.05, help="|omega| settling threshold as a fraction of omega0 for the flip_angle channel")
-    g.add_argument("--event_log", action="store_true", help="write per-event CSV (step,t,needle_id,channel,theta) for offline avalanche clustering")
-    g.add_argument("--dt_guard_alpha", type=float, default=0.35, help="stability monitor threshold on max_i sqrt(m|B_i|/I)*dt")
-    g.add_argument("--dt_guard_substep", action="store_true", help="re-integrate flagged steps with 4 global sub-steps (breaks strict symplecticity; exploratory)")
+    g.add_argument("--t_sim", type=float, default=phys_cfg.t_sim, help="simulation time [s], except FORC and demag modes")
+    g.add_argument("--dt_factor", type=float, default=time_cfg.dt_factor, help="dt/T0")
+    g.add_argument("--noise", type=float, default=phys_cfg.noise, help="initial angular noise amplitude [rad]")
+    g.add_argument("--seed", type=int, default=run_cfg.seed)
+    g.add_argument("--log_every", type=int, default=time_cfg.log_every, help="write one CSV row every this many integration steps")
+    g.add_argument("--flip_angle_deg", type=float, default=tol_cfg.flip_angle_deg, help="rest-angle displacement threshold for the committed flip_angle channel")
+    g.add_argument("--flip_band_deg", type=float, default=tol_cfg.flip_band_deg, help="Schmitt dead-band half-width around the perpendicular to the drive axis [deg]")
+    g.add_argument("--flip_dwell_T0", type=float, default=tol_cfg.flip_dwell_T0, help="dwell time required to commit a flip, in units of T0")
+    g.add_argument("--flip_settle_frac", type=float, default=tol_cfg.flip_settle_frac, help="|omega| settling threshold as a fraction of omega0 for the flip_angle channel")
+    g.add_argument("--event_log", action="store_true", default=run_cfg.event_log, help="write per-event CSV (step,t,needle_id,channel,theta) for offline avalanche clustering")
+    g.add_argument("--dt_guard_alpha", type=float, default=tol_cfg.dt_guard_alpha, help="stability monitor threshold on max_i sqrt(m|B_i|/I)*dt")
+    g.add_argument("--dt_guard_substep", action="store_true", default=run_cfg.dt_guard_substep, help="re-integrate flagged steps with 4 global sub-steps (breaks strict symplecticity; exploratory)")
 
     g = p.add_argument_group("dipolar cutoff and boundaries")
-    g.add_argument("--cutoff_shells", type=float, default=3.5, help="cutoff in units of r_nn")
+    g.add_argument("--cutoff_shells", type=float, default=grid_cfg.cutoff_shells, help="cutoff in units of r_nn")
     g.add_argument("--cutoff_m", type=float, default=None, help="absolute cutoff [m], overrides cutoff_shells")
-    g.add_argument("--pbc", action="store_true", help="periodic boundary conditions using finite images")
-    g.add_argument("--n_images", type=int, default=1, help="number of periodic images in each direction")
-    g.add_argument("--tensor_mem_limit_gb", type=float, default=6.0)
-    g.add_argument("--float32", action="store_true", help="use float32 tensor/state to save memory; float64 is preferred for final data")
+    g.add_argument("--pbc", action="store_true", default=grid_cfg.pbc, help="periodic boundary conditions using finite images")
+    g.add_argument("--n_images", type=int, default=grid_cfg.n_images, help="number of periodic images in each direction")
+    g.add_argument("--tensor_mem_limit_gb", type=float, default=grid_cfg.tensor_mem_limit_gb)
+    g.add_argument("--float32", action="store_true", default=grid_cfg.float32, help="use float32 tensor/state to save memory; float64 is preferred for final data")
 
     g = p.add_argument_group("field protocol")
-    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default="static")
+    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default=phys_cfg.field_mode)
     g.add_argument("--B_ext", type=float, default=None, help="field amplitude [T]; if omitted, B_max_factor*B_ref")
-    g.add_argument("--B_max_factor", type=float, default=8.0, help="B_ext = factor * B_ref if B_ext omitted")
-    g.add_argument("--phi_ext_deg", type=float, default=0.0, help="field direction")
-    g.add_argument("--field_freq", type=float, default=1.0, help="sine frequency [Hz]")
-    g.add_argument("--field_delay", type=float, default=0.0, help="delay for step/pulse protocols [s]")
+    g.add_argument("--B_max_factor", type=float, default=phys_cfg.B_max_factor, help="B_ext = factor * B_ref if B_ext omitted")
+    g.add_argument("--phi_ext_deg", type=float, default=phys_cfg.phi_ext_deg, help="field direction")
+    g.add_argument("--field_freq", type=float, default=phys_cfg.field_freq, help="sine frequency [Hz]")
+    g.add_argument("--field_delay", type=float, default=phys_cfg.field_delay, help="delay for step/pulse protocols [s]")
     g.add_argument("--t_pulse", type=float, default=None, help="pulse duration [s]")
-    g.add_argument("--hyst_spacing", choices=["linear", "log"], default="linear")
-    g.add_argument("--hyst_log_k", type=float, default=5.0)
+    g.add_argument("--hyst_spacing", choices=["linear", "log"], default=phys_cfg.hyst_spacing)
+    g.add_argument("--hyst_log_k", type=float, default=phys_cfg.hyst_log_k)
 
     g = p.add_argument_group("FORC protocol")
     g.add_argument("--forc_Br_min", type=float, default=None, help="minimum reversal field [T]; default -Bmax")
-    g.add_argument("--forc_n_curves", type=int, default=30)
-    g.add_argument("--forc_t_sat", type=float, default=0.05)
-    g.add_argument("--forc_t_ramp_down", type=float, default=0.10)
-    g.add_argument("--forc_t_ramp_up", type=float, default=0.20)
+    g.add_argument("--forc_n_curves", type=int, default=phys_cfg.forc.n_curves)
+    g.add_argument("--forc_t_sat", type=float, default=phys_cfg.forc.t_sat)
+    g.add_argument("--forc_t_ramp_down", type=float, default=phys_cfg.forc.t_ramp_down)
+    g.add_argument("--forc_t_ramp_up", type=float, default=phys_cfg.forc.t_ramp_up)
     g.add_argument("--forc_rate", type=float, default=None, help="field ramp rate [T/s]; overrides fixed FORC ramp times")
 
     g = p.add_argument_group("demagnetization")
-    g.add_argument("--demag_freq", type=float, default=2.0)
-    g.add_argument("--demag_cycles", type=int, default=20)
-    g.add_argument("--t_relax_after", type=float, default=2.0, help="extra relaxation after demag mode")
+    g.add_argument("--demag_freq", type=float, default=phys_cfg.demag.freq)
+    g.add_argument("--demag_cycles", type=int, default=phys_cfg.demag.cycles)
+    g.add_argument("--t_relax_after", type=float, default=phys_cfg.demag.t_relax_after, help="extra relaxation after demag mode")
 
     g = p.add_argument_group("output and performance")
-    g.add_argument("--out_dir", default="compassV2_output")
-    g.add_argument("--tag", default=None)
-    g.add_argument("--use_gpu", action="store_true")
-    g.add_argument("--progress", action="store_true")
-    g.add_argument("--verbose", action="store_true")
-    g.add_argument("--make_plot", action="store_true")
-    g.add_argument("--png_dpi", type=int, default=300, help="DPI for automatic lattice PNG images")
-    g.add_argument("--png_transparent", action="store_true", help="save lattice PNGs with transparent background")
-    g.add_argument("--png_with_axes", action="store_true", help="include axes/grid/title in lattice PNGs")
-    g.add_argument("--png_no_panel_titles", action="store_true", help="remove Initial/Final panel titles in side-by-side PNG")
-    g.add_argument("--domain_tol_deg", type=float, default=15.0)
+    g.add_argument("--out_dir", default=run_cfg.out_dir)
+    g.add_argument("--tag", default=run_cfg.tag)
+    g.add_argument("--use_gpu", action="store_true", default=run_cfg.use_gpu)
+    g.add_argument("--progress", action="store_true", default=run_cfg.progress)
+    g.add_argument("--verbose", action="store_true", default=run_cfg.verbose)
+    g.add_argument("--make_plot", action="store_true", default=run_cfg.make_plot)
+    g.add_argument("--png_dpi", type=int, default=run_cfg.png_dpi, help="DPI for automatic lattice PNG images")
+    g.add_argument("--png_transparent", action="store_true", default=run_cfg.png_transparent, help="save lattice PNGs with transparent background")
+    g.add_argument("--png_with_axes", action="store_true", default=run_cfg.png_with_axes, help="include axes/grid/title in lattice PNGs")
+    g.add_argument("--png_no_panel_titles", action="store_true", default=run_cfg.png_no_panel_titles, help="remove Initial/Final panel titles in side-by-side PNG")
+    g.add_argument("--domain_tol_deg", type=float, default=tol_cfg.domain_tol_deg)
 
     return p
 
