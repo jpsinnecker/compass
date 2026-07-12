@@ -72,13 +72,13 @@ def write_variant_config(config_dict: Dict[str, Any], path: Path, case_name: str
         yaml.safe_dump(config_dict, fh, sort_keys=False)
 
 
-def load_fresh_compassV2_2(config_path: Path) -> ModuleType:
-    """Import an independent instance of compassV2_2.py bound to `config_path`.
+def load_fresh_compass_module(config_path: Path) -> ModuleType:
+    """Import an independent instance of compass.py bound to `config_path`.
 
-    compassV2_2.py (like every other script in this repo) reads config.yaml
+    compass.py (like every other script in this repo) reads config.yaml
     once at import time via `CFG = load_config()`. Setting COMPASS_CONFIG_PATH
     and loading a *fresh* module object (rather than a cached
-    sys.modules['compassV2_2']) is what lets each test case run against its
+    sys.modules['compass']) is what lets each test case run against its
     own config.yaml variant in the same process.
     """
     old_env = os.environ.get("COMPASS_CONFIG_PATH")
@@ -86,10 +86,10 @@ def load_fresh_compassV2_2(config_path: Path) -> ModuleType:
     repo_root_str = str(REPO_ROOT)
     path_added = repo_root_str not in sys.path
     if path_added:
-        sys.path.insert(0, repo_root_str)  # compassV2_2.py does `from sim_config import ...`
+        sys.path.insert(0, repo_root_str)  # compass.py does `from sim_config import ...`
     try:
-        mod_name = f"compassV2_2_variant_{config_path.stem}"
-        spec = importlib.util.spec_from_file_location(mod_name, REPO_ROOT / "compassV2_2.py")
+        mod_name = f"compass_variant_{config_path.stem}"
+        spec = importlib.util.spec_from_file_location(mod_name, REPO_ROOT / "compass.py")
         module = importlib.util.module_from_spec(spec)
         # dataclasses' `from __future__ import annotations` type resolution looks
         # the module up via sys.modules[cls.__module__]; it must be registered
@@ -111,10 +111,10 @@ def load_fresh_compassV2_2(config_path: Path) -> ModuleType:
 
 
 def run_case(config_path: Path, out_dir: Path) -> Tuple[Path, Path, Path]:
-    """Run compassV2_2.py's build_parser()+run_simulation() against a config
+    """Run compass.py's build_parser()+run_simulation() against a config
     variant, with no CLI overrides except redirecting out_dir. Returns
     (csv_path, meta_path, state_path)."""
-    module = load_fresh_compassV2_2(config_path)
+    module = load_fresh_compass_module(config_path)
     args = module.build_parser().parse_args([])
     args.out_dir = str(out_dir)
     return module.run_simulation(args)

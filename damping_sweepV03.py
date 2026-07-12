@@ -113,7 +113,7 @@ def _make_grid_compat(N, M, geometry, noise, R):
 
 
 def _default_compass_args(**overrides):
-    """Build the argparse-like namespace expected by compassV02.run_simulation()."""
+    """Build the argparse-like namespace expected by compass.py's run_simulation()."""
     class Args:
         pass
 
@@ -150,6 +150,18 @@ def _default_compass_args(**overrides):
     a.seed = None
     a.log_every = 10
     a.flip_angle_deg = 90.0
+    # V2.1 hardened flip/avalanche counters and stability guard (see
+    # docs/AUDIT.md bug B4 / P1 item 4): compass.py's run_simulation() has
+    # required these six attributes since the engine promotion; without
+    # them this shim raises AttributeError on first use. Values match
+    # compass.py's own argparse defaults (config.yaml
+    # numerics.compass_engine.tolerances / run.compass_engine).
+    a.flip_band_deg = 30.0
+    a.flip_dwell_T0 = 0.5
+    a.flip_settle_frac = 0.05
+    a.event_log = False
+    a.dt_guard_alpha = 0.35
+    a.dt_guard_substep = False
 
     # Dipolar cutoff and boundaries
     a.cutoff_shells = CUTOFF_DEFAULT

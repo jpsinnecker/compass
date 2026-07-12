@@ -4,7 +4,7 @@ Both generate_reference.py (offline: builds fixtures + reference outputs)
 and test_reference_runs.py (pytest: re-runs + compares) import CASES from
 here, so the two never drift apart.
 
-Each case is a small, fast compassV2_2.py run: a tiny lattice, few logged
+Each case is a small, fast compass.py run: a tiny lattice, few logged
 steps, a fixed seed, and an explicit tag. The `overrides` dict is applied on
 top of a full copy of the repo's config.yaml to produce that case's own
 variant config file (see build_variant_config in generate_reference.py /

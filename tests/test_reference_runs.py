@@ -3,7 +3,7 @@ against the checked-in reference data in tests/reference/.
 
 These are NOT physics-correctness tests -- the cases use large timesteps
 deliberately, purely for speed (see tests/cases.py and tests/README.md), and
-in fact trip compassV2_2.py's own numerical-stability monitor (a printed
+in fact trip compass.py's own numerical-stability monitor (a printed
 warning, not a failure). What's being tested is that the same config.yaml
 variant + the same code always produces the same numbers: a config or
 engine change that alters simulation output will fail these tests, which is
