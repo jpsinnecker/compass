@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, get_type_hints
@@ -24,6 +25,7 @@ from typing import Any, Dict, List, Optional, get_type_hints
 import yaml
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+_CONFIG_PATH_ENV_VAR = "COMPASS_CONFIG_PATH"
 
 
 # =============================================================================
@@ -373,8 +375,20 @@ def _build(cls: Any, data: Dict[str, Any]) -> Any:
 
 
 def load_config(path: Optional[str | Path] = None) -> Config:
-    """Load config.yaml (or the given path) into a Config dataclass tree."""
-    cfg_path = Path(path) if path is not None else _DEFAULT_CONFIG_PATH
+    """Load config.yaml (or the given path) into a Config dataclass tree.
+
+    Resolution order when `path` is omitted: the COMPASS_CONFIG_PATH
+    environment variable, then the repo's own config.yaml. The environment
+    variable exists solely so tests can point every script at a variant
+    config file (see tests/README.md) without adding a CLI flag to each of
+    the ten call sites that do `CFG = load_config()`; it is unset in normal
+    use, so default behaviour is unchanged.
+    """
+    if path is not None:
+        cfg_path = Path(path)
+    else:
+        env_path = os.environ.get(_CONFIG_PATH_ENV_VAR)
+        cfg_path = Path(env_path) if env_path else _DEFAULT_CONFIG_PATH
     with open(cfg_path, "r") as fh:
         raw = yaml.safe_load(fh)
     return _build(Config, raw)

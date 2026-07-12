@@ -1,0 +1,206 @@
+# GENERATED FIXTURE -- do not hand-edit.
+# This is config.yaml + tests/cases.py's 'triangular_hysteresis' overrides, produced by
+# tests/generate_reference.py. Regenerate with:
+#   python3 tests/generate_reference.py
+# if config.yaml's schema changes or the case's overrides change.
+
+physics:
+  constants:
+    mu0_over_4pi: 1.0e-07
+  compass_engine:
+    steel_density: 7850.0
+    steel_ms_saturation: 1590000.0
+    center_distance: 0.013
+    needle_len: 0.01
+    needle_width: 0.003
+    needle_thickness: 0.0004
+    needle_frac_legacy: 0.8
+    use_legacy_size_from_R: 0
+    damping: 5.0e-08
+    damping_noise: 0.0
+    pivot_radius: 0.0
+    pivot_thickness: 0.0
+    pivot_density: 8500.0
+    field_mode: hysteresis
+    B_max_factor: 8.0
+    phi_ext_deg: 0.0
+    field_freq: 1.0
+    field_delay: 0.0
+    hyst_spacing: log
+    hyst_log_k: 5.0
+    t_sim: 0.02
+    noise: 1.5
+    forc:
+      n_curves: 30
+      t_sat: 0.05
+      t_ramp_down: 0.1
+      t_ramp_up: 0.2
+    demag:
+      freq: 2.0
+      cycles: 20
+      t_relax_after: 2.0
+  calc_defaults_temp:
+    density: 7850.0
+    thickness: 0.00026
+    needle_len: 0.01
+    needle_width: 0.003
+    pivot_radius: 0.001
+    pivot_thickness: 0.002
+    pivot_density: 8500.0
+    Ms: 1590000.0
+  damping_sweep:
+    R_default: 0.0075
+    needle_frac: 0.6666666666666666
+    needle_thickness: 0.00026
+    steel_density: 7850.0
+    pivot_radius: 0.001
+    pivot_thickness: 0.002
+    pivot_density: 8500.0
+    B_max_factor: 8.0
+    noise: 1.5
+    cutoff_default: 3.5
+  sweep_damping_hysteresis:
+    R_default: 0.0075
+    needle_frac: 0.6666666666666666
+    needle_thickness: 0.00026
+    steel_density: 7850.0
+    pivot_radius: 0.001
+    pivot_thickness: 0.002
+    needle_width_to_length_ratio: 0.3
+    B_max_factor: 8.0
+    noise_init: 1.5
+  compass_generate_images:
+    r_nn_fallback: 1.0
+    needle_len_to_r_nn_fallback_ratio: 0.8
+    needle_width_to_length_fallback_ratio: 0.22
+  needle_render:
+    colors:
+      blue_north: '#0017B8'
+      white_south: '#F2F2F2'
+      edge: '#4D4D4D'
+      pivot: '#777777'
+      background: white
+    pivot_radius_frac: 0.085
+    pivot_inner_radius_frac: 0.025
+numerics:
+  compass_engine:
+    grid:
+      geometry: triangular
+      N: 3
+      M: 3
+      cutoff_shells: 3.5
+      n_images: 1
+      tensor_mem_limit_gb: 6.0
+      float32: false
+      pbc: false
+    time:
+      dt_factor: 0.15
+      log_every: 1
+    tolerances:
+      flip_angle_deg: 90.0
+      flip_band_deg: 30.0
+      flip_dwell_T0: 0.5
+      flip_settle_frac: 0.05
+      dt_guard_alpha: 0.35
+      domain_tol_deg: 15.0
+  damping_sweep:
+    grid_n: 30
+    n_seeds: 5
+    n_dampings: 8
+    Q_min: 0.05
+    Q_max: 15.0
+    t_sim_periods: 40.0
+    dt_factor: 0.05
+    domain_tol: 15.0
+    forc_n_curves: 20
+    quick_test:
+      n_seeds: 1
+      n_dampings: 3
+      t_sim_periods: 8.0
+      grid_n: 12
+      forc_n_curves: 3
+  sweep_damping_hysteresis:
+    N_grid: 30
+    M_grid: 30
+    n_damping: 8
+    Q_min: 0.05
+    Q_max: 15.0
+    cutoff: 3.5
+    dt_factor: 0.04
+    t_sim_in_T0: 60.0
+  damping_sweep_analysis:
+    mad_threshold: 4.0
+  avalanche_processor:
+    t_link_T0: 1,2,4
+    r_link_rnn: 1.05
+    min_tail: 100
+  rendering:
+    dpi_default: 300
+    figsize_default: 6.0
+run:
+  compass_engine:
+    out_dir: compassV2_output
+    tag: triangular_hysteresis_ref
+    seed: 23456
+    use_gpu: false
+    progress: false
+    verbose: false
+    make_plot: false
+    event_log: false
+    dt_guard_substep: false
+    png_dpi: 60
+    png_transparent: false
+    png_with_axes: false
+    png_no_panel_titles: false
+  damping_sweep:
+    geometries: square,triangular,honeycomb
+    pbc: 0
+    use_gpu: 0
+    damping_noise: 0.0
+    skip_relax_stage: 0
+    skip_forc_stage: 0
+    quick_test: 0
+    n_workers: 1
+    resume: 0
+  sweep_damping_hysteresis:
+    seeds:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    geometries:
+    - square
+    - triangular
+    - honeycomb
+    gpu: 0
+    only_index: null
+  avalanche_processor:
+    out_dir: avalanche_analysis
+    channels: field,angle
+    group_by: geometry,field_mode,Q
+    make_plot: false
+  compass_generate_images:
+    run_dir: .
+    recursive: false
+    transparent: false
+    with_axes: false
+    no_panel_titles: false
+    verbose: false
+  plot_default_geometries_clean:
+    input_dir: geometry_figures
+    input_file: null
+    output_file: null
+    output_dir: null
+    single: false
+    tag_suffix: _default
+    transparent: false
+  damping_sweep_analysis:
+    geometry_colors:
+      square: '#2E86AB'
+      triangular: '#E94560'
+      honeycomb: '#3CB371'
+    geometry_markers:
+      square: o
+      triangular: s
+      honeycomb: ^
