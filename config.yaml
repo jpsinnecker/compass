@@ -24,12 +24,13 @@ physics:
   # collapsing them to one key here changes nothing).
   # ---------------------------------------------------------------------
   constants:
-    mu0_over_4pi: 1.0e-7          # T*m/A -- mu0/(4*pi); compass.py:118
+    mu0_over_4pi: 1.0e-7          # T*m/A -- mu0/(4*pi); compass.py's MU0_OVER_4PI
 
   # ---------------------------------------------------------------------
-  # compass.py -- canonical engine. Module constants (compass.py:118-130)
-  # and the physics-flavored argparse group defaults (build_parser(),
-  # compass.py:1581-1649).
+  # compass.py -- canonical engine. Module-level constant defaults (see the
+  # "Physical constants and defaults" block near the top of the file) and
+  # the physics-flavored argparse group defaults (build_parser()'s "lattice
+  # geometry" / "needle physical properties" / "field protocol" groups).
   # ---------------------------------------------------------------------
   compass_engine:
     steel_density: 7850.0            # kg/m^3, needle blade material density
