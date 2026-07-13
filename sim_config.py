@@ -63,6 +63,7 @@ class CompassEnginePhysics:
     needle_thickness: float
     needle_frac_legacy: float
     use_legacy_size_from_R: int
+    legacy_width_to_length_ratio: float
     damping: float
     damping_noise: float
     pivot_radius: float
@@ -116,7 +117,6 @@ class SweepDampingHysteresisPhysics:
     steel_density: float
     pivot_radius: float
     pivot_thickness: float
-    needle_width_to_length_ratio: float
     B_max_factor: float
     noise_init: float
 
@@ -132,7 +132,18 @@ class NeedleRenderPhysics:
 class CompassGenerateImagesPhysics:
     r_nn_fallback: float
     needle_len_to_r_nn_fallback_ratio: float
-    needle_width_to_length_fallback_ratio: float
+
+
+@dataclass
+class NeedleGeometryPhysics:
+    """The single canonical needle width/length ratio (see docs/AUDIT.md P2
+    item 10 -- this used to be duplicated/inconsistent as 0.10 in
+    USER_GUIDE.md, 0.22 as an unrelated fallback guess in the plotting
+    scripts, and bare 0.30 literals in damping_sweep*.py). The *legacy*
+    --use_legacy_size_from_R ratio (0.22) is a genuinely different, real
+    constant and lives in CompassEnginePhysics.legacy_width_to_length_ratio
+    instead -- it is not folded in here."""
+    default_width_to_length_ratio: float
 
 
 @dataclass
@@ -143,6 +154,7 @@ class PhysicsConfig:
     damping_sweep: DampingSweepPhysics
     sweep_damping_hysteresis: SweepDampingHysteresisPhysics
     compass_generate_images: CompassGenerateImagesPhysics
+    needle_geometry: NeedleGeometryPhysics
     needle_render: NeedleRenderPhysics
 
 

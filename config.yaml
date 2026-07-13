@@ -40,6 +40,7 @@ physics:
     needle_thickness: 0.0004         # m, default blade thickness
     needle_frac_legacy: 0.80         # dimensionless, legacy blade-length fraction of 2R
     use_legacy_size_from_R: 0        # 0/1, use needle_frac*2R instead of explicit needle_len/width
+    legacy_width_to_length_ratio: 0.22  # dimensionless, needle_width = ratio * needle_len when use_legacy_size_from_R=1 (a real, distinct ratio from physics.needle_geometry's default -- see docs/AUDIT.md P2 item 10)
     damping: 5.0e-8                  # N*m*s/rad, viscous rotational damping coefficient b
     damping_noise: 0.0               # fraction, relative per-needle damping variation
     pivot_radius: 0.0                # m
@@ -111,18 +112,29 @@ physics:
     steel_density: 7850.0            # kg/m^3
     pivot_radius: 1.0e-3              # m, inline literal in _compute_derived_params
     pivot_thickness: 2.0e-3          # m, inline literal in _compute_derived_params
-    needle_width_to_length_ratio: 0.30  # dimensionless, needle_width = needle_len * ratio
     B_max_factor: 8.0                # dimensionless
     noise_init: 1.5                  # rad
 
   # ---------------------------------------------------------------------
   # compass_generate_images.py -- fallback geometry guesses used only when
   # an older NPZ/metadata file is missing r_nn/needle_len/needle_width.
+  # The width/length fallback ratio itself is compass_engine's legacy ratio
+  # (physics.compass_engine.legacy_width_to_length_ratio), not duplicated
+  # here -- see docs/AUDIT.md P2 item 10.
   # ---------------------------------------------------------------------
   compass_generate_images:
     r_nn_fallback: 1.0                          # m, used when r_nn missing entirely
     needle_len_to_r_nn_fallback_ratio: 0.8       # dimensionless, needle_len fallback = ratio * r_nn
-    needle_width_to_length_fallback_ratio: 0.22  # dimensionless, needle_width fallback = ratio * needle_len
+
+  # ---------------------------------------------------------------------
+  # The single canonical needle width/length ratio (see docs/AUDIT.md P2
+  # item 10). Used by damping_sweep.py/V02/V03 and sweep_damping_hysteresis.py
+  # to derive needle_width from needle_len. NOT the same as
+  # compass_engine.legacy_width_to_length_ratio (0.22), which is a real,
+  # separate ratio specific to the --use_legacy_size_from_R code path.
+  # ---------------------------------------------------------------------
+  needle_geometry:
+    default_width_to_length_ratio: 0.30  # dimensionless, needle_width = needle_len * ratio
 
   # ---------------------------------------------------------------------
   # Needle-drawing visual proportions shared verbatim across

@@ -146,12 +146,9 @@ SOURCE_FILE_TIMESTAMP = "2026-07-10T11:50:24-03:00"  # generation/update timesta
 
 
 def wrap_angle(a):
-    """Wrap angle(s) to (-pi, pi]. Works for NumPy or CuPy arrays."""
+    """Wrap angle(s) to (-pi, pi]. Works for plain NumPy arrays as well as
+    NumPy/CuPy backend arrays (math.pi broadcasts fine against either)."""
     return (a + math.pi) % (2.0 * math.pi) - math.pi
-
-
-def wrap_angle_np(a: np.ndarray) -> np.ndarray:
-    return (a + np.pi) % (2.0 * np.pi) - np.pi
 
 
 def safe_float(x) -> float:
@@ -345,7 +342,7 @@ def make_lattice(
         # changing the lattice spacing also changes the needle blade size.
         # This should not be used for calibrated research runs.
         needle_len_eff = needle_frac * d
-        needle_width_eff = 0.22 * needle_len_eff
+        needle_width_eff = CFG.physics.compass_engine.legacy_width_to_length_ratio * needle_len_eff
     else:
         # Research convention: the physical needle dimensions are independent
         # of the lattice spacing. This matches the project-report apparatus.
@@ -931,7 +928,7 @@ def domain_statistics(theta_cpu: np.ndarray, x_cpu: np.ndarray, y_cpu: np.ndarra
         neigh = np.where(dist <= 1.05 * r_nn)[0] + i + 1
         if neigh.size == 0:
             continue
-        dtheta = np.abs(wrap_angle_np(theta_cpu[i] - theta_cpu[neigh]))
+        dtheta = np.abs(wrap_angle(theta_cpu[i] - theta_cpu[neigh]))
         for j in neigh[dtheta <= tol]:
             union(i, int(j))
 
@@ -1219,10 +1216,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     guard_max_ratio = 0.0
 
     invI = 1.0 / inertia
-    dt2_half = 0.5 * dt * dt
-    b_half = damping * dt * 0.5 * invI
-    coeff_omega = (1.0 - b_half) / (1.0 + b_half)
-    coeff_tau = dt * 0.5 * invI / (1.0 + b_half)
 
     tag = args.tag or f"{args.geometry}_{args.field_mode}_N{args.N}_M{args.M}_seed{seed}"
     if args.event_log:
@@ -1449,7 +1442,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             c_ta = dt_s * 0.5 * invI / (1.0 + bh)
             acc = (ta - damping * om) * invI
             th_n = th + om * dt_s + 0.5 * dt_s * dt_s * acc
-            th_n = (th_n + math.pi) % (2.0 * math.pi) - math.pi
+            th_n = wrap_angle(th_n)
             ta_n, btx, bty = torque_and_field(th_n, bx, by)
             om_n = om * c_om + (ta + ta_n) * c_ta
             return th_n, om_n, ta_n, btx, bty
@@ -1469,10 +1462,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             t = step * dt
             f = protocol.at(t)
 
-            theta_new = theta + omega * dt + (tau - damping * omega) * invI * dt2_half
-            theta_new = (theta_new + math.pi) % (2.0 * math.pi) - math.pi
-            tau_new, Btx, Bty = torque_and_field(theta_new, f.bx, f.by)
-            omega_new = omega * coeff_omega + (tau + tau_new) * coeff_tau
+            theta_new, omega_new, tau_new, Btx, Bty = verlet_step(theta, omega, tau, f.bx, f.by, dt)
 
             # --------------------------------------------------------------
             # Stability monitor: local stiffness frequency from |B_i|.

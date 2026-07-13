@@ -16,6 +16,7 @@ physics:
     needle_thickness: 0.0004
     needle_frac_legacy: 0.8
     use_legacy_size_from_R: 0
+    legacy_width_to_length_ratio: 0.22
     damping: 5.0e-08
     damping_noise: 0.0
     pivot_radius: 0.0
@@ -67,13 +68,13 @@ physics:
     steel_density: 7850.0
     pivot_radius: 0.001
     pivot_thickness: 0.002
-    needle_width_to_length_ratio: 0.3
     B_max_factor: 8.0
     noise_init: 1.5
   compass_generate_images:
     r_nn_fallback: 1.0
     needle_len_to_r_nn_fallback_ratio: 0.8
-    needle_width_to_length_fallback_ratio: 0.22
+  needle_geometry:
+    default_width_to_length_ratio: 0.3
   needle_render:
     colors:
       blue_north: '#0017B8'

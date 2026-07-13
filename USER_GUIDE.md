@@ -38,7 +38,7 @@ Where:
 
 ### Automatic Property Calibration
 If not supplied explicitly via the CLI, the magnetic moment $m$ ($A \cdot m^2$) and moment of inertia $I$ ($kg \cdot m^2$) are calculated automatically based on the geometry of the needle, assuming it is a flat rectangular steel sheet:
-* **Mass**: Computed from thickness, length ($2R \cdot \text{needle\_frac}$), width ($L / 10$), and steel density ($\rho \approx 7850\text{ kg/m}^3$).
+* **Mass**: Computed from thickness, length ($2R \cdot \text{needle\_frac}$), width ($0.30 \times L$ by default; independently configurable via `--needle_width`), and steel density ($\rho \approx 7850\text{ kg/m}^3$).
 * **Inertia ($I$)**: $\frac{1}{12} \cdot \text{mass} \cdot (\text{length}^2 + \text{width}^2)$.
 * **Magnetic Moment ($m$)**: $M_s \cdot \text{volume}$, where $M_s = B_{\text{sat}} / \mu_0$ (saturation magnetization of steel, default $B_{\text{sat}} = 2.0\text{ T}$).
 
