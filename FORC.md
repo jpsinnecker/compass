@@ -73,3 +73,17 @@ When configuring your target constant sweep rate $R$, ensure it satisfies the fo
 
 2. **Damping ($Q$) Coupling:**
    In underdamped regimes ($Q = 15$), a continuous field sweep acts as a periodic driving force that can resonate with the lattice. Ensure the sweep rate is slow enough to allow local torques to settle, avoiding purely inertial cascading artifacts that do not represent true magnetic field-driven avalanches.
+
+---
+
+## 5. The Same Principle, Applied to Hysteresis Mode
+
+The variable-sweep-rate trap from Section 2 is not FORC-specific: any protocol that derives $dB/dt$ implicitly from a fixed total duration over a variable-length path is at risk of it.
+
+`-field_mode hysteresis` has since gained its own rate-varying feature, `-hyst_slow_window B_lo,B_hi` + `-hyst_slow_factor f`, which divides the sweep rate by $f$ while $|B|$ is inside $[B_{\text{lo}}, B_{\text{hi}}]$ (both branches). This is implemented following Method B above, not Method A: `build_hysteresis_schedule()` constructs an explicit piecewise-linear `HystSchedule` of `HystLeg`s (constant rate per leg, split at the exact window boundaries), and the branch/global durations are recomputed from those legs rather than held fixed. Concretely:
+
+- Each leg's rate is a first-class, explicit quantity (`HystLeg.rate_T_per_s`), never inferred after the fact from a fixed total time divided across unequal segments.
+- The total simulated time (`t_sim` used for `n_steps`) is derived from the sum of actual leg durations, so it grows to accommodate a slow window rather than silently compressing the rate outside it.
+- Every run's metadata JSON records the full segment list (`t_start`, `t_end`, `B_start`, `B_end`, `rate_T_per_s`, `branch` per leg) plus the base and slowed rates, so — exactly as Section 2 argues for FORC curves — the actual rate a dataset was produced under is always explicit and reported, never left to be reverse-engineered from `t_sim / n_segments`.
+
+With no window requested (the default), the hysteresis schedule collapses to the original five-equal-duration branches at one constant rate, so this generalization changes nothing for existing datasets.
