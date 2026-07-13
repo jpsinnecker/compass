@@ -1,7 +1,8 @@
 % ======================================================================
 % Development and Research Report for compass_sim -- Report V52
 % Updated after review of compass(3).py / compass.py V2.0.2
-% Compile with: pdflatex project_report_compassV02_updated.tex (twice for TOC)
+% Compile with: pdflatex project_report.tex (twice for TOC), run from docs/
+% (figure paths are relative to this file's directory: ../figs/...)
 % ======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -73,7 +74,7 @@ research-grade development report for the \code{compass\_sim} project}\\[1ex]
 
 \begin{abstract}
 \noindent
-This report is a laboratory notebook and research-development record for the \code{compass\_sim} project. The project started as a visual simulation of interacting compass needles and evolved into a numerical platform for studying nonequilibrium collective magnetism in two-dimensional dipolar arrays. The current uploaded branch, \code{compass.py}, is version V2.0.2 with source timestamp 2026-07-10 11:50:24 UTC-3. It exposes reproducible physical parameters, explicit cutoff definitions, research-grade observables, avalanche activity counters, energy accounting, JSON metadata with creation timestamps, initial and final \code{.npz} state snapshots, automatic initial/final lattice PNG figures, and field protocols suitable for static-field, hysteresis, First-Order Reversal Curve (FORC), pulse, step-up, step-down, sinusoidal, and demagnetization studies. The central scientific objective is to test whether inertial dynamics and viscous damping, summarized by the quality factor $Q$, change correlated magnetic reversal in long-range anisotropic dipolar lattices. The report therefore records not only what the code does, but also why each observable and protocol is needed to address publishable gaps in compass-needle arrays, artificial spin ice, FORC analysis of correlated systems, and damping-controlled avalanche dynamics.
+This report is a laboratory notebook and research-development record for the \code{compass\_sim} project. The project started as a visual simulation of interacting compass needles and evolved into a numerical platform for studying nonequilibrium collective magnetism in two-dimensional dipolar arrays. The current canonical engine, \code{compass.py}, is version 2.1.0, as of commit \texttt{d1a9895} (2026-07-12); provenance is tracked through the project's git history rather than through a hardcoded source-file timestamp, since a hardcoded timestamp cannot be kept in sync by construction and previously went stale (see \code{docs/AUDIT.md}, bug B4). It exposes reproducible physical parameters, explicit cutoff definitions, research-grade observables, hardened avalanche activity counters with a numerical-stability guard, energy accounting, JSON metadata with creation timestamps, initial and final \code{.npz} state snapshots, automatic initial/final lattice PNG figures, and field protocols suitable for static-field, hysteresis, First-Order Reversal Curve (FORC), pulse, step-up, step-down, sinusoidal, and demagnetization studies. The central scientific objective is to test whether inertial dynamics and viscous damping, summarized by the quality factor $Q$, change correlated magnetic reversal in long-range anisotropic dipolar lattices. The report therefore records not only what the code does, but also why each observable and protocol is needed to address publishable gaps in compass-needle arrays, artificial spin ice, FORC analysis of correlated systems, and damping-controlled avalanche dynamics.
 \end{abstract}
 
 \tableofcontents
@@ -217,21 +218,21 @@ The same physical needle is then replicated on one of the lattice geometries use
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/square_default_geometry_clean_colored.png}
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{../figs/square_default_geometry_clean_colored.png}
 \caption{Square-lattice geometry used by \code{compass.py}. Pivots lie on a rectangular grid with four nearest neighbours in the bulk. This is the least frustrated of the three default geometries and provides the natural baseline for interpreting domains, hysteresis loops, and avalanche activity. Because the principal lattice directions are orthogonal, field sweeps along $x$ or $y$ have a simple relation to rows and columns of needles.}
 \label{fig:square_geometry}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/triangular_default_geometry_clean_colored.png}
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{../figs/triangular_default_geometry_clean_colored.png}
 \caption{Triangular-lattice geometry. Each bulk pivot has six nearest neighbours, giving the highest local coordination among the default arrays. The equilateral triangular connectivity introduces strong geometric competition for dipolar alignment, so this geometry is expected to be especially sensitive to frustration, overshoot, and damping-controlled pathway selection. It is therefore a key test case for distinguishing purely static dipolar effects from genuinely dynamical inertial effects.}
 \label{fig:triangular_geometry}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{figs/honeycomb_default_geometry_clean_colored.png}
+\includegraphics[width=0.62\textwidth,height=0.42\textheight,keepaspectratio]{../figs/honeycomb_default_geometry_clean_colored.png}
 \caption{Honeycomb-lattice geometry. The honeycomb array can be viewed as a triangular construction with systematic removal of sites, producing hexagonal voids and three nearest neighbours per bulk pivot. This lower coordination changes both the available domain-wall paths and the local reversal constraints. It also gives a geometry closer in spirit to artificial-spin-ice networks, while retaining the continuous-angle compass-needle dynamics of the present model.}
 \label{fig:honeycomb_geometry}
 \end{figure}
@@ -337,7 +338,7 @@ $\theta_{\rm dir}$ & Director angle, defined modulo $\pi$. Used for pulse-memory
 $q_{\rm axis}$ & Square-lattice-inspired axis-population imbalance. Useful for comparison with compass-lattice line formation.\\
 \code{flip\_field} & Number of sign reversals relative to the field axis between logged states. A discrete activity channel for field-driven avalanches.\\
 \code{flip\_angle} & Number of needles whose angular increment exceeds a threshold. A field-independent activity channel useful near zero field and in relaxation.\\
-$E_{\rm dip}$, $E_{\rm ext}$, $K_{\rm rot}$, $E_{\rm total}$ & Energy ledger. Needed to interpret relaxation pathways, dissipation, and numerical stability.\\
+$E_{\rm dip}$, $E_{\rm ext}$, $E_{\rm kin}$, $E_{\rm total}$ & Energy ledger ($E_{\rm kin}$ is the rotational kinetic energy $\tfrac12 I\sum_i\omega_i^2$, logged as the \code{E\_kin\_J} CSV column). Needed to interpret relaxation pathways, dissipation, and numerical stability.\\
 $\omega_{\rm rms}$, $\omega_{\rm max}$ & Dynamical activity indicators. Useful to identify residual oscillations and compare damping regimes.\\
 \end{longtable}
 
@@ -373,14 +374,14 @@ Each V2.0.2 run writes a tagged directory tree under \code{--out\_dir}. The curr
 
 The initial state is saved before time integration, after lattice generation, random angular initialization, physical-parameter derivation, protocol construction, tensor precomputation, and metadata assembly. The final state is saved after the full integration and contains the final angles and angular velocities. Both state files contain \code{xs}, \code{ys}, \code{theta}, \code{omega}, \code{r\_nn}, and a serialized \code{metadata\_json} field. This design makes the automatic figures reproducible without re-running the simulation.
 
-The metadata records the program name, version, \code{source\_file\_timestamp}, \code{created\_unix\_time}, \code{created\_datetime\_utc}, \code{created\_datetime\_local}, the effective configuration, derived quantities such as $K$, $r_{\rm nn}$, $B_{\rm ref}$, $B_{\rm eff}$, $\omega_0$, $T_0$, $\Delta t$, $Q$, cutoff policy, tensor memory, numerical dtype, final domain statistics, and runtime. The CSV alone is therefore not treated as a complete scientific record; interpretation also requires the JSON metadata and the state snapshots.
+The metadata records the program name, version, \code{source\_file\_timestamp}, \code{created\_unix\_time}, \code{created\_datetime\_utc}, \code{created\_datetime\_local}, the effective configuration, derived quantities such as $N_{\rm needles}$, $r_{\rm nn}$, $B_{\rm ref}$, $B_{\rm eff}$, $\omega_0$, $T_0$, $\Delta t$, $Q$, cutoff policy, tensor memory, numerical dtype, final domain statistics, and runtime. The CSV alone is therefore not treated as a complete scientific record; interpretation also requires the JSON metadata and the state snapshots.
 
 The \code{--make\_plot} option is now separate from lattice visualization. Lattice PNGs are generated automatically for every run, while \code{--make\_plot} adds diagnostic time-series plots based on the CSV.
 
 \subsection{Efficiency design}
 
 
-The main computational cost is the dipolar field, which scales as $K^2$ for $K$ needles. Since needle positions are fixed, V2 uses a precomputed interaction tensor when memory allows. The field is then obtained from matrix-vector products rather than rebuilding all pair separations at every time step. This is efficient on CPU through BLAS and can also benefit from GPU acceleration for sufficiently large arrays.
+The main computational cost is the dipolar field, which scales as $N_{\rm needles}^2$ for $N_{\rm needles}$ needles. Since needle positions are fixed, V2 uses a precomputed interaction tensor when memory allows. The field is then obtained from matrix-vector products rather than rebuilding all pair separations at every time step. This is efficient on CPU through BLAS and can also benefit from GPU acceleration for sufficiently large arrays.
 
 The code also provides \code{--float32} for exploratory GPU or memory-limited scans. Final publication-quality results should remain in double precision unless a documented convergence test shows that single precision gives indistinguishable observables.
 
@@ -695,7 +696,7 @@ This is the point at which the code becomes credible as a research tool, provide
 % ======================================================================
 
 \begin{longtable}{@{}p{4.4cm}p{10.4cm}@{}}
-\caption{Main command-line parameters of \code{compass.py} V2.0.2.}\label{tab:cli}\\
+\caption{Main command-line parameters of \code{compass.py}, version 2.1.0 (as of commit \texttt{d1a9895}). Flag names and default values in this table are checked against \code{build\_parser()} by \code{tools/generate\_cli\_reference.py}; see the note at the end of this appendix.}\label{tab:cli}\\
 \toprule
 \textbf{Parameter} & \textbf{Meaning}\\
 \midrule
@@ -717,6 +718,9 @@ This is the point at which the code becomes credible as a research tool, provide
 \code{--damping}, \code{--damping\_noise} & Central viscous damping and random per-needle relative damping variation.\\
 \code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, time-step factor $\Delta t/T_0$, initial angular noise amplitude, random seed, and CSV output cadence.\\
 \code{--flip\_angle\_deg} & Threshold for the field-independent large-rotation activity counter.\\
+\code{--flip\_band\_deg}, \code{--flip\_dwell\_T0}, \code{--flip\_settle\_frac} & Parameters of the V2.1 hardened, ringing-proof \code{flip\_field}/\code{flip\_angle} avalanche counters (Schmitt-trigger dead-band half-width around the perpendicular to the drive axis; dwell time, in units of $T_0$, required before a state change is committed; and the $|\omega|$ settling threshold, as a fraction of $\omega_0$, for the rest-angle channel). Defaults: \SI{30}{\degree}, $0.5\,T_0$, and $0.05\,\omega_0$.\\
+\code{--event\_log} & If set, writes a per-committed-event CSV (\code{step}, \code{t}, \code{needle\_id}, \code{channel}, \code{theta}) for offline spatio-temporal avalanche clustering. Off by default.\\
+\code{--dt\_guard\_alpha}, \code{--dt\_guard\_substep} & V2.1 numerical-stability monitor: an integration step is flagged when the local field-derived stiffness frequency $\sqrt{m|B_i|/I}$ times $\Delta t$ exceeds the threshold \code{--dt\_guard\_alpha} (default $0.35$). \code{--dt\_guard\_substep} optionally re-integrates flagged steps with 4 global sub-steps (off by default; breaks strict symplecticity, so treat as exploratory).\\
 \code{--cutoff\_shells}, \code{--cutoff\_m} & Dipolar cutoff in units of the computed nearest-neighbour distance or as an absolute length. \code{--cutoff\_m} overrides \code{--cutoff\_shells}.\\
 \code{--pbc}, \code{--n\_images} & Periodic boundary conditions and number of periodic images in each direction.\\
 \code{--tensor\_mem\_limit\_gb} & Memory limit for the precomputed dipolar tensor.\\
@@ -732,6 +736,8 @@ This is the point at which the code becomes credible as a research tool, provide
 \code{--png\_dpi}, \code{--png\_transparent}, \code{--png\_with\_axes}, \code{--png\_no\_panel\_titles} & Options for the automatic lattice PNGs.\\
 \code{--domain\_tol\_deg} & Angular tolerance used by the final connected-component domain-statistics calculation.\\
 \end{longtable}
+
+\noindent\textit{On keeping this table current.} \code{tools/generate\_cli\_reference.py} introspects \code{build\_parser()} directly and can print every flag's name, default value, and \code{argparse} help string; running it (or its \code{--check} mode) is the fastest way to detect a drift like the one this appendix previously had (the six V2.1 flags above were missing entirely). Full automatic regeneration of this table was evaluated but not adopted wholesale: roughly a third of the flags in \code{build\_parser()} have no \code{help=} string in the source, so a purely mechanical dump would replace several of the descriptions above with a placeholder. The flag names and default values above are verified against the script's output; the prose descriptions for flags lacking a source \code{help=} string remain hand-authored and could in principle drift again if the underlying behavior changes without updating this table.
 
 % ======================================================================
 \section{Appendix B: expected V2 CSV structure}
@@ -774,6 +780,8 @@ V2 research branch & 10/07/2026 & New \code{compass.py}: explicit cutoff, new ob
 Report V51 & 10/07/2026 & Rewrote the report around the best academic objectives and the V2 research branch, while preserving the laboratory-notebook logic.\\
 V2.0.2 / compass(3).py & 10/07/2026 & Source timestamp added; metadata now records source and run creation times; the simulation saves initial and final NPZ state files and always generates initial, final, and side-by-side lattice PNGs.\\
 Report V52 & 10/07/2026 & Updated the report to match the uploaded \code{compass(3).py} / \code{compass.py} V2.0.2 implementation, including exact output structure, CSV header, PNG options, and timestamp metadata.\\
+V2.1 / V2.2 generation & 12/07/2026 & Hardened, ringing-proof \code{flip\_field}/\code{flip\_angle} avalanche counters (Schmitt-trigger dead-band plus dwell-time debouncing on the drive-axis channel; settle-then-commit debouncing on the rest-angle channel); a numerical-stability guard monitoring the local field-derived stiffness frequency against $\Delta t$, with an optional global 4-way sub-stepping correction; and optional per-committed-event CSV logging (\code{--event\_log}) for offline spatio-temporal avalanche clustering.\\
+Report V53 & 12/07/2026 & Updated the report to describe the current canonical engine (version 2.1.0, git commit \texttt{d1a9895}) rather than the V2.0.2 snapshot: replaced the hardcoded source-file timestamp in the abstract with git-based provenance, added the six V2.1 flags to Appendix~\ref{app:cli}, resolved the $K$/$K_{\rm rot}$ notation collision, and added this row.\\
 \end{longtable}
 
 % ======================================================================

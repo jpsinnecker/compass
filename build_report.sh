@@ -1,8 +1,12 @@
 #!/bin/bash
-# build_report.sh — Compile relatorio_projeto_V22_EN.tex to PDF
+# build_report.sh — Compile docs/project_report.tex to PDF
 #
 # Uses scratch dir for pdflatex outputs (avoids Dropbox sandbox restrictions),
 # then copies the PDF back. Run this script from a regular Terminal.
+#
+# project_report.tex lives in docs/ and references figures as ../figs/...,
+# so the scratch build mirrors that same docs/ + figs/ sibling layout
+# rather than flattening everything into one directory.
 #
 # Usage:
 #   bash build_report.sh
@@ -25,18 +29,18 @@ else
 fi
 TEX="project_report"
 
-mkdir -p "$BUILD"
-cp "$WS/${TEX}.tex" "$BUILD/"
+mkdir -p "$BUILD/docs"
+cp "$WS/docs/${TEX}.tex" "$BUILD/docs/"
 cp -r "$WS/figs" "$BUILD/" 2>/dev/null || true
 
-cd "$BUILD"
+cd "$BUILD/docs"
 echo "=== Pass 1 ==="
 "$PDFLATEX" -interaction=nonstopmode "${TEX}.tex"
 echo "=== Pass 2 ==="
 "$PDFLATEX" -interaction=nonstopmode "${TEX}.tex"
 
-cp "${TEX}.pdf" "$WS/"
+cp "${TEX}.pdf" "$WS/docs/"
 echo ""
 echo "✓ PDF compiled and copied to workspace:"
-echo "  $WS/${TEX}.pdf"
-#open "$WS/${TEX}.pdf"
+echo "  $WS/docs/${TEX}.pdf"
+#open "$WS/docs/${TEX}.pdf"
