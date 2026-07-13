@@ -95,7 +95,7 @@ import math
 import os
 import time
 from datetime import datetime, timezone
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -520,6 +520,143 @@ def build_forc_schedule(
 
 
 @dataclass
+class HystLeg:
+    """One piecewise-linear leg of the hysteresis schedule: a straight ramp
+    in B from B_start to B_end over [t_start, t_end], at one constant rate.
+    A branch with no active slow window is exactly one leg; a branch that
+    overlaps the slow window is split into up to three legs (before/inside/
+    after the window) so B(t) stays piecewise-linear and continuous (dB/dt
+    is allowed to change discontinuously only at the window boundaries)."""
+    t_start: float
+    t_end: float
+    B_start: float
+    B_end: float
+    branch: str
+
+    @property
+    def rate_T_per_s(self) -> float:
+        dt = self.t_end - self.t_start
+        return (self.B_end - self.B_start) / dt if dt > 1e-300 else 0.0
+
+
+@dataclass
+class HystSchedule:
+    legs: List[HystLeg]
+    total_time: float
+    base_rate_T_per_s: float
+    slow_rate_T_per_s: Optional[float]
+    has_window: bool = False
+    leg_ends: np.ndarray = field(default_factory=lambda: np.array([]))
+
+
+def build_hysteresis_schedule(
+    Bmax: float,
+    t_sim_nominal: float,
+    slow_lo: Optional[float],
+    slow_hi: Optional[float],
+    slow_factor: float,
+) -> HystSchedule:
+    """Explicit piecewise-linear schedule for the five-branch hysteresis
+    cycle 0 -> +Bmax -> 0 -> -Bmax -> 0 -> +Bmax.
+
+    Each branch's BASE duration is t_sim_nominal / 5, giving a constant
+    base rate base_rate = Bmax / (t_sim_nominal / 5). This reproduces the
+    previous fixed-duration convention exactly when no slow window is
+    requested (slow_lo/slow_hi is None, or slow_factor == 1.0): exactly one
+    leg per branch, duration t_sim_nominal / 5, dB/dt == base_rate
+    throughout, and total_time == t_sim_nominal (durations are computed as
+    (span / Bmax) * (t_sim_nominal / 5), matching the original u = t / t5
+    formula's own arithmetic so the no-window case is bit-identical).
+
+    If a window [slow_lo, slow_hi] (0 <= slow_lo < slow_hi <= Bmax) is
+    given, the local sweep rate for |B| inside that window is divided by
+    slow_factor on every branch (both up- and down-sweeps, since the
+    window is defined on |B|); the base rate is kept everywhere else. Each
+    branch is split into up to three legs -- before / inside / after the
+    window -- at the exact window boundaries.
+
+    Branch durations therefore grow wherever the window overlaps them, and
+    total_time (the sum of all leg durations) is intentionally NOT clamped
+    back to t_sim_nominal: see FORC.md's "variable sweep rate trap"
+    discussion -- a physically meaningful sweep rate must be an explicit,
+    reported quantity, not an accident of holding the total time fixed.
+    """
+    T0 = max(t_sim_nominal, 1e-30) / 5.0
+    base_rate = abs(Bmax) / T0
+
+    has_window = (
+        slow_lo is not None
+        and slow_hi is not None
+        and Bmax > 0
+        and slow_factor != 1.0
+        and slow_hi > slow_lo
+    )
+    if has_window:
+        lo = max(0.0, min(slow_lo, Bmax))
+        hi = max(lo, min(slow_hi, Bmax))
+    else:
+        lo = hi = 0.0
+
+    branch_defs = [
+        (0.0, +Bmax, "0_to_pos"),
+        (+Bmax, 0.0, "pos_to_0"),
+        (0.0, -Bmax, "0_to_neg"),
+        (-Bmax, 0.0, "neg_to_0"),
+        (0.0, +Bmax, "0_to_pos_final"),
+    ]
+
+    legs: List[HystLeg] = []
+    t_cursor = 0.0
+    for B_start, B_end, branch in branch_defs:
+        extreme = B_end if abs(B_end) > abs(B_start) else B_start
+        branch_sign = 1.0 if extreme >= 0.0 else -1.0
+        ascending = B_end >= B_start  # traversal direction in signed-B space
+
+        points = [B_start, B_end]
+        if has_window:
+            for mag in (lo, hi):
+                signed_pt = branch_sign * mag
+                if min(B_start, B_end) < signed_pt < max(B_start, B_end):
+                    points.append(signed_pt)
+        points = sorted(set(points))
+        if not ascending:
+            points = points[::-1]
+
+        for p_start, p_end in zip(points[:-1], points[1:]):
+            mag_mid = 0.5 * abs(p_start + p_end)
+            inside_window = has_window and (lo < mag_mid < hi)
+            if Bmax == 0.0:
+                frac = 1.0  # degenerate zero-amplitude sweep: no window possible
+            else:
+                frac = abs(p_end - p_start) / abs(Bmax)
+            duration = frac * T0 * (slow_factor if inside_window else 1.0)
+            legs.append(HystLeg(t_cursor, t_cursor + duration, p_start, p_end, branch))
+            t_cursor += duration
+
+    slow_rate = (base_rate / slow_factor) if has_window else None
+    leg_ends = np.array([l.t_end for l in legs])
+    return HystSchedule(legs, t_cursor, base_rate, slow_rate, has_window, leg_ends)
+
+
+def _parse_hyst_slow_window(spec: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
+    """Parse --hyst_slow_window "B_lo,B_hi" into (B_lo, B_hi) floats, or
+    (None, None) if spec is None (feature disabled -- default behavior)."""
+    if spec is None:
+        return None, None
+    parts = spec.split(",")
+    if len(parts) != 2:
+        raise SystemExit(
+            f"--hyst_slow_window must be 'B_lo,B_hi' (got {spec!r})"
+        )
+    lo, hi = float(parts[0]), float(parts[1])
+    if not (0.0 <= lo < hi):
+        raise SystemExit(
+            f"--hyst_slow_window requires 0 <= B_lo < B_hi (got B_lo={lo}, B_hi={hi})"
+        )
+    return lo, hi
+
+
+@dataclass
 class FieldProtocol:
     mode: str
     Bmax: float
@@ -530,6 +667,7 @@ class FieldProtocol:
     sine_freq: float = 1.0
     hyst_spacing: str = "linear"
     hyst_log_k: float = 5.0
+    hyst_schedule: Optional[HystSchedule] = None
     forc: Optional[ForcSchedule] = None
     demag_freq: float = 2.0
     demag_cycles: int = 20
@@ -552,24 +690,60 @@ class FieldProtocol:
             Bs = B
 
         elif mode == "hysteresis":
-            T = max(self.t_sim, 1e-30)
-            t5 = T / 5.0
-            if t <= t5:
-                u, sgn, branch = t / t5, +1.0, "0_to_pos"
-            elif t <= 2.0 * t5:
-                u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
-            elif t <= 3.0 * t5:
-                u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
-            elif t <= 4.0 * t5:
-                u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
-            else:
-                u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
-            u = max(0.0, min(1.0, u))
             if self.hyst_spacing == "log" and self.hyst_log_k > 1e-12:
+                # Log-spaced branch envelope: nonlinear g(u) within each of the
+                # five equal-duration branches. The slow-window feature is
+                # defined as piecewise-LINEAR rate scaling and is not composed
+                # with this mode (rejected earlier, at CLI-validation time), so
+                # this path is left byte-for-byte identical to the pre-existing
+                # implementation.
+                T = max(self.t_sim, 1e-30)
+                t5 = T / 5.0
+                if t <= t5:
+                    u, sgn, branch = t / t5, +1.0, "0_to_pos"
+                elif t <= 2.0 * t5:
+                    u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
+                elif t <= 3.0 * t5:
+                    u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
+                elif t <= 4.0 * t5:
+                    u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
+                else:
+                    u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
+                u = max(0.0, min(1.0, u))
                 g = math.sinh(self.hyst_log_k * u) / math.sinh(self.hyst_log_k)
+                Bs = sgn * B * g
+            elif self.hyst_schedule is not None and self.hyst_schedule.has_window:
+                # A slow window is active: B(t) is genuinely piecewise-linear
+                # across sub-branch legs, so it is sampled directly from the
+                # schedule (there is no pre-existing formula to match here).
+                sched = self.hyst_schedule
+                n = len(sched.legs)
+                k = int(np.searchsorted(sched.leg_ends, t, side="left"))
+                k = max(0, min(k, n - 1))
+                leg = sched.legs[k]
+                dt_leg = leg.t_end - leg.t_start
+                f = (t - leg.t_start) / dt_leg if dt_leg > 1e-300 else 0.0
+                f = max(0.0, min(1.0, f))
+                Bs = leg.B_start + f * (leg.B_end - leg.B_start)
+                branch = leg.branch
             else:
-                g = u
-            Bs = sgn * B * g
+                # No slow window: byte-for-byte identical to the pre-existing
+                # fixed-five-equal-segment implementation (required for
+                # backward compatibility -- see tests/test_hysteresis_protocol.py).
+                T = max(self.t_sim, 1e-30)
+                t5 = T / 5.0
+                if t <= t5:
+                    u, sgn, branch = t / t5, +1.0, "0_to_pos"
+                elif t <= 2.0 * t5:
+                    u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
+                elif t <= 3.0 * t5:
+                    u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
+                elif t <= 4.0 * t5:
+                    u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
+                else:
+                    u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
+                u = max(0.0, min(1.0, u))
+                Bs = sgn * B * u
 
         elif mode == "forc":
             if self.forc is None:
@@ -901,6 +1075,24 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         forc_schedule = None
         t_sim = args.t_sim
 
+    slow_lo, slow_hi = _parse_hyst_slow_window(args.hyst_slow_window)
+    has_slow_window = slow_lo is not None
+    if has_slow_window and args.hyst_spacing == "log":
+        raise SystemExit(
+            "--hyst_slow_window is not compatible with --hyst_spacing log: "
+            "the slow window is a piecewise-linear rate modification and does "
+            "not compose with the log-spaced branch envelope. Use "
+            "--hyst_spacing linear (the default) with --hyst_slow_window."
+        )
+
+    hyst_schedule = None
+    t_sim_nominal = t_sim
+    if args.field_mode == "hysteresis":
+        hyst_schedule = build_hysteresis_schedule(
+            B_ext, t_sim_nominal, slow_lo, slow_hi, args.hyst_slow_factor,
+        )
+        t_sim = hyst_schedule.total_time
+
     protocol = FieldProtocol(
         mode=args.field_mode,
         Bmax=B_ext,
@@ -911,6 +1103,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         sine_freq=args.field_freq,
         hyst_spacing=args.hyst_spacing,
         hyst_log_k=args.hyst_log_k,
+        hyst_schedule=hyst_schedule,
         forc=forc_schedule,
         demag_freq=args.demag_freq,
         demag_cycles=args.demag_cycles,
@@ -1080,8 +1273,30 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
 
     # Nominal drive sweep rate, logged so rate can be a first-class campaign
     # axis (athermal deterministic dynamics is rate-dependent by construction).
+    # For hysteresis mode this is the BASE rate (outside any slow window);
+    # see hyst_schedule below for the full explicit per-segment record --
+    # this mirrors FORC.md's "explicit, constant, reported rates" philosophy.
+    hyst_schedule_meta = None
     if args.field_mode == "hysteresis":
-        sweep_rate_T_s = abs(B_ext) / max(t_sim / 5.0, 1e-30)
+        sweep_rate_T_s = hyst_schedule.base_rate_T_per_s
+        hyst_schedule_meta = {
+            "base_rate_T_per_s": hyst_schedule.base_rate_T_per_s,
+            "slow_rate_T_per_s": hyst_schedule.slow_rate_T_per_s,
+            "slow_window_T": [slow_lo, slow_hi] if has_slow_window else None,
+            "slow_factor": args.hyst_slow_factor if has_slow_window else None,
+            "total_time_s": hyst_schedule.total_time,
+            "segments": [
+                {
+                    "t_start_s": leg.t_start,
+                    "t_end_s": leg.t_end,
+                    "B_start_T": leg.B_start,
+                    "B_end_T": leg.B_end,
+                    "rate_T_per_s": leg.rate_T_per_s,
+                    "branch": leg.branch,
+                }
+                for leg in hyst_schedule.legs
+            ],
+        }
     elif args.field_mode == "forc" and args.forc_rate is not None:
         sweep_rate_T_s = float(args.forc_rate)
     else:
@@ -1120,6 +1335,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "sweep_rate_T_per_s": sweep_rate_T_s,
             "sweep_rate_Bref_per_T0": (sweep_rate_T_s * T0 / B_ref) if (sweep_rate_T_s and B_ref > 0.0) else None,
         },
+        "hyst_schedule": hyst_schedule_meta,
         "notes": {
             "S1": "polar order |<exp(i theta)>|",
             "S2": "nematic/director order |<exp(2 i theta)>|",
@@ -1217,8 +1433,14 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             )
             flip_field_acc = 0
             flip_angle_acc = 0
+            return met.M_proj
 
-        write_row(0, 0.0, f0)
+        log_adaptive_threshold = float(args.log_adaptive)
+        adaptive_enabled = log_adaptive_threshold > 0.0
+        cos_phi_log = math.cos(phi)
+        sin_phi_log = math.sin(phi)
+
+        last_logged_M_proj = write_row(0, 0.0, f0)
 
         def verlet_step(th, om, ta, bx, by, dt_s):
             """One damped velocity-Verlet step of size dt_s. Returns new state."""
@@ -1329,8 +1551,16 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             omega = omega_new
             tau = tau_new
 
-            if step % log_every == 0 or step == n_steps:
-                write_row(step, t, f)
+            adaptive_trigger = False
+            if adaptive_enabled:
+                quick_m = safe_float(
+                    xp.mean(xp.cos(theta)) * cos_phi_log + xp.mean(xp.sin(theta)) * sin_phi_log
+                )
+                if abs(quick_m - last_logged_M_proj) > log_adaptive_threshold or n_commit_ff > 0 or n_commit_fa > 0:
+                    adaptive_trigger = True
+
+            if step % log_every == 0 or step == n_steps or adaptive_trigger:
+                last_logged_M_proj = write_row(step, t, f)
                 if len(event_buffer) >= 4096:
                     flush_events()
 
@@ -1626,6 +1856,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--noise", type=float, default=phys_cfg.noise, help="initial angular noise amplitude [rad]")
     g.add_argument("--seed", type=int, default=run_cfg.seed)
     g.add_argument("--log_every", type=int, default=time_cfg.log_every, help="write one CSV row every this many integration steps")
+    g.add_argument("--log_adaptive", type=float, default=tol_cfg.log_adaptive_threshold, help="if > 0, also write a CSV row on any step where |delta M_proj| since the last logged row exceeds this threshold, or a flip_field/flip_angle event was just committed (adaptive output density); 0.0 (default) disables this and reproduces exactly the --log_every cadence")
     g.add_argument("--flip_angle_deg", type=float, default=tol_cfg.flip_angle_deg, help="rest-angle displacement threshold for the committed flip_angle channel")
     g.add_argument("--flip_band_deg", type=float, default=tol_cfg.flip_band_deg, help="Schmitt dead-band half-width around the perpendicular to the drive axis [deg]")
     g.add_argument("--flip_dwell_T0", type=float, default=tol_cfg.flip_dwell_T0, help="dwell time required to commit a flip, in units of T0")
@@ -1652,6 +1883,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--t_pulse", type=float, default=None, help="pulse duration [s]")
     g.add_argument("--hyst_spacing", choices=["linear", "log"], default=phys_cfg.hyst_spacing)
     g.add_argument("--hyst_log_k", type=float, default=phys_cfg.hyst_log_k)
+    g.add_argument("--hyst_slow_window", type=str, default=None, help="'B_lo,B_hi' [T]: sweep rate is divided by --hyst_slow_factor while |B| is inside this window (applies to both up- and down-sweeps); default None disables the feature (base rate everywhere, identical to previous behavior)")
+    g.add_argument("--hyst_slow_factor", type=float, default=phys_cfg.hyst_slow_factor, help="sweep-rate divisor inside --hyst_slow_window; 1.0 (default) is a no-op")
 
     g = p.add_argument_group("FORC protocol")
     g.add_argument("--forc_Br_min", type=float, default=None, help="minimum reversal field [T]; default -Bmax")

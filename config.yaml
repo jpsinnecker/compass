@@ -53,6 +53,7 @@ physics:
     field_delay: 0.0                 # s, delay before step/pulse protocols activate
     hyst_spacing: linear             # linear|log, time-warping of the hysteresis ramp
     hyst_log_k: 5.0                  # dimensionless, log-spacing concentration for hysteresis ramp
+    hyst_slow_factor: 1.0            # dimensionless, sweep-rate divisor inside --hyst_slow_window (1.0 = disabled, default)
     t_sim: 2.0                       # s, total simulated time (ignored for FORC/demag modes)
     noise: 1.5                       # rad, initial angular noise amplitude
     forc:
@@ -162,6 +163,7 @@ numerics:
       flip_settle_frac: 0.05             # fraction of omega0, |omega| settling threshold
       dt_guard_alpha: 0.35               # dimensionless, stability-monitor threshold
       domain_tol_deg: 15.0               # deg, angular tolerance for domain clustering
+      log_adaptive_threshold: 0.0        # |delta M_proj| between consecutive samples that forces a log row every step (0.0 = disabled, default)
 
   # ---------------------------------------------------------------------
   # damping_sweep.py / V02 / V03 -- shared campaign-grid parameters.
