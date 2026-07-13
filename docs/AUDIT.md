@@ -1,5 +1,27 @@
 # Codebase Audit — `simula agulhas` (Compass-Needle Lattice Simulator)
 
+> **Status: point-in-time snapshot, commit `52ab9cb` (2026-07-12). Not maintained after
+> that commit — do not treat the rest of this document as describing current reality.**
+> The bug/duplication/parameter analysis below is left as a historical record of what
+> was found and why; several of its headline claims and P0/P1/P2 items have since been
+> resolved, notably:
+> - **The canonical-engine split is gone.** `compassV2_2.py` has been promoted to
+>   `compass.py` (P1 item 4) and bug B4 fixed; every campaign/sweep script's
+>   `import compass as cs` now resolves to the actively-maintained engine, not a stale
+>   snapshot. See git log for `compass.py`.
+> - **A test suite now exists** (`tests/`, pytest), contradicting the "no test suite"
+>   claim in Scope below (P3 item 15).
+> - **The git history is no longer a single commit** — there is now real, incremental
+>   history (contradicting the Scope note below).
+> - **`USER_GUIDE.md` has been rewritten** against the actual current engine (P1 item 6),
+>   contradicting the §4.2 claim that it documents a dead lineage.
+> - Bugs B2 and B5, and P2 items 7–10, have also been fixed — see git log for
+>   `damping_sweepV03.py`, `plot_default_geometries_clean.py`, `compass.py`, and
+>   `plotting_common.py`.
+>
+> Bugs B1 and B3, and P3 items 11–14, remain open as of this banner's writing (P0 item 1
+> explicitly recommends abandoning rather than fixing B1/B3's scripts).
+
 **Scope.** This repository is a single-researcher physics-simulation project: 2D lattices of
 inertial, dipolar-coupled classical "compass needles," integrated with damped Velocity-Verlet
 dynamics, used to study hysteresis, FORC diagrams, avalanches, and demagnetization protocols in
