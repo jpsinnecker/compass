@@ -21,7 +21,8 @@ within a controlled cutoff. The code is intended for research studies of
 hysteresis, correlated reversal, damping-controlled avalanches, FORC curves,
 step/pulse relaxation, and director memory in classical dipolar arrays.
 
-Major improvements relative to compass.py V79
+Major improvements relative to the archived "V79" lineage (see
+archive/compass.py.bkp)
 ---------------------------------------------
 1. Explicit cutoff convention:
    --cutoff_shells specifies the cutoff as a multiple of r_nn.

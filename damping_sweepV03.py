@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-damping_sweepV03_compassV02_compatible.py
-===========================================
+damping_sweepV03.py
+====================
 
 Simulation campaign for the central study:
     "How does the damping coefficient control the shape of the
@@ -10,8 +10,8 @@ Simulation campaign for the central study:
     honeycomb)?"
 
 New in V03 (relative to V02):
-    Compatible with compass.py / compassV02.py V2.0.2, whose public API
-    no longer exposes make_grid(), relax(), or label_magnetic_domains().
+    Compatible with compass.py's run_simulation()-based API, which no
+    longer exposes make_grid(), relax(), or label_magnetic_domains().
     The sweep now calls cs.run_simulation() directly, reads the generated
     CSV and JSON outputs, and converts them back to the compact campaign
     field_log format used by the sweep analysis files.
@@ -83,7 +83,7 @@ _NUM = _CFG.numerics.damping_sweep
 _RUN = _CFG.run.damping_sweep
 
 # ────────────────────────────────────────────────────────────────────────
-# Compatibility layer for compass.py / compassV02.py V2.0.2
+# Compatibility layer for compass.py's run_simulation()-based API
 # ────────────────────────────────────────────────────────────────────────
 #
 # The current compass.py is organized around run_simulation(args) and no
@@ -103,7 +103,7 @@ if hasattr(cs, "make_initial_final_lattice_png"):
 
 def _make_grid_compat(N, M, geometry, noise, R):
     """Return the old sweep tuple (xs, ys, theta0, r_nn, Lx, Ly) using
-    compassV02.make_lattice()."""
+    compass.py's make_lattice()."""
     rng = np.random.default_rng()
     geom = cs.make_lattice(
         N=N, M=M, geometry=geometry, R=R,
@@ -217,7 +217,7 @@ def _default_compass_args(**overrides):
 
 
 def _read_compass_csv_as_field_log(csv_path, mode):
-    """Convert compassV02 CSV columns to the compact sweep field_log format.
+    """Convert compass.py CSV columns to the compact sweep field_log format.
 
     Standard sweep rows: [t, B, M, S]
     FORC rows:           [t, B, M, S, B_r, sweep_dir, curve_idx]
@@ -243,7 +243,7 @@ def _read_compass_csv_as_field_log(csv_path, mode):
         curve = np.asarray(data["forc_index"], dtype=int)
         rows = []
         for ti, bi, mi, si, br, ci in zip(t, B, M, S, branch, curve):
-            # B_r is not an explicit output column in compassV02. For campaign
+            # B_r is not an explicit output column in compass.py. For campaign
             # bookkeeping the branch and curve index are preserved; B_r is left
             # as NaN and can be recovered from metadata if needed.
             rows.append([float(ti), float(bi), float(mi), float(si), np.nan, str(br), int(ci)])
@@ -266,7 +266,7 @@ def _run_compass_v02_run(tag, out_dir, *, geometry, R, n_grid, seed,
                          domain_tol,
                          forc_n_curves=None, forc_Br_min=None, forc_rate=None,
                          forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None):
-    """Run one compassV02 simulation and return paths and parsed outputs."""
+    """Run one compass.py simulation and return paths and parsed outputs."""
     args = _default_compass_args(
         geometry=geometry,
         N=n_grid,
@@ -541,7 +541,7 @@ def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
                   forc_n_curves=20, forc_Br_min=None,
                   forc_rate=None, forc_t_sat=None,
                   forc_t_ramp_down=None, forc_t_ramp_up=None):
-    """Runs one complete FORC measurement using compassV02.run_simulation()."""
+    """Runs one complete FORC measurement using compass.py's run_simulation()."""
     np.random.seed(seed)
     inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
         R, needle_frac=needle_frac, needle_thickness=needle_thickness,
