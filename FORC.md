@@ -20,14 +20,14 @@ If the field is swept too quickly:
 
 ## 2. Analysis of the Current Framework
 
-As of version V67–V69, the First-Order Reversal Curve (FORC) implementation (`-field_mode forc`) defines the timeline of each minor loop using explicit time intervals rather than a direct rate:
+As of version V67–V69, the First-Order Reversal Curve (FORC) implementation (`--field_mode forc`) defines the timeline of each minor loop using explicit time intervals rather than a direct rate:
 - `B_ext` ($B_{\text{max}}$): The absolute saturation field.
-- `-forc_Br_min` ($B_{r,\text{min}}$): The lower bound for the reversal fields.
-- `-forc_t_ramp_down`: The time allocated to ramp down from $+B_{\text{max}}$ to a given reversal field $B_{r,k}$.
-- `-forc_t_ramp_up`: The time allocated to sweep from $B_{r,k}$ back up to $+B_{\text{max}}$.
+- `--forc_Br_min` ($B_{r,\text{min}}$): The lower bound for the reversal fields.
+- `--forc_t_ramp_down`: The time allocated to ramp down from $+B_{\text{max}}$ to a given reversal field $B_{r,k}$.
+- `--forc_t_ramp_up`: The time allocated to sweep from $B_{r,k}$ back up to $+B_{\text{max}}$.
 
 ### The "Variable Sweep Rate" Trap
-If `-forc_t_ramp_up` ($t_{\text{up}}$) is held constant for every reversal curve across the suite, the average sweep rate ($R_k$) for the $k$-th curve becomes a function of its depth:
+If `--forc_t_ramp_up` ($t_{\text{up}}$) is held constant for every reversal curve across the suite, the average sweep rate ($R_k$) for the $k$-th curve becomes a function of its depth:
 
 $$R_k = \frac{dB}{dt} = \frac{B_{\text{max}} - B_{r,k}}{t_{\text{up}}}$$
 
@@ -40,7 +40,7 @@ Consequently, curves with deep reversal fields ($B_{r,k} \approx B_{r,\text{min}
 To ensure rigorous statistical mechanics comparisons (especially when evaluating how the quality factor $Q$ alters the avalanche universality class), the sweep rate must remain perfectly constant across all curves. Two methods are available to enforce this:
 
 ### Method A: Orchestration Script Wrapper (No Core Code Modification)
-If you manage the simulation programmatically via a script like `damping_sweep.py`, you can dynamically scale the parameter `-forc_t_ramp_up` for each curve cycle $k$.
+If you manage the simulation programmatically via a script like `damping_sweepV03.py` (the campaign wrapper actually compatible with the current engine — `damping_sweep.py`/`V02` call a removed API and cannot run at all, see `docs/AUDIT.md` bug B1), you can dynamically scale the parameter `--forc_t_ramp_up` for each curve cycle $k$. In practice this is exactly what `damping_sweepV03.py`'s own `--forc_rate` flag already does.
 
 For a target constant sweep rate $R$ (in Tesla/second), calculate the required time parameter for each curve instance before calling the simulator:
 
@@ -80,7 +80,7 @@ When configuring your target constant sweep rate $R$, ensure it satisfies the fo
 
 The variable-sweep-rate trap from Section 2 is not FORC-specific: any protocol that derives $dB/dt$ implicitly from a fixed total duration over a variable-length path is at risk of it.
 
-`-field_mode hysteresis` has since gained its own rate-varying feature, `-hyst_slow_window B_lo,B_hi` + `-hyst_slow_factor f`, which divides the sweep rate by $f$ while $|B|$ is inside $[B_{\text{lo}}, B_{\text{hi}}]$ (both branches). This is implemented following Method B above, not Method A: `build_hysteresis_schedule()` constructs an explicit piecewise-linear `HystSchedule` of `HystLeg`s (constant rate per leg, split at the exact window boundaries), and the branch/global durations are recomputed from those legs rather than held fixed. Concretely:
+`--field_mode hysteresis` has since gained its own rate-varying feature, `--hyst_slow_window B_lo,B_hi` + `--hyst_slow_factor f`, which divides the sweep rate by $f$ while $|B|$ is inside $[B_{\text{lo}}, B_{\text{hi}}]$ (both branches). This is implemented following Method B above, not Method A: `build_hysteresis_schedule()` constructs an explicit piecewise-linear `HystSchedule` of `HystLeg`s (constant rate per leg, split at the exact window boundaries), and the branch/global durations are recomputed from those legs rather than held fixed. Concretely:
 
 - Each leg's rate is a first-class, explicit quantity (`HystLeg.rate_T_per_s`), never inferred after the fact from a fixed total time divided across unequal segments.
 - The total simulated time (`t_sim` used for `n_steps`) is derived from the sum of actual leg durations, so it grows to accommodate a slow window rather than silently compressing the rate outside it.

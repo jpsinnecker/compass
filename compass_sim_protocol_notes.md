@@ -32,11 +32,11 @@ $$I\ddot{\theta}_{i} = \tau_{i}^{\text{dip}} + \tau_{i}^{\text{ext}} - b\dot{\th
 Because physical time ($t_{\text{sim}}$) is resolved step-by-step using a Velocity-Verlet integrator [cite: 6, 34], the field sweep rate ($dB/dt$) acts as a physical control parameter that can shift the system's dynamic relaxation pathways and change avalanche statistics [cite: 9, 20].
 
 ### 2. Resolving the "Variable Sweep Rate Trap"
-In older configurations (V67–V69), minor reversal loop timing was defined via fixed segment durations (`-forc_t_ramp_up`) [cite: 160]. This meant the average sweep rate for the $k$-th minor loop depended on its reversal field depth ($B_{r,k}$) [cite: 447, 449]:
+In older configurations (V67–V69), minor reversal loop timing was defined via fixed segment durations (`--forc_t_ramp_up`) [cite: 160]. This meant the average sweep rate for the $k$-th minor loop depended on its reversal field depth ($B_{r,k}$) [cite: 447, 449]:
 
 $$R_k = \frac{B_{\text{max}} - B_{r,k}}{t_{\text{ramp\_up}}}$$
 
-This approach sweeps deep curves drastically faster than shallow ones. To solve this, version V71 introduced the `-forc_rate` ($R$) parameter [cite: 163, 349], which pre-computes a variable time duration for each unique branch to enforce a perfectly flat field sweep rate across the entire suite [cite: 163, 449]:
+This approach sweeps deep curves drastically faster than shallow ones. To solve this, version V71 introduced the `--forc_rate` ($R$) parameter [cite: 163, 349], which pre-computes a variable time duration for each unique branch to enforce a perfectly flat field sweep rate across the entire suite [cite: 163, 449]:
 
 $$t_{\text{ramp\_up}, k} = \frac{B_{\text{max}} - B_{r,k}}{R}$$
 
@@ -51,7 +51,7 @@ $$R \cdot T_0 \ll B_{\text{ref}}$$
 ## Part 3: Evaluating & Improving the Demagnetization Protocol
 
 > **Note (added after the fact):** the analysis below describes `compass.py` "V70"'s
-> `-demag on` alternating-field option, which no longer exists in the codebase — it
+> `--demag on` alternating-field option, which no longer exists in the codebase — it
 > belonged to an older lineage, since archived (see `docs/AUDIT.md`, `USER_GUIDE.md`).
 > Of the two methods proposed below, **only Method A was adopted**: its formula is
 > exactly what `--field_mode demag_rot` implements today. **Method B was not adopted** —
@@ -60,7 +60,7 @@ $$R \cdot T_0 \ll B_{\text{ref}}$$
 > torque term at all.
 
 ### 1. Analysis of the Current Alternating Field Demagnetization (AFD)
-The framework in `compass.py` (V70) uses standard linear Alternating Field Demagnetization via the `-demag on` option [cite: 162, 453]. The field oscillates along a fixed, single direction ($\phi_{\text{ext}}$) while its peak envelope drops aggressively by 30% per cycle [cite: 162, 454]. This method faces two major physical drawbacks in a 2D interacting dipole grid:
+The framework in `compass.py` (V70) uses standard linear Alternating Field Demagnetization via the `--demag on` option [cite: 162, 453]. The field oscillates along a fixed, single direction ($\phi_{\text{ext}}$) while its peak envelope drops aggressively by 30% per cycle [cite: 162, 454]. This method faces two major physical drawbacks in a 2D interacting dipole grid:
 * **Directional Anisotropy:** Because the shaking force is strictly uniaxial, components of magnetic needles perpendicular to $\phi_{	ext{ext}}$ do not experience full resetting torques, leaving a directional texture behind.
 * **Coarse Geometric Decay:** A 30% reduction per cycle drops too fast. Highly correlated long-range dipolar lattices easily get trapped in unwanted metastable energy valleys, leaving behind large residual domains instead of randomizing completely.
 
