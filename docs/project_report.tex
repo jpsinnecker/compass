@@ -1,6 +1,6 @@
 % ======================================================================
 % Development and Research Report for compass_sim -- Report V52
-% Updated after review of compass(3).py / compass.py V2.0.2
+% Updated after review of compass.py V2.0.2
 % Compile with: pdflatex project_report.tex (twice for TOC), run from docs/
 % (figure paths are relative to this file's directory: ../figs/...)
 % ======================================================================
@@ -31,7 +31,6 @@
 
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand{\vect}[1]{\boldsymbol{#1}}
-\newcommand{\todo}[1]{\textcolor{red!70!black}{\textbf{TODO:} #1}}
 
 \lstdefinestyle{bashstyle}{
   basicstyle=\ttfamily\small,
@@ -63,8 +62,7 @@
 
 \title{\textbf{Simulation of dipolar magnetic-needle arrays:\\
 research-grade development report for the \code{compass\_sim} project}\\[1ex]
-\large Report version V52 -- \code{compass.py}  research branch}
-%\large Report version V52 -- \code{compass.py} / \code{compass(3).py} research branch}
+\large Report version V52 -- \code{compass.py} research branch}
 \author{J.~P.~Sinnecker}
 \date{\today, \hhmm\\[0.5ex]
 \small Covered period: 15/06/2026 -- 10/07/2026}
@@ -124,9 +122,9 @@ The project has four secondary objectives, each of which can become a conference
 
 \subsection{What would constitute a strong result?}
 
-The most conservative publishable result would be a robust, reproducible dependence of hysteresis-loop metrics and avalanche cutoffs on $Q$. A stronger result would be a systematic change in the fitted avalanche exponent or waiting-time statistics with $Q$, after finite-size, time-step, and threshold checks. The strongest result would be a geometry-dependent crossover, for example a triangular or honeycomb lattice showing a qualitatively different response from the square lattice because frustration couples to inertia.
+The most conservative publishable result would be a robust, reproducible dependence of hysteresis-loop metrics and avalanche cutoffs on $Q$. A stronger result would be a systematic change in the fitted avalanche exponent or waiting-time statistics with $Q$~\cite{dahmen2011}, after finite-size, time-step, and threshold checks. The strongest result would be a geometry-dependent crossover, for example a triangular or honeycomb lattice showing a qualitatively different response from the square lattice because frustration couples to inertia.
 
-A critical point: the report should no longer claim a change of ``universality class'' until model comparison supports it. Power-law fits must be tested against log-normal or stretched-exponential alternatives. The phrase ``universality class'' should be reserved for the manuscript discussion, after demonstrating scaling robustness.
+A critical point: the report should no longer claim a change of ``universality class'' until model comparison supports it. Power-law fits must be tested against log-normal or stretched-exponential alternatives~\cite{clauset2009}. The phrase ``universality class'' should be reserved for the manuscript discussion, after demonstrating scaling robustness.
 
 % ======================================================================
 \section{Physical model}
@@ -286,12 +284,58 @@ B_{\rm ref}=\frac{\mu_0}{4\pi}\frac{2m}{r_{\rm nn}^3},
 \omega_0=\sqrt{\frac{mB_{\rm eff}}{I}},
 \qquad
 B_{\rm eff}=\max(B_{\rm ref},B_{\rm ext}).
+\label{eq:bref}
 \end{equation}
+
+It should be noted that Eq.~\ref{eq:bref} is the \emph{on-axis}
+(head-to-tail) field of a point dipole at the nearest-neighbour
+distance; the transverse configuration would yield half this value.
+$B_{\rm ref}$ is therefore a normalization convention --- an
+order-of-magnitude scale for the local dipolar field --- rather than
+an exact reference field, and its relation to the true mean local
+field depends on the lattice geometry and on the instantaneous
+bond-orientation distribution. All quantities expressed in units of
+$B_{\rm ref}$ (the auto-selected field amplitude via
+\code{--B\_max\_factor}, pulse amplitudes, and reported sweep rates)
+inherit this convention.
+
 The quality factor is
 \begin{equation}
 Q=\frac{\omega_0 I}{b}.
 \end{equation}
 For $Q\ll 1$ the dynamics is overdamped and relaxation is slow and monotonic. For $Q\gg1$ the needles overshoot and may trigger chain-reaction switching. The regime near $Q\sim 1$ is expected to be the most sensitive because inertial memory and damping compete on comparable timescales.
+
+\subsection{Time integration scheme}
+\label{sec:integrator}
+
+The equation of motion, Eq.~\ref{eq:eom}, is integrated with a
+semi-implicit (damped) velocity-Verlet scheme. Positions are advanced
+with the standard Verlet half-step, but the linear damping term
+$-b\,\dot\theta_i$ is treated implicitly in the velocity update:
+the new angular velocity is obtained by solving the linear relation
+
+\begin{equation}
+\omega_i^{\,n+1} \;=\;
+\frac{\omega_i^{\,n}\!\left(1-\dfrac{b\,\Delta t}{2I}\right) + \tfrac{\Delta t}{2I}\!\left(\tau_i^{\,n} + \tau_i^{\,n+1}\right)}
+     {1 + \dfrac{b\,\Delta t}{2I}},
+\label{eq:verlet}
+\end{equation}
+
+rather than by evaluating the damping force explicitly. Because the
+damping enters through the denominator, the scheme is unconditionally
+stable with respect to the damping parameter $b$: arbitrarily strong
+damping cannot drive a numerical instability, only over-relax the
+dynamics. The time step itself is set from the nearest-neighbour
+dipolar frequency scale, $\Delta t = f_{\rm dt}\,T_0$ with
+$f_{\rm dt} = 0.04$ by default, and a runtime guard monitors the
+instantaneous local field-derived stiffness frequency
+$\omega_{i,\rm loc}=\sqrt{m|B_i|/I}$ (not the needle's own angular
+velocity) through $\omega_{i,\rm loc}\,\Delta t$ against a threshold,
+to flag (and optionally sub-step) under-resolved intervals. This is
+the property exploited by the time-step convergence check of
+Section~\ref{sec:validation}: for a resolved run, halving $f_{\rm dt}$
+must leave loop metrics and avalanche statistics unchanged within
+statistical uncertainty.
 
 \subsection{Cutoff and boundary conditions}
 
@@ -300,6 +344,25 @@ A critical correction in \code{compass.py} is the explicit separation between a 
 r_{\rm cut} = c_{\rm shell} r_{\rm nn},
 \end{equation}
 unless the user explicitly supplies \code{--cutoff\_m}. This avoids the ambiguity present in earlier scripts, where ``3.5'' could be interpreted either as metres or as $3.5r_{\rm nn}$ depending on context.
+
+Two caveats apply to this truncation. First, the dipolar interaction
+decays as $1/r^3$, which in two dimensions is only conditionally
+convergent: lattice sums of dipolar energies are in general
+shape- and boundary-dependent, in direct analogy with demagnetizing
+fields in continuum magnetostatics. The present implementation applies
+a sharp real-space cutoff with no Ewald-type or shape-aware
+correction. Second, and as a consequence, the cutoff-convergence check
+of Section~\ref{sec:validation} (repeating runs at
+$r_{\rm cut}/r_{\rm nn} = 2.5,\ 3.5,\ 5$) probes \emph{sensitivity} to
+the cutoff radius but cannot exclude a systematic contribution common
+to all truncated sums, i.e.\ the long-range tail that a full Ewald
+treatment would recover. For observables dominated by short-range
+rearrangements (individual flips, small avalanches) this bias is
+expected to be weak; for collective, system-spanning quantities
+(demagnetized ground-state selection, large-avalanche cutoffs,
+finite-size scaling) it should be kept in mind as a methodological
+limitation, or addressed in future work by an Ewald-summed or
+brute-force all-pairs reference run.
 
 Boundary conditions are also explicit. Free boundaries are physically meaningful for finite compass arrays and for edge nucleation. Periodic boundary conditions are useful for separating bulk behavior from sample-shape effects, but in a long-range anisotropic dipolar system they should be treated as a modelling choice, not as an automatic improvement. Every serious result should eventually be checked at least once with and without PBC.
 
@@ -310,13 +373,13 @@ Boundary conditions are also explicit. Free boundaries are physically meaningful
 
 \subsection{Reason for creating a V2 branch}
 
-The original \code{compass.py} was strong as a visual simulator and increasingly capable as a campaign engine. However, the code still carried legacy assumptions inherited from visualization: the main scalar order parameter was $S=|\langle e^{i\theta}\rangle|$, the CSV activity column was ambiguous for avalanche analysis, energy was not logged, and the cutoff convention was not sufficiently explicit. These issues are acceptable for demonstration but not for a research claim about avalanche statistics and damping-dependent reversal.
+Building on the physical model of Section~\ref{sec:model}, the original \code{compass.py} was strong as a visual simulator and increasingly capable as a campaign engine. However, the code still carried legacy assumptions inherited from visualization: the main scalar order parameter was $S=|\langle e^{i\theta}\rangle|$, the CSV activity column was ambiguous for avalanche analysis, energy was not logged, and the cutoff convention was not sufficiently explicit. These issues are acceptable for demonstration but not for a research claim about avalanche statistics and damping-dependent reversal.
 
 \code{compass.py} was created as a research-oriented branch. It is not intended to replace every animation feature of \code{compass.py}; instead it prioritizes reproducibility, numerical clarity, efficient sweeps, and rich time-series output.
 
 \subsection{New observables}
 
-The V2 output is designed so that analysis does not need to reconstruct physics from only $M(t)$ and $B(t)$. The standard CSV now includes the following classes of observables:
+The V2 output is designed so that analysis does not need to reconstruct physics from only $M(t)$ and $B(t)$. The standard CSV now includes the following classes of observables (Table~\ref{tab:v2obs}):
 
 \begin{longtable}{@{}p{4.2cm}p{10.6cm}@{}}
 \caption{Main research observables in \code{compass.py}.}\label{tab:v2obs}\\
@@ -364,7 +427,7 @@ The scientific distinction among these modes is important. Hysteresis measures r
 
 \subsection{Output files}
 
-Each V2.0.2 run writes a tagged directory tree under \code{--out\_dir}. The current implementation creates four subdirectories:
+Each V2.0.2 run writes a tagged directory tree under \code{--out\_dir}. The current implementation creates four subdirectories (the exact CSV column order is given in Appendix~\ref{app:csv}):
 \begin{itemize}[leftmargin=*]
 \item \code{data/}: CSV time series, written as \code{data/<tag>.csv};
 \item \code{meta/}: JSON metadata, written as \code{meta/<tag>.json};
@@ -415,6 +478,8 @@ Recent ASI studies show that relaxation pathways and domain morphology depend on
 \label{sec:studies}
 % ======================================================================
 
+Each study below probes the damped Newtonian dynamics of Eq.~\ref{eq:eom} through one of the field protocols of Section~\ref{sec:compassv2}, and no result from any of them should be interpreted physically until the corresponding checks in the Validation Plan (Section~\ref{sec:validation}) have passed.
+
 \subsection{Study 1: damping-controlled hysteresis and avalanches}
 
 \textbf{Question.} Does $Q$ change hysteresis shape and avalanche statistics in square, triangular, and honeycomb dipolar lattices?
@@ -423,7 +488,7 @@ Recent ASI studies show that relaxation pathways and domain morphology depend on
 
 \textbf{Observables.} Loop area, coercive field, remanence, $P(s)$ from \code{flip\_field} and \code{flip\_angle}, waiting times, $M(t)$ autocorrelation, $E_{\rm total}(t)$, and final domain/director metrics.
 
-\textbf{Critical analysis.} Do not rely on only $dM/dB$ thresholding. Use the native flip counters as primary activity measures. Fit power laws only after checking tail size, cutoff stability, and alternatives such as log-normal distributions. Report when statistics are insufficient.
+\textbf{Critical analysis.} Do not rely on only $dM/dB$ thresholding. Use the native flip counters as primary activity measures. Fit power laws only after checking tail size, cutoff stability, and alternatives such as log-normal distributions~\cite{clauset2009}. Report when statistics are insufficient.
 
 \subsection{Study 2: FORC fingerprints of correlated reversal}
 
@@ -471,6 +536,8 @@ final $S_2$, domain-size distribution, and post-pulse activity.
 \section{Recommended campaigns and commands}
 \label{sec:commands}
 % ======================================================================
+
+The example commands below use only a subset of the available flags; see Appendix~\ref{app:cli} (Table~\ref{tab:cli}) for the full command-line reference.
 
 \subsection{Single-run smoke test}
 
@@ -631,6 +698,8 @@ The most important methodological rule is aggregation by physical condition. Ava
 \label{sec:chronology}
 % ======================================================================
 
+The narrative below is condensed into the version table of Appendix~\ref{app:versions} (Table~\ref{tab:versions}).
+
 \subsection{Initial phase: visual dipolar simulator}
 
 The earliest version implemented a square array of compass needles, top-view visualization, and full dipolar interactions. The original objective was to reproduce intuitive magnetic behavior: alignment, domain-like textures, and hysteresis. This phase was valuable because it forced the model to use real SI units and real needle geometry rather than arbitrary dimensionless parameters.
@@ -710,7 +779,7 @@ This is the point at which the code becomes credible as a research tool, provide
 \code{--geometry} & \code{square}, \code{triangular}, or \code{honeycomb}. The current honeycomb generator follows the finite hexagonal-hole convention inherited from the earlier code, and the actual nearest-neighbour distance is computed from the generated sites.\\
 \code{--N}, \code{--M} & Number of rows/columns or nominal honeycomb dimensions.\\
 \code{--R} & Half the centre-to-centre distance between neighbouring pivots. The default \code{R=0.0065} gives a \SI{13}{mm} nominal spacing.\\
-\code{--needle\_len}, \code{--needle\_width}, \code{--needle\_thickness} & Physical dimensions of the rhombus-shaped needle blade. Defaults are \SI{10}{mm}, \SI{3}{mm}, and \SI{0.4}{mm}.\\
+\code{--needle\_len}, \code{--needle\_width}, \code{--needle\_thickness} & Physical dimensions of the rhombus-shaped needle blade. Defaults are \SI{10}{mm}, \SI{3}{mm}, and \SI{0.4}{mm} (the ``LAW3M large needle'' profile; this differs on purpose from the \SI{0.26}{mm} ``real small needle'' prototype of Figure~\ref{fig:needle_geometry}, which motivates \code{damping\_sweep.py}'s defaults instead).\\
 \code{--needle\_frac}, \code{--use\_legacy\_size\_from\_R} & Backward-compatible visualization convention. By default, physical needle dimensions are independent of lattice spacing; if legacy mode is enabled, the blade size is derived from \code{needle\_frac*2R}.\\
 \code{--moment}, \code{--inertia} & Explicit overrides for magnetic moment and moment of inertia. If omitted, the code derives them from geometry and material parameters.\\
 \code{--steel\_density}, \code{--steel\_Ms}, \code{--steel\_Bsat} & Material parameters for automatic physical derivation of $m$ and $I$. \code{--steel\_Bsat}, when supplied, overrides \code{--steel\_Ms}.\\
@@ -778,8 +847,8 @@ V46--V66 & 05/07--06/07/2026 & Interface, translation, HUD, damping-noise, plott
 V67--V79 & 06/07--09/07/2026 & FORC protocols, demagnetization modes, constant sweep rate, thermal-annealing option, progress staging, timing, and refined physical defaults.\\
 V2 research branch & 10/07/2026 & New \code{compass.py}: explicit cutoff, new observables, native activity counters, energy ledger, timestamped metadata, initial/final state snapshots, automatic lattice PNGs, and research-oriented protocol/output design.\\
 Report V51 & 10/07/2026 & Rewrote the report around the best academic objectives and the V2 research branch, while preserving the laboratory-notebook logic.\\
-V2.0.2 / compass(3).py & 10/07/2026 & Source timestamp added; metadata now records source and run creation times; the simulation saves initial and final NPZ state files and always generates initial, final, and side-by-side lattice PNGs.\\
-Report V52 & 10/07/2026 & Updated the report to match the uploaded \code{compass(3).py} / \code{compass.py} V2.0.2 implementation, including exact output structure, CSV header, PNG options, and timestamp metadata.\\
+V2.0.2 & 10/07/2026 & Source timestamp added; metadata now records source and run creation times; the simulation saves initial and final NPZ state files and always generates initial, final, and side-by-side lattice PNGs.\\
+Report V52 & 10/07/2026 & Updated the report to match the \code{compass.py} V2.0.2 implementation, including exact output structure, CSV header, PNG options, and timestamp metadata.\\
 V2.1 / V2.2 generation & 12/07/2026 & Hardened, ringing-proof \code{flip\_field}/\code{flip\_angle} avalanche counters (Schmitt-trigger dead-band plus dwell-time debouncing on the drive-axis channel; settle-then-commit debouncing on the rest-angle channel); a numerical-stability guard monitoring the local field-derived stiffness frequency against $\Delta t$, with an optional global 4-way sub-stepping correction; and optional per-committed-event CSV logging (\code{--event\_log}) for offline spatio-temporal avalanche clustering.\\
 Report V53 & 12/07/2026 & Updated the report to describe the current canonical engine (version 2.1.0, git commit \texttt{d1a9895}) rather than the V2.0.2 snapshot: replaced the hardcoded source-file timestamp in the abstract with git-based provenance, added the six V2.1 flags to Appendix~\ref{app:cli}, resolved the $K$/$K_{\rm rot}$ notation collision, and added this row.\\
 \end{longtable}
