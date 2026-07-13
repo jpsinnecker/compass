@@ -3,6 +3,15 @@
 damping_sweep_analysis.py
 ==========================
 
+NOTE (added after the fact): damping_sweep.py/V02, this script's intended
+source, cannot run at all (bug B1). If pointed at damping_sweepV03.py's
+output instead, detect_avalanches_from_S() silently misinterprets it: it
+assumes "S" is a sparse event count, but V03's field_log maps "S" from the
+continuous flip_field count in a way this script was never updated for
+(see docs/AUDIT.md bug B2) -- any avalanche statistics produced this way
+should be treated as unverified. Not patched, per docs/AUDIT.md's own P0
+recommendation.
+
 Post-processing pipeline for the damping/hysteresis study. Reads the
 results produced by damping_sweep.py (manifest.csv + per-run CSVs) and
 produces:

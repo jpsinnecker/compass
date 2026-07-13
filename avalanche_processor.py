@@ -6,7 +6,7 @@ Version: 1.0.0, July 2026
 
 Pipeline
 --------
-1. Scan a results directory produced by compassV2_1.py for run triplets:
+1. Scan a results directory produced by compass.py for run triplets:
        meta/{tag}.json, data/{tag}_events.csv, states/{tag}_initial.npz
 2. For each run and each activity channel SEPARATELY ("field", "angle"),
    cluster committed events into avalanches with the causal link rule:

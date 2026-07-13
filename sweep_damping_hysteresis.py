@@ -2,6 +2,15 @@
 """
 sweep_damping_hysteresis.py
 ============================
+
+NOTE (added after the fact): this script is non-functional outside
+--dry_run -- run_single() references undefined module globals (NameError),
+miscalls compute_t_sim() (a positional arg silently binds to the wrong
+parameter), and passes a damp_idx kwarg run_single() doesn't accept
+(TypeError). See docs/AUDIT.md bug B3. Use damping_sweepV03.py instead
+(see USER_GUIDE.md Sec 9). Left as-is, not patched, per docs/AUDIT.md's
+own P0 recommendation.
+
 Sweep campaign: damping (Q) x geometry x seed, in --field_mode hysteresis.
 
 Implemented script:

@@ -3,6 +3,12 @@
 damping_sweep.py
 =================
 
+NOTE (added after the fact): this script calls cs.make_grid()/cs.relax(),
+functions removed from the engine's public API; it raises AttributeError
+on first use and cannot run at all (see docs/AUDIT.md bug B1). Use
+damping_sweepV03.py instead (see USER_GUIDE.md Sec 9). Left as-is, not
+patched, per docs/AUDIT.md's own P0 recommendation.
+
 Simulation campaign for the central study:
     "How does the damping coefficient control the shape of the
     hysteresis loop and the statistics of avalanches in classical dipolar
