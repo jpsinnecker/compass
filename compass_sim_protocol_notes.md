@@ -50,6 +50,15 @@ $$R \cdot T_0 \ll B_{\text{ref}}$$
 
 ## Part 3: Evaluating & Improving the Demagnetization Protocol
 
+> **Note (added after the fact):** the analysis below describes `compass.py` "V70"'s
+> `-demag on` alternating-field option, which no longer exists in the codebase — it
+> belonged to an older lineage, since archived (see `docs/AUDIT.md`, `USER_GUIDE.md`).
+> Of the two methods proposed below, **only Method A was adopted**: its formula is
+> exactly what `--field_mode demag_rot` implements today. **Method B was not adopted** —
+> the current `--field_mode demag_linear` is a simpler linear-decay variant along a fixed
+> direction, with no thermal-noise/annealing mechanism; `compass.py` has no stochastic
+> torque term at all.
+
 ### 1. Analysis of the Current Alternating Field Demagnetization (AFD)
 The framework in `compass.py` (V70) uses standard linear Alternating Field Demagnetization via the `-demag on` option [cite: 162, 453]. The field oscillates along a fixed, single direction ($\phi_{\text{ext}}$) while its peak envelope drops aggressively by 30% per cycle [cite: 162, 454]. This method faces two major physical drawbacks in a 2D interacting dipole grid:
 * **Directional Anisotropy:** Because the shaking force is strictly uniaxial, components of magnetic needles perpendicular to $\phi_{	ext{ext}}$ do not experience full resetting torques, leaving a directional texture behind.
