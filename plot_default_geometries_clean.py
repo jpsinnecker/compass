@@ -126,7 +126,7 @@ def find_default_geometry_files(input_dir, tag_suffix="_default"):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate clean PNG geometry figures from compassV02.py .npz output."
+        description="Generate clean PNG geometry figures from compass.py .npz output."
     )
     run_cfg = _CFG.run.plot_default_geometries_clean
 
@@ -162,7 +162,7 @@ def main():
         "--single",
         action="store_true",
         default=run_cfg.single,
-        help="Treat --input_dir as one compassV02.py output directory.",
+        help="Treat --input_dir as one compass.py output directory.",
     )
 
     parser.add_argument(
