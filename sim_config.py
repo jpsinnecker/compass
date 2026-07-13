@@ -75,6 +75,7 @@ class CompassEnginePhysics:
     field_delay: float
     hyst_spacing: str
     hyst_log_k: float
+    hyst_slow_factor: float
     t_sim: float
     noise: float
     forc: ForcPhysics
@@ -176,6 +177,7 @@ class CompassEngineTolerances:
     flip_settle_frac: float
     dt_guard_alpha: float
     domain_tol_deg: float
+    log_adaptive_threshold: float
 
 
 @dataclass

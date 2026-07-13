@@ -28,6 +28,7 @@ physics:
     field_delay: 0.0
     hyst_spacing: linear
     hyst_log_k: 5.0
+    hyst_slow_factor: 1.0
     t_sim: 2.0
     noise: 1.5
     forc:
@@ -103,6 +104,7 @@ numerics:
       flip_settle_frac: 0.05
       dt_guard_alpha: 0.35
       domain_tol_deg: 15.0
+      log_adaptive_threshold: 0.0
   damping_sweep:
     grid_n: 30
     n_seeds: 5
