@@ -62,6 +62,24 @@
 \tableofcontents
 \newpage
 
+\begin{quote}
+\warn{Note (added after the fact):} of the four scripts this manual covers,
+only \file{damping\_sweep\_analysis.py} is unaffected by the following.
+\file{damping\_sweep.py} and \file{damping\_sweepV02.py} call functions
+(\code{make\_grid()}, \code{relax()}, \code{label\_magnetic\_domains()})
+that no longer exist in the engine and cannot run at all (see
+\file{docs/AUDIT.md} bug B1). \file{sweep\_damping\_hysteresis.py} is also
+non-functional outside \param{dry\_run} (bug B3). None of this manual
+covers \file{damping\_sweepV03.py}, written after this manual and the only
+campaign wrapper actually compatible with the current \file{compass.py} --
+see \file{USER\_GUIDE.md} \S9 for it instead. \file{damping\_sweep\_analysis.py}
+itself assumes the pre-V03 CSV "S" column convention (a sparse event count)
+and silently misinterprets V03's \code{flip\_field} column if pointed at
+V03 output (bug B2) -- it has not been updated for V03's schema. The
+content below is left as a historical record of the V01/V02 design, not a
+current usage guide.
+\end{quote}
+
 % ======================================================================
 \section{Overview}
 \label{sec:overview}
