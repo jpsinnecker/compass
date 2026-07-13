@@ -1,6 +1,6 @@
 # =============================================================================
 # config.yaml — central configuration for the compass-needle lattice
-# simulator (compassV2_2.py) and its companion sweep/analysis scripts.
+# simulator (compass.py) and its companion sweep/analysis scripts.
 #
 # This file is a mechanical extraction of previously hardcoded literals.
 # Every value here reproduces the exact default that used to be written
@@ -24,12 +24,12 @@ physics:
   # collapsing them to one key here changes nothing).
   # ---------------------------------------------------------------------
   constants:
-    mu0_over_4pi: 1.0e-7          # T*m/A -- mu0/(4*pi); compassV2_2.py:118
+    mu0_over_4pi: 1.0e-7          # T*m/A -- mu0/(4*pi); compass.py:118
 
   # ---------------------------------------------------------------------
-  # compassV2_2.py -- canonical engine. Module constants (compassV2_2.py:118-130)
+  # compass.py -- canonical engine. Module constants (compass.py:118-130)
   # and the physics-flavored argparse group defaults (build_parser(),
-  # compassV2_2.py:1581-1649).
+  # compass.py:1581-1649).
   # ---------------------------------------------------------------------
   compass_engine:
     steel_density: 7850.0            # kg/m^3, needle blade material density
@@ -138,7 +138,7 @@ physics:
 
   # ---------------------------------------------------------------------
   # Needle-drawing visual proportions shared verbatim across
-  # compassV2_2.py::_draw_lattice_png, compass_generate_images.py, and
+  # compass.py::_draw_lattice_png, compass_generate_images.py, and
   # plot_default_geometries_clean.py (identical literals in all three).
   # ---------------------------------------------------------------------
   needle_render:
@@ -153,7 +153,7 @@ physics:
 
 numerics:
   # ---------------------------------------------------------------------
-  # compassV2_2.py -- integration/grid/tolerance defaults.
+  # compass.py -- integration/grid/tolerance defaults.
   # ---------------------------------------------------------------------
   compass_engine:
     grid:
@@ -233,7 +233,7 @@ numerics:
 
 run:
   # ---------------------------------------------------------------------
-  # compassV2_2.py -- output/execution defaults.
+  # compass.py -- output/execution defaults.
   # ---------------------------------------------------------------------
   compass_engine:
     out_dir: compassV2_output

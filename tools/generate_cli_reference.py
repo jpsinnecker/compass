@@ -13,13 +13,13 @@ regenerate -- that table directly from build_parser(), so flag names and
 defaults can be verified mechanically rather than by manual cross-reading.
 
 Known limitation (see the report's own note next to Appendix A): roughly
-a third of the flags in compassV2_2.py's build_parser() have no `help=`
+a third of the flags in compass.py's build_parser() have no `help=`
 string in the source at all. For those, this script emits a placeholder
 rather than inventing prose. Appendix A's DESCRIPTIONS for those flags are
 therefore still hand-authored and can in
 principle drift from actual behavior; only flag NAMES and DEFAULTS are
 guaranteed correct by construction here. Closing that gap fully would mean
-adding `help=` strings to every remaining argparse call in compassV2_2.py
+adding `help=` strings to every remaining argparse call in compass.py
 (a code change, out of scope for a documentation-generation tool).
 
 Usage:
@@ -37,7 +37,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-import compassV2_2  # noqa: E402  (path insert must happen first)
+import compass  # noqa: E402  (path insert must happen first)
 
 _NO_HELP_PLACEHOLDER = r"\textit{(no CLI help string in source; see code)}"
 
@@ -106,7 +106,7 @@ def check_missing_help(parser: argparse.ArgumentParser) -> list[str]:
 
 
 def main() -> int:
-    parser = compassV2_2.build_parser()
+    parser = compass.build_parser()
 
     if "--check" in sys.argv:
         missing = check_missing_help(parser)

@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _legacy_hysteresis_B(t: float, Bmax: float, t_sim: float) -> float:
     """Independent re-implementation of the PRE-EXISTING fixed-five-equal-
     segment hysteresis formula (linear spacing), kept deliberately separate
-    from compassV2_2.py's source so this test does not just check the code
+    from compass.py's source so this test does not just check the code
     against itself."""
     T = max(t_sim, 1e-30)
     t5 = T / 5.0
@@ -54,7 +54,7 @@ def _legacy_hysteresis_B(t: float, Bmax: float, t_sim: float) -> float:
 
 
 def _load_module():
-    return helpers.load_fresh_compassV2_2(helpers.BASE_CONFIG_PATH)
+    return helpers.load_fresh_compass(helpers.BASE_CONFIG_PATH)
 
 
 def test_no_window_bit_identical_to_legacy_formula():

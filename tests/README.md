@@ -1,6 +1,6 @@
 # Reference regression tests
 
-Small, fast regression tests for `compassV2_2.py`, driven by **config.yaml
+Small, fast regression tests for `compass.py`, driven by **config.yaml
 variants** rather than CLI flags: each case is a full copy of the repo's
 `config.yaml` with a handful of overrides (tiny lattice, few logged steps,
 fixed seed), run once, and checked in as reference data. The pytest tests
@@ -11,7 +11,7 @@ This is a **regression** suite, not a physics-validation suite: it answers
 "did anything change the numbers?", not "are the numbers physically
 correct?". The test cases deliberately use large timesteps for speed, which
 is why generating/running them prints a `stability monitor flagged N steps`
-warning from `compassV2_2.py` -- that's expected and harmless here, not a
+warning from `compass.py` -- that's expected and harmless here, not a
 test failure.
 
 ## Layout
@@ -49,7 +49,7 @@ output filename is stable and doesn't depend on the seed).
 
 ## How this actually exercises "config.yaml"
 
-`compassV2_2.py` (and every other script in this repo) reads `config.yaml`
+`compass.py` (and every other script in this repo) reads `config.yaml`
 once at import time via `sim_config.load_config()`. To let each test case
 run against its *own* config.yaml variant in the same pytest process, two
 small mechanisms make that possible:
@@ -58,8 +58,8 @@ small mechanisms make that possible:
   environment variable when no explicit path is given (falling back to the
   repo's own `config.yaml` otherwise -- this is additive-only and doesn't
   change default behavior for normal use).
-- `tests/helpers.py::load_fresh_compassV2_2()` loads an independent copy of
-  the `compassV2_2` module (via `importlib.util.spec_from_file_location`)
+- `tests/helpers.py::load_fresh_compass()` loads an independent copy of
+  the `compass` module (via `importlib.util.spec_from_file_location`)
   with that environment variable set to the case's fixture path, so its
   module-level `CFG` is bound to the variant, not to the repo's real
   `config.yaml`.
@@ -106,7 +106,7 @@ guaranteed pixel-stable across versions/fonts, so they're discarded by
 ## Regenerating the references
 
 Regenerate when you deliberately change something that should affect these
-cases' output (a physics/numerics change in `compassV2_2.py`, or a default
+cases' output (a physics/numerics change in `compass.py`, or a default
 in `config.yaml`), or when `config.yaml`'s schema changes in a way that
 requires `tests/cases.py`'s overrides to be updated:
 

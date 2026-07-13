@@ -32,33 +32,11 @@ Major improvements relative to compass.py V79
    S1 is polar order. S2 is nematic/director order and is essential for
    compass-lattice studies where opposite directions may cancel magnetically.
 
-3. Avalanche activity is exported directly (V2.1 hardened counters):
-   flip_field counts COMMITTED sign reversals relative to the drive axis,
-   using a hysteretic (Schmitt-trigger) angular dead band of half-width
-   --flip_band_deg around the perpendicular, plus a dwell requirement of
-   --flip_dwell_T0 natural periods in the new state. A single underdamped
-   needle ringing across the axis therefore contributes exactly one event
-   per genuine reversal, not one event per zero crossing.
-   flip_angle counts COMMITTED rest-angle displacement events: a needle
-   registers an event only when its angle has moved by more than
-   --flip_angle_deg away from its last settled reference angle AND it has
-   settled there (|omega| below --flip_settle_frac * omega0 for the dwell
-   window). The reference angle is then updated. This channel is
-   geometry-agnostic and detects partial reversals into frustrated local
-   minima that never leave the drive-axis dead band.
-   With --event_log, every committed event is written to a per-run CSV
-   (step, t, needle_id, channel, theta) for offline spatio-temporal
-   avalanche clustering.
-
-3b. Numerical stability monitor:
-   The local instantaneous stiffness frequency omega_loc = sqrt(m|B_i|/I)
-   is monitored every step from the already-computed total field. Steps
-   where max_i(omega_loc) * dt exceeds --dt_guard_alpha are counted and
-   reported in metadata and at exit. With --dt_guard_substep, flagged
-   steps are re-integrated globally with 4 sub-steps (all needles; a
-   partial/local substep would desynchronize the coupled field). Note
-   that state-dependent stepping formally breaks symplecticity, so the
-   guard is off by default; the monitor itself is always on and free.
+3. Avalanche activity is exported directly:
+   flip_field counts sign changes relative to the selected drive axis.
+   flip_angle counts rotations larger than --flip_angle_deg in one time step.
+   These are accumulated over each logging interval and should be used for
+   avalanche statistics instead of the continuous order parameter S1.
 
 4. Energy accounting:
    E_dip = -1/2 sum_i m_i · B_i^dip,
@@ -95,7 +73,7 @@ import math
 import os
 import time
 from datetime import datetime, timezone
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -110,33 +88,24 @@ except Exception as exc:  # pragma: no cover - environment dependent
     _CUPY_IMPORT_OK = False
     _CUPY_ERROR = str(exc).splitlines()[-1] if str(exc) else type(exc).__name__
 
-from sim_config import load_config
-
-CFG = load_config()
-
 
 # =============================================================================
 # Physical constants and defaults
-#
-# Values are loaded from config.yaml (see sim_config.py); this block only
-# keeps the historical module-level names, since some values (R_DEFAULT) are
-# derived from others and other code in this file references these names
-# directly.
 # =============================================================================
 
-MU0_OVER_4PI = CFG.physics.constants.mu0_over_4pi  # T m / A
-STEEL_DENSITY_DEFAULT = CFG.physics.compass_engine.steel_density  # kg/m^3
-STEEL_MS_SATURATION_DEFAULT = CFG.physics.compass_engine.steel_ms_saturation  # A/m, approximately Bsat=2.0 T / mu0
+MU0_OVER_4PI = 1.0e-7  # T m / A
+STEEL_DENSITY_DEFAULT = 7850.0  # kg/m^3
+STEEL_MS_SATURATION_DEFAULT = 1.59e6  # A/m, approximately Bsat=2.0 T / mu0
 # Default physical apparatus geometry used in the project report.
 # The lattice parameter is defined by the centre-to-centre spacing between
 # neighbouring pivots. In the code the historical variable R is kept as half
 # this distance because the lattice generators use d = 2R.
-CENTER_DISTANCE_DEFAULT = CFG.physics.compass_engine.center_distance  # m, centre-to-centre pivot distance
+CENTER_DISTANCE_DEFAULT = 0.013  # m, centre-to-centre pivot distance
 R_DEFAULT = 0.5 * CENTER_DISTANCE_DEFAULT  # m
-NEEDLE_LEN_DEFAULT = CFG.physics.compass_engine.needle_len  # m, physical blade length
-NEEDLE_WIDTH_DEFAULT = CFG.physics.compass_engine.needle_width  # m, physical blade width
-NEEDLE_THICKNESS_DEFAULT = CFG.physics.compass_engine.needle_thickness  # m
-DAMPING_DEFAULT = CFG.physics.compass_engine.damping  # N m s / rad
+NEEDLE_LEN_DEFAULT = 0.010  # m, physical blade length
+NEEDLE_WIDTH_DEFAULT = 0.003  # m, physical blade width
+NEEDLE_THICKNESS_DEFAULT = 0.0004  # m
+DAMPING_DEFAULT = 5.0e-8  # N m s / rad
 SOURCE_FILE_TIMESTAMP = "2026-07-10T11:50:24-03:00"  # generation/update timestamp
 
 
@@ -146,9 +115,12 @@ SOURCE_FILE_TIMESTAMP = "2026-07-10T11:50:24-03:00"  # generation/update timesta
 
 
 def wrap_angle(a):
-    """Wrap angle(s) to (-pi, pi]. Works for plain NumPy arrays as well as
-    NumPy/CuPy backend arrays (math.pi broadcasts fine against either)."""
+    """Wrap angle(s) to (-pi, pi]. Works for NumPy or CuPy arrays."""
     return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def wrap_angle_np(a: np.ndarray) -> np.ndarray:
+    return (a + np.pi) % (2.0 * np.pi) - np.pi
 
 
 def safe_float(x) -> float:
@@ -342,7 +314,7 @@ def make_lattice(
         # changing the lattice spacing also changes the needle blade size.
         # This should not be used for calibrated research runs.
         needle_len_eff = needle_frac * d
-        needle_width_eff = CFG.physics.compass_engine.legacy_width_to_length_ratio * needle_len_eff
+        needle_width_eff = 0.22 * needle_len_eff
     else:
         # Research convention: the physical needle dimensions are independent
         # of the lattice spacing. This matches the project-report apparatus.
@@ -517,143 +489,6 @@ def build_forc_schedule(
 
 
 @dataclass
-class HystLeg:
-    """One piecewise-linear leg of the hysteresis schedule: a straight ramp
-    in B from B_start to B_end over [t_start, t_end], at one constant rate.
-    A branch with no active slow window is exactly one leg; a branch that
-    overlaps the slow window is split into up to three legs (before/inside/
-    after the window) so B(t) stays piecewise-linear and continuous (dB/dt
-    is allowed to change discontinuously only at the window boundaries)."""
-    t_start: float
-    t_end: float
-    B_start: float
-    B_end: float
-    branch: str
-
-    @property
-    def rate_T_per_s(self) -> float:
-        dt = self.t_end - self.t_start
-        return (self.B_end - self.B_start) / dt if dt > 1e-300 else 0.0
-
-
-@dataclass
-class HystSchedule:
-    legs: List[HystLeg]
-    total_time: float
-    base_rate_T_per_s: float
-    slow_rate_T_per_s: Optional[float]
-    has_window: bool = False
-    leg_ends: np.ndarray = field(default_factory=lambda: np.array([]))
-
-
-def build_hysteresis_schedule(
-    Bmax: float,
-    t_sim_nominal: float,
-    slow_lo: Optional[float],
-    slow_hi: Optional[float],
-    slow_factor: float,
-) -> HystSchedule:
-    """Explicit piecewise-linear schedule for the five-branch hysteresis
-    cycle 0 -> +Bmax -> 0 -> -Bmax -> 0 -> +Bmax.
-
-    Each branch's BASE duration is t_sim_nominal / 5, giving a constant
-    base rate base_rate = Bmax / (t_sim_nominal / 5). This reproduces the
-    previous fixed-duration convention exactly when no slow window is
-    requested (slow_lo/slow_hi is None, or slow_factor == 1.0): exactly one
-    leg per branch, duration t_sim_nominal / 5, dB/dt == base_rate
-    throughout, and total_time == t_sim_nominal (durations are computed as
-    (span / Bmax) * (t_sim_nominal / 5), matching the original u = t / t5
-    formula's own arithmetic so the no-window case is bit-identical).
-
-    If a window [slow_lo, slow_hi] (0 <= slow_lo < slow_hi <= Bmax) is
-    given, the local sweep rate for |B| inside that window is divided by
-    slow_factor on every branch (both up- and down-sweeps, since the
-    window is defined on |B|); the base rate is kept everywhere else. Each
-    branch is split into up to three legs -- before / inside / after the
-    window -- at the exact window boundaries.
-
-    Branch durations therefore grow wherever the window overlaps them, and
-    total_time (the sum of all leg durations) is intentionally NOT clamped
-    back to t_sim_nominal: see FORC.md's "variable sweep rate trap"
-    discussion -- a physically meaningful sweep rate must be an explicit,
-    reported quantity, not an accident of holding the total time fixed.
-    """
-    T0 = max(t_sim_nominal, 1e-30) / 5.0
-    base_rate = abs(Bmax) / T0
-
-    has_window = (
-        slow_lo is not None
-        and slow_hi is not None
-        and Bmax > 0
-        and slow_factor != 1.0
-        and slow_hi > slow_lo
-    )
-    if has_window:
-        lo = max(0.0, min(slow_lo, Bmax))
-        hi = max(lo, min(slow_hi, Bmax))
-    else:
-        lo = hi = 0.0
-
-    branch_defs = [
-        (0.0, +Bmax, "0_to_pos"),
-        (+Bmax, 0.0, "pos_to_0"),
-        (0.0, -Bmax, "0_to_neg"),
-        (-Bmax, 0.0, "neg_to_0"),
-        (0.0, +Bmax, "0_to_pos_final"),
-    ]
-
-    legs: List[HystLeg] = []
-    t_cursor = 0.0
-    for B_start, B_end, branch in branch_defs:
-        extreme = B_end if abs(B_end) > abs(B_start) else B_start
-        branch_sign = 1.0 if extreme >= 0.0 else -1.0
-        ascending = B_end >= B_start  # traversal direction in signed-B space
-
-        points = [B_start, B_end]
-        if has_window:
-            for mag in (lo, hi):
-                signed_pt = branch_sign * mag
-                if min(B_start, B_end) < signed_pt < max(B_start, B_end):
-                    points.append(signed_pt)
-        points = sorted(set(points))
-        if not ascending:
-            points = points[::-1]
-
-        for p_start, p_end in zip(points[:-1], points[1:]):
-            mag_mid = 0.5 * abs(p_start + p_end)
-            inside_window = has_window and (lo < mag_mid < hi)
-            if Bmax == 0.0:
-                frac = 1.0  # degenerate zero-amplitude sweep: no window possible
-            else:
-                frac = abs(p_end - p_start) / abs(Bmax)
-            duration = frac * T0 * (slow_factor if inside_window else 1.0)
-            legs.append(HystLeg(t_cursor, t_cursor + duration, p_start, p_end, branch))
-            t_cursor += duration
-
-    slow_rate = (base_rate / slow_factor) if has_window else None
-    leg_ends = np.array([l.t_end for l in legs])
-    return HystSchedule(legs, t_cursor, base_rate, slow_rate, has_window, leg_ends)
-
-
-def _parse_hyst_slow_window(spec: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
-    """Parse --hyst_slow_window "B_lo,B_hi" into (B_lo, B_hi) floats, or
-    (None, None) if spec is None (feature disabled -- default behavior)."""
-    if spec is None:
-        return None, None
-    parts = spec.split(",")
-    if len(parts) != 2:
-        raise SystemExit(
-            f"--hyst_slow_window must be 'B_lo,B_hi' (got {spec!r})"
-        )
-    lo, hi = float(parts[0]), float(parts[1])
-    if not (0.0 <= lo < hi):
-        raise SystemExit(
-            f"--hyst_slow_window requires 0 <= B_lo < B_hi (got B_lo={lo}, B_hi={hi})"
-        )
-    return lo, hi
-
-
-@dataclass
 class FieldProtocol:
     mode: str
     Bmax: float
@@ -664,7 +499,6 @@ class FieldProtocol:
     sine_freq: float = 1.0
     hyst_spacing: str = "linear"
     hyst_log_k: float = 5.0
-    hyst_schedule: Optional[HystSchedule] = None
     forc: Optional[ForcSchedule] = None
     demag_freq: float = 2.0
     demag_cycles: int = 20
@@ -687,60 +521,24 @@ class FieldProtocol:
             Bs = B
 
         elif mode == "hysteresis":
-            if self.hyst_spacing == "log" and self.hyst_log_k > 1e-12:
-                # Log-spaced branch envelope: nonlinear g(u) within each of the
-                # five equal-duration branches. The slow-window feature is
-                # defined as piecewise-LINEAR rate scaling and is not composed
-                # with this mode (rejected earlier, at CLI-validation time), so
-                # this path is left byte-for-byte identical to the pre-existing
-                # implementation.
-                T = max(self.t_sim, 1e-30)
-                t5 = T / 5.0
-                if t <= t5:
-                    u, sgn, branch = t / t5, +1.0, "0_to_pos"
-                elif t <= 2.0 * t5:
-                    u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
-                elif t <= 3.0 * t5:
-                    u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
-                elif t <= 4.0 * t5:
-                    u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
-                else:
-                    u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
-                u = max(0.0, min(1.0, u))
-                g = math.sinh(self.hyst_log_k * u) / math.sinh(self.hyst_log_k)
-                Bs = sgn * B * g
-            elif self.hyst_schedule is not None and self.hyst_schedule.has_window:
-                # A slow window is active: B(t) is genuinely piecewise-linear
-                # across sub-branch legs, so it is sampled directly from the
-                # schedule (there is no pre-existing formula to match here).
-                sched = self.hyst_schedule
-                n = len(sched.legs)
-                k = int(np.searchsorted(sched.leg_ends, t, side="left"))
-                k = max(0, min(k, n - 1))
-                leg = sched.legs[k]
-                dt_leg = leg.t_end - leg.t_start
-                f = (t - leg.t_start) / dt_leg if dt_leg > 1e-300 else 0.0
-                f = max(0.0, min(1.0, f))
-                Bs = leg.B_start + f * (leg.B_end - leg.B_start)
-                branch = leg.branch
+            T = max(self.t_sim, 1e-30)
+            t5 = T / 5.0
+            if t <= t5:
+                u, sgn, branch = t / t5, +1.0, "0_to_pos"
+            elif t <= 2.0 * t5:
+                u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
+            elif t <= 3.0 * t5:
+                u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
+            elif t <= 4.0 * t5:
+                u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
             else:
-                # No slow window: byte-for-byte identical to the pre-existing
-                # fixed-five-equal-segment implementation (required for
-                # backward compatibility -- see tests/test_hysteresis_protocol.py).
-                T = max(self.t_sim, 1e-30)
-                t5 = T / 5.0
-                if t <= t5:
-                    u, sgn, branch = t / t5, +1.0, "0_to_pos"
-                elif t <= 2.0 * t5:
-                    u, sgn, branch = 1.0 - (t - t5) / t5, +1.0, "pos_to_0"
-                elif t <= 3.0 * t5:
-                    u, sgn, branch = (t - 2.0 * t5) / t5, -1.0, "0_to_neg"
-                elif t <= 4.0 * t5:
-                    u, sgn, branch = 1.0 - (t - 3.0 * t5) / t5, -1.0, "neg_to_0"
-                else:
-                    u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
-                u = max(0.0, min(1.0, u))
-                Bs = sgn * B * u
+                u, sgn, branch = (t - 4.0 * t5) / t5, +1.0, "0_to_pos_final"
+            u = max(0.0, min(1.0, u))
+            if self.hyst_spacing == "log" and self.hyst_log_k > 1e-12:
+                g = math.sinh(self.hyst_log_k * u) / math.sinh(self.hyst_log_k)
+            else:
+                g = u
+            Bs = sgn * B * g
 
         elif mode == "forc":
             if self.forc is None:
@@ -928,7 +726,7 @@ def domain_statistics(theta_cpu: np.ndarray, x_cpu: np.ndarray, y_cpu: np.ndarra
         neigh = np.where(dist <= 1.05 * r_nn)[0] + i + 1
         if neigh.size == 0:
             continue
-        dtheta = np.abs(wrap_angle(theta_cpu[i] - theta_cpu[neigh]))
+        dtheta = np.abs(wrap_angle_np(theta_cpu[i] - theta_cpu[neigh]))
         for j in neigh[dtheta <= tol]:
             union(i, int(j))
 
@@ -979,12 +777,6 @@ class SimulationConfig:
     backend: str
     log_every: int
     flip_angle_deg: float
-    flip_band_deg: float
-    flip_dwell_T0: float
-    flip_settle_frac: float
-    dt_guard_alpha: float
-    dt_guard_substep: bool
-    event_log: bool
     domain_tol_deg: float
 
 
@@ -1072,24 +864,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         forc_schedule = None
         t_sim = args.t_sim
 
-    slow_lo, slow_hi = _parse_hyst_slow_window(args.hyst_slow_window)
-    has_slow_window = slow_lo is not None
-    if has_slow_window and args.hyst_spacing == "log":
-        raise SystemExit(
-            "--hyst_slow_window is not compatible with --hyst_spacing log: "
-            "the slow window is a piecewise-linear rate modification and does "
-            "not compose with the log-spaced branch envelope. Use "
-            "--hyst_spacing linear (the default) with --hyst_slow_window."
-        )
-
-    hyst_schedule = None
-    t_sim_nominal = t_sim
-    if args.field_mode == "hysteresis":
-        hyst_schedule = build_hysteresis_schedule(
-            B_ext, t_sim_nominal, slow_lo, slow_hi, args.hyst_slow_factor,
-        )
-        t_sim = hyst_schedule.total_time
-
     protocol = FieldProtocol(
         mode=args.field_mode,
         Bmax=B_ext,
@@ -1100,7 +874,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         sine_freq=args.field_freq,
         hyst_spacing=args.hyst_spacing,
         hyst_log_k=args.hyst_log_k,
-        hyst_schedule=hyst_schedule,
         forc=forc_schedule,
         demag_freq=args.demag_freq,
         demag_cycles=args.demag_cycles,
@@ -1144,82 +917,30 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     log_every = max(1, args.log_every)
     flip_threshold = math.radians(args.flip_angle_deg)
 
-    # ------------------------------------------------------------------
-    # V2.1 hardened flip detection: derived quantities.
-    #
-    # Drive-axis channel (flip_field): a needle is in state +1 when its
-    # projection cos(theta - phi) >= +u_thresh, in state -1 when it is
-    # <= -u_thresh, and "undecided" inside the dead band. The dead band is
-    # angular: half-width flip_band_deg measured FROM THE PERPENDICULAR to
-    # the drive axis, so u_thresh = sin(flip_band_deg). A state change is
-    # committed only after the candidate state has persisted for
-    # n_dwell_steps consecutive steps.
-    #
-    # Rest-angle channel (flip_angle): each needle carries a reference
-    # angle theta_ref (its last settled orientation). An event is
-    # committed when |wrap(theta - theta_ref)| >= flip_threshold AND
-    # |omega| <= omega_settle, sustained for n_dwell_steps. theta_ref is
-    # then updated. This channel needs no knowledge of the local energy
-    # landscape and works identically for all lattice geometries.
-    # ------------------------------------------------------------------
-    u_thresh = math.sin(math.radians(args.flip_band_deg))
-    n_dwell_steps = max(1, int(round(args.flip_dwell_T0 * T0 / dt)))
-    omega_settle = args.flip_settle_frac * omega0
-
     # Initial field and torque.
     f0 = protocol.at(0.0)
     cos_phi = math.cos(phi)
     sin_phi = math.sin(phi)
 
     def torque_and_field(th, bx, by):
-        """Return (torque, Bx_total, By_total) per needle.
-
-        The total field components are returned because they are already
-        computed by the matrix-vector products; the stability monitor uses
-        them at zero additional matvec cost.
-        """
         mx = moment * xp.cos(th)
         my = moment * xp.sin(th)
         Bdx = tensor.Axx @ mx + tensor.Axy @ my
         Bdy = tensor.Axy @ mx + tensor.Ayy @ my
-        Btx = Bdx + bx
-        Bty = Bdy + by
-        return mx * Bty - my * Btx, Btx, Bty
+        return mx * (Bdy + by) - my * (Bdx + bx)
 
-    tau, Btx, Bty = torque_and_field(theta, f0.bx, f0.by)
-
-    # Drive-axis Schmitt state. Needles initially inside the dead band get
-    # state 0 (undecided); their first commitment is not counted as a flip.
-    u0 = xp.cos(theta - phi)
-    sigma_state = xp.where(u0 >= u_thresh, 1, xp.where(u0 <= -u_thresh, -1, 0)).astype(xp.int8)
-    ff_pending = xp.zeros(geom.K, dtype=xp.int8)
-    ff_count = xp.zeros(geom.K, dtype=xp.int32)
-
-    # Rest-angle channel state.
-    theta_ref = theta.copy()
-    fa_count = xp.zeros(geom.K, dtype=xp.int32)
-
+    tau = torque_and_field(theta, f0.bx, f0.by)
+    sigma_prev = xp.where(xp.cos(theta - phi) >= 0.0, 1, -1)
     flip_field_acc = 0
     flip_angle_acc = 0
-    flip_field_total = 0
-    flip_angle_total = 0
-
-    # Event log buffer: (step, t, needle_id, channel, theta_committed).
-    # event_path is assigned after the run tag is constructed below.
-    event_buffer: List[Tuple[int, float, int, str, float]] = []
-    event_path: Optional[Path] = None
-
-    # Stability monitor.
-    guard_alpha = float(args.dt_guard_alpha)
-    guard_flagged_steps = 0
-    guard_substepped_steps = 0
-    guard_max_ratio = 0.0
 
     invI = 1.0 / inertia
+    dt2_half = 0.5 * dt * dt
+    b_half = damping * dt * 0.5 * invI
+    coeff_omega = (1.0 - b_half) / (1.0 + b_half)
+    coeff_tau = dt * 0.5 * invI / (1.0 + b_half)
 
     tag = args.tag or f"{args.geometry}_{args.field_mode}_N{args.N}_M{args.M}_seed{seed}"
-    if args.event_log:
-        event_path = data_dir / f"{tag}_events.csv"
     csv_path = data_dir / f"{tag}.csv"
     meta_path = meta_dir / f"{tag}.json"
     initial_state_path = state_dir / f"{tag}_initial.npz"
@@ -1255,49 +976,12 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         backend=backend.name,
         log_every=log_every,
         flip_angle_deg=args.flip_angle_deg,
-        flip_band_deg=args.flip_band_deg,
-        flip_dwell_T0=args.flip_dwell_T0,
-        flip_settle_frac=args.flip_settle_frac,
-        dt_guard_alpha=args.dt_guard_alpha,
-        dt_guard_substep=bool(args.dt_guard_substep),
-        event_log=bool(args.event_log),
         domain_tol_deg=args.domain_tol_deg,
     )
 
-    # Nominal drive sweep rate, logged so rate can be a first-class campaign
-    # axis (athermal deterministic dynamics is rate-dependent by construction).
-    # For hysteresis mode this is the BASE rate (outside any slow window);
-    # see hyst_schedule below for the full explicit per-segment record --
-    # this mirrors FORC.md's "explicit, constant, reported rates" philosophy.
-    hyst_schedule_meta = None
-    if args.field_mode == "hysteresis":
-        sweep_rate_T_s = hyst_schedule.base_rate_T_per_s
-        hyst_schedule_meta = {
-            "base_rate_T_per_s": hyst_schedule.base_rate_T_per_s,
-            "slow_rate_T_per_s": hyst_schedule.slow_rate_T_per_s,
-            "slow_window_T": [slow_lo, slow_hi] if has_slow_window else None,
-            "slow_factor": args.hyst_slow_factor if has_slow_window else None,
-            "total_time_s": hyst_schedule.total_time,
-            "segments": [
-                {
-                    "t_start_s": leg.t_start,
-                    "t_end_s": leg.t_end,
-                    "B_start_T": leg.B_start,
-                    "B_end_T": leg.B_end,
-                    "rate_T_per_s": leg.rate_T_per_s,
-                    "branch": leg.branch,
-                }
-                for leg in hyst_schedule.legs
-            ],
-        }
-    elif args.field_mode == "forc" and args.forc_rate is not None:
-        sweep_rate_T_s = float(args.forc_rate)
-    else:
-        sweep_rate_T_s = None
-
     metadata = {
         "program": "compassV02.py",
-        "version": "2.1.0",
+        "version": "2.0.2",
         "source_file_timestamp": SOURCE_FILE_TIMESTAMP,
         "created_unix_time": time.time(),
         "created_datetime_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1322,18 +1006,12 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "cutoff_policy": cutoff_policy,
             "tensor_bytes": tensor_bytes,
             "dtype": "float32" if args.float32 else "float64",
-            "u_thresh": u_thresh,
-            "n_dwell_steps": n_dwell_steps,
-            "omega_settle_rad_s": omega_settle,
-            "sweep_rate_T_per_s": sweep_rate_T_s,
-            "sweep_rate_Bref_per_T0": (sweep_rate_T_s * T0 / B_ref) if (sweep_rate_T_s and B_ref > 0.0) else None,
         },
-        "hyst_schedule": hyst_schedule_meta,
         "notes": {
             "S1": "polar order |<exp(i theta)>|",
             "S2": "nematic/director order |<exp(2 i theta)>|",
-            "flip_field": "COMMITTED drive-axis reversals since previous log row (Schmitt band flip_band_deg + dwell flip_dwell_T0); ringing-proof",
-            "flip_angle": "COMMITTED rest-angle displacement events since previous log row (>= flip_angle_deg from last settled angle, |omega| settled); geometry-agnostic",
+            "flip_field": "accumulated sign changes relative to the drive axis since previous log row",
+            "flip_angle": "accumulated rotations larger than flip_angle_deg since previous log row",
             "E_dip": "-0.5 sum_i m_i dot B_i^dip",
             "E_ext": "-sum_i m_i dot B_ext",
             "E_kin": "0.5 I sum_i omega_i^2",
@@ -1426,140 +1104,38 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             )
             flip_field_acc = 0
             flip_angle_acc = 0
-            return met.M_proj
 
-        log_adaptive_threshold = float(args.log_adaptive)
-        adaptive_enabled = log_adaptive_threshold > 0.0
-        cos_phi_log = math.cos(phi)
-        sin_phi_log = math.sin(phi)
-
-        last_logged_M_proj = write_row(0, 0.0, f0)
-
-        def verlet_step(th, om, ta, bx, by, dt_s):
-            """One damped velocity-Verlet step of size dt_s. Returns new state."""
-            bh = damping * dt_s * 0.5 * invI
-            c_om = (1.0 - bh) / (1.0 + bh)
-            c_ta = dt_s * 0.5 * invI / (1.0 + bh)
-            acc = (ta - damping * om) * invI
-            th_n = th + om * dt_s + 0.5 * dt_s * dt_s * acc
-            th_n = wrap_angle(th_n)
-            ta_n, btx, bty = torque_and_field(th_n, bx, by)
-            om_n = om * c_om + (ta + ta_n) * c_ta
-            return th_n, om_n, ta_n, btx, bty
-
-        def flush_events():
-            if event_path is None or not event_buffer:
-                return
-            new_file = not event_path.exists()
-            with open(event_path, "a", newline="") as efh:
-                ew = csv.writer(efh)
-                if new_file:
-                    ew.writerow(["step", "t_s", "needle_id", "channel", "theta_rad"])
-                ew.writerows(event_buffer)
-            event_buffer.clear()
+        write_row(0, 0.0, f0)
 
         for step in range(1, n_steps + 1):
             t = step * dt
             f = protocol.at(t)
 
-            theta_new, omega_new, tau_new, Btx, Bty = verlet_step(theta, omega, tau, f.bx, f.by, dt)
+            theta_old = theta
+            accel = (tau - damping * omega) * invI
+            theta_new = theta + omega * dt + accel * dt2_half
+            theta_new = (theta_new + math.pi) % (2.0 * math.pi) - math.pi
 
-            # --------------------------------------------------------------
-            # Stability monitor: local stiffness frequency from |B_i|.
-            # tau_i = (m x B_i)_z, so the linearized local frequency is
-            # bounded by sqrt(m |B_i| / I). Uses fields already computed.
-            # --------------------------------------------------------------
-            B2max = safe_float(xp.max(Btx * Btx + Bty * Bty))
-            ratio = math.sqrt(moment * math.sqrt(B2max) * invI) * dt
-            if ratio > guard_max_ratio:
-                guard_max_ratio = ratio
-            if ratio > guard_alpha:
-                guard_flagged_steps += 1
-                if args.dt_guard_substep:
-                    # Re-integrate this step globally with 4 sub-steps.
-                    # A partial (per-needle) substep is not an option: the
-                    # dipolar field is global and would desynchronize.
-                    guard_substepped_steps += 1
-                    th_s, om_s, ta_s = theta, omega, tau
-                    dt_s = 0.25 * dt
-                    for k_sub in range(4):
-                        f_s = protocol.at((step - 1) * dt + (k_sub + 1) * dt_s)
-                        th_s, om_s, ta_s, Btx, Bty = verlet_step(th_s, om_s, ta_s, f_s.bx, f_s.by, dt_s)
-                    theta_new, omega_new, tau_new = th_s, om_s, ta_s
+            tau_new = torque_and_field(theta_new, f.bx, f.by)
+            omega_new = omega * coeff_omega + (tau + tau_new) * coeff_tau
 
-            # --------------------------------------------------------------
-            # Channel A: drive-axis reversal (flip_field), Schmitt + dwell.
-            # --------------------------------------------------------------
-            u = xp.cos(theta_new - phi)
-            cand = xp.where(u >= u_thresh, 1, xp.where(u <= -u_thresh, -1, 0)).astype(xp.int8)
-            in_new_state = (cand != 0) & (cand != sigma_state)
-            same_as_pending = in_new_state & (cand == ff_pending)
-            ff_count = xp.where(same_as_pending, ff_count + 1,
-                                xp.where(in_new_state, 1, 0)).astype(xp.int32)
-            ff_pending = xp.where(in_new_state, cand, 0).astype(xp.int8)
-            commit_ff = ff_count >= n_dwell_steps
-            n_commit_ff = int(safe_float(xp.sum(commit_ff)))
-            if n_commit_ff > 0:
-                # First commitment of initially undecided needles (state 0)
-                # establishes the state without counting as a reversal.
-                real_flip = commit_ff & (sigma_state != 0)
-                n_real = int(safe_float(xp.sum(real_flip)))
-                flip_field_acc += n_real
-                flip_field_total += n_real
-                if event_path is not None and n_real > 0:
-                    ids = backend.to_cpu(xp.where(real_flip)[0])
-                    ths = backend.to_cpu(theta_new)
-                    event_buffer.extend(
-                        (step, t, int(i), "field", float(ths[int(i)])) for i in ids
-                    )
-                sigma_state = xp.where(commit_ff, ff_pending, sigma_state).astype(xp.int8)
-                ff_count = xp.where(commit_ff, 0, ff_count).astype(xp.int32)
-                ff_pending = xp.where(commit_ff, 0, ff_pending).astype(xp.int8)
-
-            # --------------------------------------------------------------
-            # Channel B: rest-angle displacement (flip_angle), settle + dwell.
-            # --------------------------------------------------------------
-            disp = xp.abs(wrap_angle(theta_new - theta_ref)) >= flip_threshold
-            settled = xp.abs(omega_new) <= omega_settle
-            cond = disp & settled
-            fa_count = xp.where(cond, fa_count + 1, 0).astype(xp.int32)
-            commit_fa = fa_count >= n_dwell_steps
-            n_commit_fa = int(safe_float(xp.sum(commit_fa)))
-            if n_commit_fa > 0:
-                flip_angle_acc += n_commit_fa
-                flip_angle_total += n_commit_fa
-                if event_path is not None:
-                    ids = backend.to_cpu(xp.where(commit_fa)[0])
-                    ths = backend.to_cpu(theta_new)
-                    event_buffer.extend(
-                        (step, t, int(i), "angle", float(ths[int(i)])) for i in ids
-                    )
-                theta_ref = xp.where(commit_fa, theta_new, theta_ref)
-                fa_count = xp.where(commit_fa, 0, fa_count).astype(xp.int32)
+            sigma_new = xp.where(xp.cos(theta_new - phi) >= 0.0, 1, -1)
+            flip_field_acc += int(safe_float(xp.sum(sigma_new != sigma_prev)))
+            dtheta_step = (theta_new - theta_old + math.pi) % (2.0 * math.pi) - math.pi
+            flip_angle_acc += int(safe_float(xp.sum(xp.abs(dtheta_step) >= flip_threshold)))
+            sigma_prev = sigma_new
 
             theta = theta_new
             omega = omega_new
             tau = tau_new
 
-            adaptive_trigger = False
-            if adaptive_enabled:
-                quick_m = safe_float(
-                    xp.mean(xp.cos(theta)) * cos_phi_log + xp.mean(xp.sin(theta)) * sin_phi_log
-                )
-                if abs(quick_m - last_logged_M_proj) > log_adaptive_threshold or n_commit_ff > 0 or n_commit_fa > 0:
-                    adaptive_trigger = True
-
-            if step % log_every == 0 or step == n_steps or adaptive_trigger:
-                last_logged_M_proj = write_row(step, t, f)
-                if len(event_buffer) >= 4096:
-                    flush_events()
+            if step % log_every == 0 or step == n_steps:
+                write_row(step, t, f)
 
             if args.progress and step % max(1, n_steps // 100) == 0:
                 elapsed = time.perf_counter() - t_start
                 rate = step / max(elapsed, 1e-12)
                 print(f"\r{100*step/n_steps:6.2f}%  step {step}/{n_steps}  {rate:8.0f} steps/s", end="", flush=True)
-
-        flush_events()
 
     if args.progress:
         print()
@@ -1570,26 +1146,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     domain_stats = domain_statistics(theta_cpu, geom.xs, geom.ys, geom.r_nn, args.domain_tol_deg)
     metadata["domain_statistics_final"] = domain_stats
     metadata["runtime_s"] = time.perf_counter() - t_start
-    metadata["flip_statistics"] = {
-        "flip_field_total_committed": int(flip_field_total),
-        "flip_angle_total_committed": int(flip_angle_total),
-        "u_thresh": u_thresh,
-        "n_dwell_steps": int(n_dwell_steps),
-        "omega_settle_rad_s": omega_settle,
-    }
-    metadata["stability_monitor"] = {
-        "dt_guard_alpha": guard_alpha,
-        "flagged_steps": int(guard_flagged_steps),
-        "substepped_steps": int(guard_substepped_steps),
-        "max_omega_local_dt": guard_max_ratio,
-        "note": "omega_local = sqrt(m|B_i|/I); flagged when max_i(omega_local)*dt > alpha",
-    }
-    if event_path is not None:
-        metadata["event_log_path"] = str(event_path)
-    if guard_flagged_steps > 0 and not args.dt_guard_substep:
-        print(f"[warning] stability monitor flagged {guard_flagged_steps} steps "
-              f"(max omega_local*dt = {guard_max_ratio:.3f} > alpha = {guard_alpha}). "
-              f"Consider smaller --dt_factor or --dt_guard_substep, and record in quality control.")
 
     np.savez_compressed(
         state_path,
@@ -1686,13 +1242,10 @@ def _draw_lattice_png(ax, state: Dict[str, object], with_axes: bool = False, tit
     needle_len = float(state["needle_len"])
     needle_width = float(state["needle_width"])
 
-    colors = CFG.physics.needle_render.colors
-    blue_north = colors["blue_north"]
-    white_south = colors["white_south"]
-    edge = colors["edge"]
-    pivot = colors["pivot"]
-    pivot_radius_frac = CFG.physics.needle_render.pivot_radius_frac
-    pivot_inner_radius_frac = CFG.physics.needle_render.pivot_inner_radius_frac
+    blue_north = "#0017B8"
+    white_south = "#F2F2F2"
+    edge = "#4D4D4D"
+    pivot = "#777777"
 
     for x, y, th in zip(xs, ys, theta):
         north_half, south_half = _needle_halves_for_png(float(x), float(y), float(th), needle_len, needle_width)
@@ -1700,9 +1253,9 @@ def _draw_lattice_png(ax, state: Dict[str, object], with_axes: bool = False, tit
                              linewidth=0.8, joinstyle="miter", zorder=2))
         ax.add_patch(Polygon(south_half, closed=True, facecolor=white_south, edgecolor=edge,
                              linewidth=0.8, joinstyle="miter", zorder=2))
-        ax.add_patch(Circle((float(x), float(y)), pivot_radius_frac * r_nn, facecolor=pivot,
+        ax.add_patch(Circle((float(x), float(y)), 0.085 * r_nn, facecolor=pivot,
                             edgecolor=edge, linewidth=0.6, zorder=5))
-        ax.add_patch(Circle((float(x), float(y)), pivot_inner_radius_frac * r_nn, facecolor=pivot,
+        ax.add_patch(Circle((float(x), float(y)), 0.025 * r_nn, facecolor=pivot,
                             edgecolor="white", linewidth=0.35, zorder=6))
 
     margin = 0.8 * r_nn
@@ -1810,21 +1363,15 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    grid_cfg = CFG.numerics.compass_engine.grid
-    time_cfg = CFG.numerics.compass_engine.time
-    tol_cfg = CFG.numerics.compass_engine.tolerances
-    phys_cfg = CFG.physics.compass_engine
-    run_cfg = CFG.run.compass_engine
-
     g = p.add_argument_group("lattice geometry")
-    g.add_argument("--geometry", choices=["square", "triangular", "honeycomb"], default=grid_cfg.geometry)
-    g.add_argument("--N", type=int, default=grid_cfg.N, help="number of rows or nominal honeycomb height")
-    g.add_argument("--M", type=int, default=grid_cfg.M, help="number of columns or nominal honeycomb width")
+    g.add_argument("--geometry", choices=["square", "triangular", "honeycomb"], default="square")
+    g.add_argument("--N", type=int, default=16, help="number of rows or nominal honeycomb height")
+    g.add_argument("--M", type=int, default=16, help="number of columns or nominal honeycomb width")
     g.add_argument("--R", type=float, default=R_DEFAULT, help="half the centre-to-centre distance between pivots [m]; default gives 13 mm spacing")
-    g.add_argument("--needle_frac", type=float, default=phys_cfg.needle_frac_legacy, help="legacy blade length fraction of 2R, used only with --use_legacy_size_from_R")
+    g.add_argument("--needle_frac", type=float, default=0.80, help="legacy blade length fraction of 2R, used only with --use_legacy_size_from_R")
     g.add_argument("--needle_len", type=float, default=NEEDLE_LEN_DEFAULT, help="physical needle blade length [m]")
     g.add_argument("--needle_width", type=float, default=NEEDLE_WIDTH_DEFAULT, help="physical needle blade width [m]")
-    g.add_argument("--use_legacy_size_from_R", type=int, choices=[0, 1], default=phys_cfg.use_legacy_size_from_R, help="if 1, set blade size from needle_frac*2R; if 0, use explicit needle_len/needle_width")
+    g.add_argument("--use_legacy_size_from_R", type=int, choices=[0, 1], default=0, help="if 1, set blade size from needle_frac*2R; if 0, use explicit needle_len/needle_width")
 
     g = p.add_argument_group("needle physical properties")
     g.add_argument("--moment", type=float, default=None, help="override magnetic moment [A m^2]")
@@ -1833,74 +1380,65 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--steel_density", type=float, default=STEEL_DENSITY_DEFAULT)
     g.add_argument("--steel_Ms", type=float, default=STEEL_MS_SATURATION_DEFAULT, help="saturation magnetization [A/m]")
     g.add_argument("--steel_Bsat", type=float, default=None, help="optional Bsat [T], overrides steel_Ms via Ms=Bsat/mu0")
-    g.add_argument("--pivot_radius", type=float, default=phys_cfg.pivot_radius)
-    g.add_argument("--pivot_thickness", type=float, default=phys_cfg.pivot_thickness)
-    g.add_argument("--pivot_density", type=float, default=phys_cfg.pivot_density)
+    g.add_argument("--pivot_radius", type=float, default=0.0)
+    g.add_argument("--pivot_thickness", type=float, default=0.0)
+    g.add_argument("--pivot_density", type=float, default=8500.0)
     g.add_argument("--pivot_mass", type=float, default=None)
     g.add_argument("--damping", type=float, default=DAMPING_DEFAULT)
-    g.add_argument("--damping_noise", type=float, default=phys_cfg.damping_noise, help="relative uniform random damping variation per needle")
+    g.add_argument("--damping_noise", type=float, default=0.0, help="relative uniform random damping variation per needle")
 
     g = p.add_argument_group("time integration")
-    g.add_argument("--t_sim", type=float, default=phys_cfg.t_sim, help="simulation time [s], except FORC and demag modes")
-    g.add_argument("--dt_factor", type=float, default=time_cfg.dt_factor, help="dt/T0")
-    g.add_argument("--noise", type=float, default=phys_cfg.noise, help="initial angular noise amplitude [rad]")
-    g.add_argument("--seed", type=int, default=run_cfg.seed)
-    g.add_argument("--log_every", type=int, default=time_cfg.log_every, help="write one CSV row every this many integration steps")
-    g.add_argument("--log_adaptive", type=float, default=tol_cfg.log_adaptive_threshold, help="if > 0, also write a CSV row on any step where |delta M_proj| since the last logged row exceeds this threshold, or a flip_field/flip_angle event was just committed (adaptive output density); 0.0 (default) disables this and reproduces exactly the --log_every cadence")
-    g.add_argument("--flip_angle_deg", type=float, default=tol_cfg.flip_angle_deg, help="rest-angle displacement threshold for the committed flip_angle channel")
-    g.add_argument("--flip_band_deg", type=float, default=tol_cfg.flip_band_deg, help="Schmitt dead-band half-width around the perpendicular to the drive axis [deg]")
-    g.add_argument("--flip_dwell_T0", type=float, default=tol_cfg.flip_dwell_T0, help="dwell time required to commit a flip, in units of T0")
-    g.add_argument("--flip_settle_frac", type=float, default=tol_cfg.flip_settle_frac, help="|omega| settling threshold as a fraction of omega0 for the flip_angle channel")
-    g.add_argument("--event_log", action="store_true", default=run_cfg.event_log, help="write per-event CSV (step,t,needle_id,channel,theta) for offline avalanche clustering")
-    g.add_argument("--dt_guard_alpha", type=float, default=tol_cfg.dt_guard_alpha, help="stability monitor threshold on max_i sqrt(m|B_i|/I)*dt")
-    g.add_argument("--dt_guard_substep", action="store_true", default=run_cfg.dt_guard_substep, help="re-integrate flagged steps with 4 global sub-steps (breaks strict symplecticity; exploratory)")
+    g.add_argument("--t_sim", type=float, default=2.0, help="simulation time [s], except FORC and demag modes")
+    g.add_argument("--dt_factor", type=float, default=0.04, help="dt/T0")
+    g.add_argument("--noise", type=float, default=1.5, help="initial angular noise amplitude [rad]")
+    g.add_argument("--seed", type=int, default=None)
+    g.add_argument("--log_every", type=int, default=10, help="write one CSV row every this many integration steps")
+    g.add_argument("--flip_angle_deg", type=float, default=90.0, help="threshold for large-rotation activity counter")
 
     g = p.add_argument_group("dipolar cutoff and boundaries")
-    g.add_argument("--cutoff_shells", type=float, default=grid_cfg.cutoff_shells, help="cutoff in units of r_nn")
+    g.add_argument("--cutoff_shells", type=float, default=3.5, help="cutoff in units of r_nn")
     g.add_argument("--cutoff_m", type=float, default=None, help="absolute cutoff [m], overrides cutoff_shells")
-    g.add_argument("--pbc", action="store_true", default=grid_cfg.pbc, help="periodic boundary conditions using finite images")
-    g.add_argument("--n_images", type=int, default=grid_cfg.n_images, help="number of periodic images in each direction")
-    g.add_argument("--tensor_mem_limit_gb", type=float, default=grid_cfg.tensor_mem_limit_gb)
-    g.add_argument("--float32", action="store_true", default=grid_cfg.float32, help="use float32 tensor/state to save memory; float64 is preferred for final data")
+    g.add_argument("--pbc", action="store_true", help="periodic boundary conditions using finite images")
+    g.add_argument("--n_images", type=int, default=1, help="number of periodic images in each direction")
+    g.add_argument("--tensor_mem_limit_gb", type=float, default=6.0)
+    g.add_argument("--float32", action="store_true", help="use float32 tensor/state to save memory; float64 is preferred for final data")
 
     g = p.add_argument_group("field protocol")
-    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default=phys_cfg.field_mode)
+    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default="static")
     g.add_argument("--B_ext", type=float, default=None, help="field amplitude [T]; if omitted, B_max_factor*B_ref")
-    g.add_argument("--B_max_factor", type=float, default=phys_cfg.B_max_factor, help="B_ext = factor * B_ref if B_ext omitted")
-    g.add_argument("--phi_ext_deg", type=float, default=phys_cfg.phi_ext_deg, help="field direction")
-    g.add_argument("--field_freq", type=float, default=phys_cfg.field_freq, help="sine frequency [Hz]")
-    g.add_argument("--field_delay", type=float, default=phys_cfg.field_delay, help="delay for step/pulse protocols [s]")
+    g.add_argument("--B_max_factor", type=float, default=8.0, help="B_ext = factor * B_ref if B_ext omitted")
+    g.add_argument("--phi_ext_deg", type=float, default=0.0, help="field direction")
+    g.add_argument("--field_freq", type=float, default=1.0, help="sine frequency [Hz]")
+    g.add_argument("--field_delay", type=float, default=0.0, help="delay for step/pulse protocols [s]")
     g.add_argument("--t_pulse", type=float, default=None, help="pulse duration [s]")
-    g.add_argument("--hyst_spacing", choices=["linear", "log"], default=phys_cfg.hyst_spacing)
-    g.add_argument("--hyst_log_k", type=float, default=phys_cfg.hyst_log_k)
-    g.add_argument("--hyst_slow_window", type=str, default=None, help="'B_lo,B_hi' [T]: sweep rate is divided by --hyst_slow_factor while |B| is inside this window (applies to both up- and down-sweeps); default None disables the feature (base rate everywhere, identical to previous behavior)")
-    g.add_argument("--hyst_slow_factor", type=float, default=phys_cfg.hyst_slow_factor, help="sweep-rate divisor inside --hyst_slow_window; 1.0 (default) is a no-op")
+    g.add_argument("--hyst_spacing", choices=["linear", "log"], default="linear")
+    g.add_argument("--hyst_log_k", type=float, default=5.0)
 
     g = p.add_argument_group("FORC protocol")
     g.add_argument("--forc_Br_min", type=float, default=None, help="minimum reversal field [T]; default -Bmax")
-    g.add_argument("--forc_n_curves", type=int, default=phys_cfg.forc.n_curves)
-    g.add_argument("--forc_t_sat", type=float, default=phys_cfg.forc.t_sat)
-    g.add_argument("--forc_t_ramp_down", type=float, default=phys_cfg.forc.t_ramp_down)
-    g.add_argument("--forc_t_ramp_up", type=float, default=phys_cfg.forc.t_ramp_up)
+    g.add_argument("--forc_n_curves", type=int, default=30)
+    g.add_argument("--forc_t_sat", type=float, default=0.05)
+    g.add_argument("--forc_t_ramp_down", type=float, default=0.10)
+    g.add_argument("--forc_t_ramp_up", type=float, default=0.20)
     g.add_argument("--forc_rate", type=float, default=None, help="field ramp rate [T/s]; overrides fixed FORC ramp times")
 
     g = p.add_argument_group("demagnetization")
-    g.add_argument("--demag_freq", type=float, default=phys_cfg.demag.freq)
-    g.add_argument("--demag_cycles", type=int, default=phys_cfg.demag.cycles)
-    g.add_argument("--t_relax_after", type=float, default=phys_cfg.demag.t_relax_after, help="extra relaxation after demag mode")
+    g.add_argument("--demag_freq", type=float, default=2.0)
+    g.add_argument("--demag_cycles", type=int, default=20)
+    g.add_argument("--t_relax_after", type=float, default=2.0, help="extra relaxation after demag mode")
 
     g = p.add_argument_group("output and performance")
-    g.add_argument("--out_dir", default=run_cfg.out_dir)
-    g.add_argument("--tag", default=run_cfg.tag)
-    g.add_argument("--use_gpu", action="store_true", default=run_cfg.use_gpu)
-    g.add_argument("--progress", action="store_true", default=run_cfg.progress)
-    g.add_argument("--verbose", action="store_true", default=run_cfg.verbose)
-    g.add_argument("--make_plot", action="store_true", default=run_cfg.make_plot)
-    g.add_argument("--png_dpi", type=int, default=run_cfg.png_dpi, help="DPI for automatic lattice PNG images")
-    g.add_argument("--png_transparent", action="store_true", default=run_cfg.png_transparent, help="save lattice PNGs with transparent background")
-    g.add_argument("--png_with_axes", action="store_true", default=run_cfg.png_with_axes, help="include axes/grid/title in lattice PNGs")
-    g.add_argument("--png_no_panel_titles", action="store_true", default=run_cfg.png_no_panel_titles, help="remove Initial/Final panel titles in side-by-side PNG")
-    g.add_argument("--domain_tol_deg", type=float, default=tol_cfg.domain_tol_deg)
+    g.add_argument("--out_dir", default="compassV2_output")
+    g.add_argument("--tag", default=None)
+    g.add_argument("--use_gpu", action="store_true")
+    g.add_argument("--progress", action="store_true")
+    g.add_argument("--verbose", action="store_true")
+    g.add_argument("--make_plot", action="store_true")
+    g.add_argument("--png_dpi", type=int, default=300, help="DPI for automatic lattice PNG images")
+    g.add_argument("--png_transparent", action="store_true", help="save lattice PNGs with transparent background")
+    g.add_argument("--png_with_axes", action="store_true", help="include axes/grid/title in lattice PNGs")
+    g.add_argument("--png_no_panel_titles", action="store_true", help="remove Initial/Final panel titles in side-by-side PNG")
+    g.add_argument("--domain_tol_deg", type=float, default=15.0)
 
     return p
 
