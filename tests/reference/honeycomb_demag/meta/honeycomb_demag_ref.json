@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:46:47-03:00",
-  "created_unix_time": 1792162069.739559,
-  "created_datetime_utc": "2026-10-16T14:47:49+00:00",
-  "created_datetime_local": "2026-10-16T11:47:49-03:00",
+  "source_file_timestamp": "2026-10-16T11:50:09-03:00",
+  "created_unix_time": 1792162252.55618,
+  "created_datetime_utc": "2026-10-16T14:50:52+00:00",
+  "created_datetime_local": "2026-10-16T11:50:52-03:00",
   "tag": "honeycomb_demag_ref",
   "config": {
     "geometry": "honeycomb",
@@ -85,7 +85,9 @@
     "flip_angle": "COMMITTED rest-angle displacement events since previous log row (>= flip_angle_deg from last settled angle, |omega| settled); geometry-agnostic",
     "E_dip": "-0.5 sum_i m_i dot B_i^dip",
     "E_ext": "-sum_i m_i dot B_ext",
-    "E_kin": "0.5 I sum_i omega_i^2"
+    "E_kin": "0.5 I sum_i omega_i^2",
+    "W_field": "cumulative work of the time-dependent applied field, -sum_i int m_i . dB_ext (trapezoidal)",
+    "E_diss": "cumulative viscous dissipation, int sum_i b_i omega_i^2 dt (trapezoidal); E_total(t)-E_total(0) = W_field - E_diss"
   },
   "domain_statistics_final": {
     "n_domains": 5,
@@ -99,13 +101,22 @@
       1
     ]
   },
-  "runtime_s": 0.0019660420002765022,
+  "runtime_s": 0.0021496250010386575,
   "flip_statistics": {
     "flip_field_total_committed": 9,
     "flip_angle_total_committed": 1,
     "u_thresh": 0.49999999999999994,
     "n_dwell_steps": 2,
     "omega_settle_rad_s": 27.832054119614494
+  },
+  "energy_ledger": {
+    "E_total_initial_J": -0.00012849406573802374,
+    "E_total_final_J": -2.9589347605348156e-05,
+    "W_field_total_J": 0.0006395828596089863,
+    "E_diss_total_J": 0.00045765637803929943,
+    "balance_residual_J": -8.302176343701127e-05,
+    "balance_residual_rel": 0.12980611063868602,
+    "note": "residual = dE_total - (W_field - E_diss); O(dt^2) for continuous protocols, larger at field jumps (step/pulse)"
   },
   "stability_monitor": {
     "dt_guard_alpha": 0.2,

@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:46:47-03:00",
-  "created_unix_time": 1792162069.578101,
-  "created_datetime_utc": "2026-10-16T14:47:49+00:00",
-  "created_datetime_local": "2026-10-16T11:47:49-03:00",
+  "source_file_timestamp": "2026-10-16T11:50:09-03:00",
+  "created_unix_time": 1792162252.3936388,
+  "created_datetime_utc": "2026-10-16T14:50:52+00:00",
+  "created_datetime_local": "2026-10-16T11:50:52-03:00",
   "tag": "triangular_hysteresis_ref",
   "config": {
     "geometry": "triangular",
@@ -133,7 +133,9 @@
     "flip_angle": "COMMITTED rest-angle displacement events since previous log row (>= flip_angle_deg from last settled angle, |omega| settled); geometry-agnostic",
     "E_dip": "-0.5 sum_i m_i dot B_i^dip",
     "E_ext": "-sum_i m_i dot B_ext",
-    "E_kin": "0.5 I sum_i omega_i^2"
+    "E_kin": "0.5 I sum_i omega_i^2",
+    "W_field": "cumulative work of the time-dependent applied field, -sum_i int m_i . dB_ext (trapezoidal)",
+    "E_diss": "cumulative viscous dissipation, int sum_i b_i omega_i^2 dt (trapezoidal); E_total(t)-E_total(0) = W_field - E_diss"
   },
   "domain_statistics_final": {
     "n_domains": 9,
@@ -151,13 +153,22 @@
       1
     ]
   },
-  "runtime_s": 0.0016407500006607734,
+  "runtime_s": 0.001904125001601642,
   "flip_statistics": {
     "flip_field_total_committed": 2,
     "flip_angle_total_committed": 0,
     "u_thresh": 0.49999999999999994,
     "n_dwell_steps": 4,
     "omega_settle_rad_s": 27.832054119614494
+  },
+  "energy_ledger": {
+    "E_total_initial_J": -3.1690063789793663e-07,
+    "E_total_final_J": -2.550971389330629e-05,
+    "W_field_total_J": 0.00030101175533340526,
+    "E_diss_total_J": 0.0003478412968701615,
+    "balance_residual_J": 2.1636728281347864e-05,
+    "balance_residual_rel": 0.06220287377040281,
+    "note": "residual = dE_total - (W_field - E_diss); O(dt^2) for continuous protocols, larger at field jumps (step/pulse)"
   },
   "stability_monitor": {
     "dt_guard_alpha": 0.2,

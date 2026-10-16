@@ -61,7 +61,7 @@ Campo no centro de um array 36×36 uniformemente magnetizado, em unidades de B_r
 - **Dipolo pontual:** L/a = 10/13 ≈ 0,77, então o campo de campo próximo difere bastante do dipolar. Um modelo de halteres (cargas ±q nas pontas) é necessário ao menos como teste de robustez, porque pode mudar até o estado fundamental da rede quadrada.
 - **T = 0 e determinístico:** a única aleatoriedade são os ângulos iniciais e 5 % no amortecimento. Não há limiar de chaveamento intrínseco, então não há "histerons" no sentido de Preisach.
 - **Atrito de Coulomb no pivô** é físico no aparato real e cria limiares estáticos (pinning). Ele é a forma natural de introduzir desordem controlada e histerons verdadeiros. Recomendo implementar como opção (com regularização suave de sgn(ω)).
-- **Balanço de energia:** falta o livro-caixa de trabalho do campo e de dissipação (W = −∫ m·dB, D = ∫ b ω² dt). A identidade "área do laço = energia dissipada por ciclo" é um teste de validação excelente e uma figura de artigo.
+- **Balanço de energia:** falta o livro-caixa de trabalho do campo e de dissipação (W = −∫ m·dB, D = ∫ b ω² dt). A identidade "área do laço = energia dissipada por ciclo" é um teste de validação excelente e uma figura de artigo. **Corrigido em out/2026:** colunas `W_field_J` e `E_diss_J` no CSV e `energy_ledger` nos metadados. O balanço fecha em O(dt²), e a identidade área = trabalho do campo é testada.
 
 ### 2.7 Organização
 Grande parte disso já foi resolvida no repositório em 13/07 (motor único, testes de regressão, documentação reescrita; ver `docs/AUDIT.md`). Pendências:

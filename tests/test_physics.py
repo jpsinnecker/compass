@@ -257,7 +257,6 @@ def test_quality_factor_uses_lattice_field_scale(tmp_path):
     assert d["Q"] / d["Q_ref"] == pytest.approx(math.sqrt(ratio_B), rel=1e-9)
 
 
-@pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.6: no work/dissipation ledger (W_field_J, E_diss_J) in the CSV")
 def test_energy_balance_with_field_work_and_dissipation(tmp_path):
     rows, _ = _run(
         tmp_path, "balance",
@@ -271,3 +270,47 @@ def test_energy_balance_with_field_work_and_dissipation(tmp_path):
     D = _col(rows, "E_diss_J")     # cumulative viscous dissipation, integral of b*omega^2 dt
     residual = (E - E[0]) - (W - D)
     assert np.max(np.abs(residual)) < 1e-3 * np.max(np.abs(D))
+
+
+def _balance_residual(tmp_path, tag, dt_factor):
+    _, meta = _run(
+        tmp_path, tag,
+        "--geometry", "triangular", "--N", "5", "--M", "5",
+        "--field_mode", "sine", "--B_max_factor", "4", "--field_freq", "3",
+        "--damping", "5e-8", "--t_sim", "0.5", "--dt_factor", str(dt_factor),
+    )
+    return meta["energy_ledger"]["balance_residual_rel"]
+
+
+def test_energy_balance_residual_is_second_order(tmp_path):
+    coarse = _balance_residual(tmp_path, "bal_coarse", 0.02)
+    fine = _balance_residual(tmp_path, "bal_fine", 0.01)
+    assert fine < 1e-3
+    assert 2.5 < coarse / fine < 6.0, f"residual ratio {coarse / fine:.2f}, expected ~4"
+
+
+def test_hysteresis_loop_area_equals_dissipated_energy(tmp_path):
+    # Over a closed field cycle from a settled state the field work equals the
+    # dissipation (up to the change of internal energy), i.e. the loop area
+    # -K m * closed integral of M_proj dB equals E_diss over that cycle.
+    rows, meta = _run(
+        tmp_path, "loop",
+        "--geometry", "square", "--N", "5", "--M", "5",
+        "--field_mode", "hysteresis", "--B_max_factor", "4", "--damping", "2e-7",
+        "--t_sim", "2.0", "--log_every", "1", "--dt_factor", "0.01",
+    )
+    branch = [r["branch"] for r in rows]
+    # closed loop: start of "pos_to_0" (at +Bmax) to the end of "0_to_pos_final" (+Bmax again)
+    i0 = branch.index("pos_to_0") - 1
+    i1 = len(rows) - 1
+    B = _col(rows, "B_scalar_T")[i0:i1 + 1]
+    M = _col(rows, "M_proj")[i0:i1 + 1]
+    W = _col(rows, "W_field_J")
+    D = _col(rows, "E_diss_J")
+    E = _col(rows, "E_total_J")
+    K = meta["derived"]["K"]
+    moment = meta["config"]["moment"]
+    area_work = -K * moment * np.trapz(M, B)
+    assert area_work == pytest.approx(W[i1] - W[i0], rel=2e-2)
+    assert (W[i1] - W[i0]) - (D[i1] - D[i0]) == pytest.approx(E[i1] - E[i0], abs=1e-3 * (D[i1] - D[i0]))
+

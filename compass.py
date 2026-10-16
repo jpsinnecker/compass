@@ -1449,6 +1449,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "E_dip": "-0.5 sum_i m_i dot B_i^dip",
             "E_ext": "-sum_i m_i dot B_ext",
             "E_kin": "0.5 I sum_i omega_i^2",
+            "W_field": "cumulative work of the time-dependent applied field, -sum_i int m_i . dB_ext (trapezoidal)",
+            "E_diss": "cumulative viscous dissipation, int sum_i b_i omega_i^2 dt (trapezoidal); E_total(t)-E_total(0) = W_field - E_diss",
         },
     }
 
@@ -1504,7 +1506,13 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         "E_total_J",
         "omega_rms_rad_s",
         "omega_max_rad_s",
+        "W_field_J",
+        "E_diss_J",
     ]
+
+    # Energy ledger accumulators (see ledger_increment).
+    W_field_acc = 0.0
+    E_diss_acc = 0.0
 
     t_start = time.perf_counter()
     with open(csv_path, "w", newline="") as fh:
@@ -1538,6 +1546,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                     "E_total_J": f"{(met.E_dip + met.E_ext + met.E_kin):.12g}",
                     "omega_rms_rad_s": f"{met.omega_rms:.12g}",
                     "omega_max_rad_s": f"{met.omega_max:.12g}",
+                    "W_field_J": f"{W_field_acc:.12g}",
+                    "E_diss_J": f"{E_diss_acc:.12g}",
                 }
             )
             flip_field_acc = 0
@@ -1549,7 +1559,27 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         cos_phi_log = math.cos(phi)
         sin_phi_log = math.sin(phi)
 
+        _m_init = compute_metrics(theta, omega, tensor, moment, inertia, f0.bx, f0.by, phi, backend)
+        E_total_initial = _m_init.E_dip + _m_init.E_ext + _m_init.E_kin
         last_logged_M_proj = write_row(0, 0.0, f0)
+
+        def ledger_increment(th0, om0, th1, om1, b0x, b0y, b1x, b1y, h):
+            """Trapezoidal increments of the energy ledger over one step h.
+
+            dW: work done on the needles by the applied field changing in
+            time, -sum_i m_i . dB_ext (zero for a static field).
+            dD: viscous dissipation, integral of sum_i b_i omega_i^2 dt.
+            With E_total = E_dip + E_ext + E_kin these satisfy
+            E_total(t) - E_total(0) = W_field(t) - E_diss(t) up to the
+            O(dt^2) error of the integrator.
+            """
+            mx_avg = 0.5 * moment * (xp.cos(th0) + xp.cos(th1))
+            my_avg = 0.5 * moment * (xp.sin(th0) + xp.sin(th1))
+            dW = -(safe_float(xp.sum(mx_avg)) * (b1x - b0x) + safe_float(xp.sum(my_avg)) * (b1y - b0y))
+            dD = 0.5 * h * safe_float(xp.sum(damping * (om0 * om0 + om1 * om1)))
+            return dW, dD
+
+        f_prev = f0
 
         def verlet_step(th, om, ta, bx, by, dt_s):
             """One damped velocity-Verlet step of size dt_s. Returns new state."""
@@ -1579,6 +1609,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             f = protocol.at(t)
 
             theta_new, omega_new, tau_new, Btx, Bty = verlet_step(theta, omega, tau, f.bx, f.by, dt)
+            dW_step, dD_step = ledger_increment(theta, omega, theta_new, omega_new,
+                                                f_prev.bx, f_prev.by, f.bx, f.by, dt)
 
             # --------------------------------------------------------------
             # Stability monitor: local stiffness frequency from |B_i|.
@@ -1598,10 +1630,21 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                     guard_substepped_steps += 1
                     th_s, om_s, ta_s = theta, omega, tau
                     dt_s = 0.25 * dt
+                    f_sp = f_prev
+                    dW_step = dD_step = 0.0
                     for k_sub in range(4):
                         f_s = protocol.at((step - 1) * dt + (k_sub + 1) * dt_s)
-                        th_s, om_s, ta_s, Btx, Bty = verlet_step(th_s, om_s, ta_s, f_s.bx, f_s.by, dt_s)
+                        th_n, om_n, ta_s, Btx, Bty = verlet_step(th_s, om_s, ta_s, f_s.bx, f_s.by, dt_s)
+                        dW_s, dD_s = ledger_increment(th_s, om_s, th_n, om_n,
+                                                      f_sp.bx, f_sp.by, f_s.bx, f_s.by, dt_s)
+                        dW_step += dW_s
+                        dD_step += dD_s
+                        th_s, om_s, f_sp = th_n, om_n, f_s
                     theta_new, omega_new, tau_new = th_s, om_s, ta_s
+
+            W_field_acc += dW_step
+            E_diss_acc += dD_step
+            f_prev = f
 
             # --------------------------------------------------------------
             # Channel A: drive-axis reversal (flip_field), Schmitt + dwell.
@@ -1692,6 +1735,19 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         "u_thresh": u_thresh,
         "n_dwell_steps": int(n_dwell_steps),
         "omega_settle_rad_s": omega_settle,
+    }
+    f_last = protocol.at(n_steps * dt)
+    _m_final = compute_metrics(theta, omega, tensor, moment, inertia, f_last.bx, f_last.by, phi, backend)
+    E_total_final = _m_final.E_dip + _m_final.E_ext + _m_final.E_kin
+    balance_residual = (E_total_final - E_total_initial) - (W_field_acc - E_diss_acc)
+    metadata["energy_ledger"] = {
+        "E_total_initial_J": E_total_initial,
+        "E_total_final_J": E_total_final,
+        "W_field_total_J": W_field_acc,
+        "E_diss_total_J": E_diss_acc,
+        "balance_residual_J": balance_residual,
+        "balance_residual_rel": abs(balance_residual) / max(abs(E_diss_acc), abs(W_field_acc), abs(E_total_initial), 1e-300),
+        "note": "residual = dE_total - (W_field - E_diss); O(dt^2) for continuous protocols, larger at field jumps (step/pulse)",
     }
     metadata["stability_monitor"] = {
         "dt_guard_alpha": guard_alpha,

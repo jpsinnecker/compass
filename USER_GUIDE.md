@@ -243,12 +243,18 @@ If `--make_plot` is set, an additional `<tag>_quicklook.png` diagnostic time-ser
 ```csv
 step,t_s,Bx_T,By_T,B_scalar_T,branch,forc_index,Mx,My,M_proj,S1,S2,
 theta_director_rad,q_axis,flip_field,flip_angle,E_dip_J,E_ext_J,E_kin_J,
-E_total_J,omega_rms_rad_s,omega_max_rad_s
+E_total_J,omega_rms_rad_s,omega_max_rad_s,W_field_J,E_diss_J
 ```
 `branch` is the field-protocol's current segment label (e.g. `0_to_pos`, `pos_to_0` for hysteresis; `sat`/`down`/`up` for FORC). `forc_index` identifies the active FORC curve, `-1` otherwise. `flip_field` and `flip_angle` are **committed** avalanche-event counts accumulated since the previous logged row, not instantaneous states.
 
+`W_field_J` and `E_diss_J` form the **energy ledger**. They are cumulative from $t=0$ and use trapezoidal integration consistent with the integrator:
+* $W_{\text{field}}(t) = -\sum_i\int \mathbf m_i\cdot d\mathbf B_{\text{ext}}$ is the work of the time-dependent applied field;
+* $E_{\text{diss}}(t) = \int\sum_i b_i\,\omega_i^2\,dt$ is the viscous dissipation.
+
+They satisfy $E_{\text{total}}(t)-E_{\text{total}}(0) = W_{\text{field}}(t) - E_{\text{diss}}(t)$ up to $O(\Delta t^2)$, with a larger error at field jumps (step/pulse). Over a closed hysteresis cycle, $W_{\text{field}}$ equals the loop area $-K m\oint M_{\text{proj}}\,dB$. The metadata summarizes the balance in `energy_ledger` (`balance_residual_rel`), which is a per-run quality-control number.
+
 ### Metadata JSON (`meta/<tag>.json`)
-Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $T_{\text{loc}}$, $\Delta t$, $Q$ (= $Q_0$), $B_{\text{lat}}$, `Q_ref`, `Q_field`, cutoff policy, the reported sweep rate, and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
+Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $T_{\text{loc}}$, $\Delta t$, $Q$ (= $Q_0$), $B_{\text{lat}}$, `Q_ref`, `Q_field`, cutoff policy, the reported sweep rate, the `energy_ledger` summary, and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
 
 ### Regenerating images later
 `compass_generate_images.py --run_dir <out_dir> [--recursive]` regenerates lattice PNGs from already-saved CSV/NPZ output (e.g. after changing `--dpi`/`--transparent`/style), without re-running the simulation.

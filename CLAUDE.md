@@ -37,7 +37,8 @@ python3 tests/generate_reference.py             # regenerate regression referenc
      independent of the protocol. `Q_ref` (B_ref-based, the convention of the sweep grid) and `Q_field`
      (the old B_eff-based value) are recorded alongside. B_lat depends on array size (edges).
   4. Sweep rate is not a controlled dimensionless axis. Loop area depends strongly on it.
-  5. No work/dissipation ledger. Target: W_field and D = ∫ b ω² dt logged, with the energy balance tested.
+  5. FIXED: CSV columns `W_field_J`, `E_diss_J` (cumulative) and metadata `energy_ledger`; ΔE_total = W − D
+     to O(dt²) and loop area = W over a closed cycle, both tested.
 - Any change to physics defaults changes the regression references. Regenerate them in the
   same commit and say so in the commit message.
 

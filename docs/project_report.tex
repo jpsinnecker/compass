@@ -832,10 +832,10 @@ The V2.0.2 CSV header is explicitly written by the code. Its current order is:
 \begin{lstlisting}[style=csvstyle]
 step,t_s,Bx_T,By_T,B_scalar_T,branch,forc_index,Mx,My,M_proj,S1,S2,
 theta_director_rad,q_axis,flip_field,flip_angle,E_dip_J,E_ext_J,E_kin_J,
-E_total_J,omega_rms_rad_s,omega_max_rad_s
+E_total_J,omega_rms_rad_s,omega_max_rad_s,W_field_J,E_diss_J
 \end{lstlisting}
 
-The header separates field information, protocol branch labels, magnetization observables, director observables, activity counters, energies, and angular-velocity diagnostics. The field is stored both as Cartesian components and as the scalar protocol value. For FORC runs, \code{forc\_index} identifies the active FORC curve; for other modes it remains at the protocol default value. Energy columns are in joules, field columns are in tesla, and angular velocities are in radians per second.
+The header separates field information, protocol branch labels, magnetization observables, director observables, activity counters, energies, and angular-velocity diagnostics. The field is stored both as Cartesian components and as the scalar protocol value. For FORC runs, \code{forc\_index} identifies the active FORC curve; for other modes it remains at the protocol default value. Energy columns are in joules, field columns are in tesla, and angular velocities are in radians per second. \textbf{Update (October 2026).} Two cumulative energy-ledger columns were added: \code{W\_field\_J}, the work of the time-dependent applied field $-\sum_i\int\mathbf m_i\cdot d\mathbf B_{\rm ext}$, and \code{E\_diss\_J}, the viscous dissipation $\int\sum_i b_i\omega_i^2\,dt$. They satisfy $\Delta E_{\rm total}=W_{\rm field}-E_{\rm diss}$ to $O(\Delta t^2)$, and over a closed cycle $W_{\rm field}$ equals the loop area. This identity is tested in \code{tests/test\_physics.py}.
 
 % ======================================================================
 \section{Appendix C: version history}

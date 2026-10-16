@@ -167,10 +167,13 @@ right, independently of `compass.py`'s own code paths where possible:
 | `test_torque_is_minus_energy_gradient` | tau_i == -dE/dtheta_i (finite differences) |
 | `test_energy_conservation_at_zero_damping_is_second_order` | b=0 energy drift small and scaling ~dt^2 |
 | `test_damped_relaxation_dissipates_energy` | total energy never rises during free damped relaxation |
+| `test_default_cutoff_reproduces_full_dipolar_sum`, `test_full_sum_default_runs_and_writes_valid_json` | default is the full pair sum; metadata stays strict JSON |
+| `test_local_field_bound_dominates_actual_fields`, `test_default_timestep_resolves_local_frequency*` | dt bound holds for any state; omega_loc*dt <= 2 pi dt_factor |
+| `test_quality_factor_is_independent_of_field_amplitude`, `test_quality_factor_uses_lattice_field_scale` | Q0 does not depend on protocol; Q0/Q_ref = sqrt(B_lat/B_ref) |
+| `test_energy_balance_*`, `test_hysteresis_loop_area_equals_dissipated_energy` | dE_total = W_field - E_diss (O(dt^2)); loop area = field work |
 
-Four further tests are `xfail(strict=True)`: they encode the *target*
-behaviour for known defects listed in `docs/AUDIT_PHYSICS_ROADMAP.md`
-(cutoff bias, under-resolved default dt, protocol-dependent Q, missing
-work/dissipation ledger). When a fix makes one of them pass, pytest reports
-XPASS as a failure. Remove that test's marker in the same commit as the fix.
-Run `pytest --runxfail tests/test_physics.py` to see the current magnitude of each defect.
+Known physics defects are encoded as `xfail(strict=True)` tests until they are
+fixed (see `docs/AUDIT_PHYSICS_ROADMAP.md`). When a fix makes such a test pass,
+pytest reports XPASS as a failure, and the marker must be removed in the same
+commit. As of October 2026, all four Phase-1 defects (cutoff, dt, Q, energy
+ledger) are fixed, so no xfail markers remain.
