@@ -98,4 +98,8 @@ One branch per change (`fase1/...`, `docs/...`), small commits, and `pytest` bef
 
 ## License and citation
 
-No license has been chosen yet, so all rights are reserved by the author until one is added. If you use this code or its results, please contact the author. A citation entry will be added when the manuscript is available.
+The code and documentation in this repository are released under the [MIT License](LICENSE), © 2026 João Paulo Sinnecker.
+
+Third-party material is **not** covered by this license. This includes the publications under `papers/`, which remain under their publishers' and authors' terms.
+
+If you use this code or results obtained with it in a publication, please cite the repository (https://github.com/jpsinnecker/compass) and, once available, the accompanying manuscript. A citation entry will be added here when the manuscript is published.
