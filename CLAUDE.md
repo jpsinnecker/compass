@@ -36,7 +36,9 @@ python3 tests/generate_reference.py             # regenerate regression referenc
   3. FIXED: metadata `Q` is the intrinsic Q₀ = sqrt(m B_lat I)/b (`lattice_field_per_moment`),
      independent of the protocol. `Q_ref` (B_ref-based, the convention of the sweep grid) and `Q_field`
      (the old B_eff-based value) are recorded alongside. B_lat depends on array size (edges).
-  4. Sweep rate is not a controlled dimensionless axis. Loop area depends strongly on it.
+  4. FIXED: `--sweep_rate_dimless r` (hysteresis/FORC), r = (dB/dt)·τ_relax/B_ref with
+     τ_relax = max(1/ω_lat, b/(m B_lat)) (`relaxation_time`). Metadata block `sweep_rate` records the r
+     actually used in every hysteresis/FORC run. Loop area still depends strongly on r; quote A at r → 0.
   5. FIXED: CSV columns `W_field_J`, `E_diss_J` (cumulative) and metadata `energy_ledger`; ΔE_total = W − D
      to O(dt²) and loop area = W over a closed cycle, both tested.
 - Any change to physics defaults changes the regression references. Regenerate them in the

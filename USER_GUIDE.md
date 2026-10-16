@@ -1,10 +1,25 @@
 # User Guide: Compass-Needle Lattice Simulator (`compass_sim`)
 
-**Compiled Version:** rewritten 2026-07-13 against `compass.py`'s actual `build_parser()` output (version 2.1.0). Every flag name, default, and choice list below was checked directly against the running code, not hand-maintained prose — see `docs/AUDIT.md` P1 item 6 for why this rewrite happened (the previous version described a different, dead lineage of the simulator).
+**Compiled Version:** revised 2026-10-16 for `compass.py` 2.1.0 plus the Phase-1 physics fixes (branches `fase1/physics-fixes` and `fase1/sweep-rate-dimless`). Flag names, defaults and choice lists were checked against `build_parser()`. The first rewrite (2026-07-13) replaced a guide that described a dead lineage of the simulator (see `docs/AUDIT.md`, P1 item 6). For the physics audit and the publication roadmap, see `docs/AUDIT_PHYSICS_ROADMAP.md`.
 
 Welcome to the **Compass-Needle Lattice Simulator** (`compass_sim`), a Python-based physics simulation engine that models the dynamic behavior of 2D arrays of interacting classical magnetic dipoles (compass needles).
 
-The simulation models real Newtonian rotational dynamics in SI units, integrating the equation of motion for each needle with a semi-implicit (damped) **velocity-Verlet** scheme. It runs on CPU (NumPy) by default and can optionally use a GPU (CuPy) backend via `--use_gpu`.
+The simulation models real Newtonian rotational dynamics in SI units. It integrates the equation of motion for each needle with a damped **velocity-Verlet** scheme: the damping is treated implicitly, and the scheme is symplectic at $b=0$. It runs on CPU (NumPy) by default and can optionally use a GPU (CuPy) backend via `--use_gpu`.
+
+> **What this model is and is not.** It describes a macroscopic array of inertial dipolar rotors, the tabletop compass-needle system. It is **not** a model of nanomagnetic artificial spin ice: those islands follow gyromagnetic (LLG) dynamics and have shape-anisotropy switching barriers. Artificial spin ice is motivation only. Do not claim avalanche exponents or "universality classes" from the array sizes accessible here.
+
+### Breaking changes of October 2026 (Phase 1)
+Runs made after these changes **cannot be compared number by number** with older runs, including the older figures in `figs/`:
+
+| What | Before | Now |
+|---|---|---|
+| Dipolar sum | cutoff 3.5 $r_{nn}$ (interior field ~15–17 % too low, no edge fields) | full pair sum (`--cutoff_shells 0`) |
+| Time step | `dt_factor`·$T_0$ with $T_0$ from $B_{\text{ref}}$ ($\omega_{\text{loc}}\Delta t\approx0.5$) | `dt_factor`·$T_{\text{loc}}$ from a worst-case local-field bound ($\omega_{\text{loc}}\Delta t\le0.157$) |
+| `Q` in metadata | $\omega_0 I/b$ with $B_{\text{eff}}=\max(B_{\text{ref}},|B_{\text{ext}}|)$: depended on the protocol | intrinsic $Q_0$ from the lattice field $B_{\text{lat}}$; old value kept as `Q_field` |
+| Energy | $E_{\text{dip}}, E_{\text{ext}}, E_{\text{kin}}$ only | plus the ledger `W_field_J`, `E_diss_J` and `energy_ledger` in the metadata |
+| Sweep rate | implicit in `--t_sim` | explicit dimensionless $r$ (`--sweep_rate_dimless`), recorded for every hysteresis/FORC run |
+
+Each change is covered by a test in `tests/test_physics.py` (see §11).
 
 ---
 
@@ -19,6 +34,7 @@ The simulation models real Newtonian rotational dynamics in SI units, integratin
 8. [Step-by-Step Practical Examples](#8-step-by-step-practical-examples)
 9. [Running Sweep Campaigns](#9-running-sweep-campaigns)
 10. [Summary Reference Table of Parameters](#10-summary-reference-table-of-parameters)
+11. [Validation & Quality Control](#11-validation--quality-control)
 
 ---
 
@@ -35,7 +51,12 @@ Where:
 * **$\tau_i^{\text{ext}}$**: Rotational torque due to the applied external magnetic field ($B_{\text{ext}}(t)$).
 * **$b_i$**: Viscous rotational damping coefficient, optionally randomized per needle via `--damping_noise` ($b_i = b\,[1+\eta_i]$, $\eta_i \in [-\delta_b, \delta_b]$).
 
-There is no stochastic thermal-torque term in the dynamics — the model is purely deterministic Newtonian rotation plus viscous damping. Randomness only enters through the initial angular noise (`--noise`) and the optional per-needle damping variation above.
+There is no stochastic thermal-torque term in the dynamics: the model is purely deterministic Newtonian rotation plus viscous damping, i.e. $T=0$. Randomness only enters through the initial angular noise (`--noise`) and the optional per-needle damping variation above.
+
+**Known model limitations** (see `docs/AUDIT_PHYSICS_ROADMAP.md`, §2.6):
+* **Point dipoles at the pivots.** The default needle length (10 mm) is 0.77 of the pivot spacing (13 mm), so near-field (multipolar) corrections are not small. A dumbbell (end-charge) model is planned as a robustness check.
+* **No dry (Coulomb) pivot friction.** The real apparatus has static friction, which acts as a switching threshold. The model has only viscous damping, so it has no intrinsic switching-field distribution.
+* **No thermal bath.** Results are deterministic for a given seed.
 
 ### Automatic Property Calibration
 If `--moment`/`--inertia` are not supplied explicitly, they are derived from a **rhombus-shaped** blade geometry (not a rectangular sheet):
@@ -43,11 +64,11 @@ If `--moment`/`--inertia` are not supplied explicitly, they are derived from a *
 * **Moment of inertia**: $I = \frac{1}{24}\, m_{\text{blade}} (L^2+W^2)$ for the solid blade about its center, with an optional pivot-hole subtraction and pivot-cylinder addition (`--pivot_radius`, `--pivot_thickness`, `--pivot_density`, or an explicit `--pivot_mass` override).
 * **Magnetic moment**: $m = M_s \cdot A_{\text{net}} \cdot t$, where $t$ = `--needle_thickness`, $A_{\text{net}}$ subtracts the pivot-hole area if any, and $M_s$ = `--steel_Ms` (or `B_{\text{sat}}/\mu_0$ if `--steel_Bsat` is given instead).
 
-Two different needle-thickness defaults are used across this codebase on purpose, for two different real apparatuses: `compass.py`'s own default (`--needle_thickness 0.0004`, i.e. 0.4 mm) models the "LAW3M large needle," while `damping_sweep.py`'s default (0.26 mm) models a smaller physical prototype. Check which script you're using before assuming a thickness value.
+Two needle-thickness defaults coexist: `compass.py` uses `--needle_thickness 0.0004` (0.4 mm), while `damping_sweepV03.py` (via `config.yaml`, section `damping_sweep`) and `calc_defaults_temp.py` use 0.26 mm, as do the project report and the needle drawing. This has not yet been reconciled against the real needle. Always pass `--needle_thickness` explicitly in production runs, and check the value recorded in the metadata.
 
 ### Natural frequency and quality factor
 
-The natural oscillation frequency is set from a reference nearest-neighbor dipolar field:
+The reference field and frequency are built from the nearest-neighbor dipolar field. They are **normalization units**, not the actual local field, which is ≈ 2 $B_{\text{ref}}$ in an ordered array:
 
 $$B_{\text{ref}} = \frac{\mu_0}{4\pi}\frac{2m}{r_{nn}^3}, \qquad \omega_0 = \sqrt{\frac{m\,B_{\text{eff}}}{I}}, \qquad B_{\text{eff}} = \max(B_{\text{ref}}, |B_{\text{ext}}|)$$
 
@@ -60,6 +81,18 @@ $$Q_0 = \frac{\omega_{\text{lat}} I}{b}, \qquad \omega_{\text{lat}} = \sqrt{\fra
 where $B_{\text{lat}}$ is the lattice field scale: the median over sites of $|B_i^{\text{dip}}|$ in uniform states, averaged over 8 in-plane directions ($\approx 2.2\,B_{\text{ref}}$ for large square arrays, smaller for small arrays because of their edges). $Q_0$ characterizes the damping regime ($Q_0 \ll 1$: overdamped; $Q_0 \gg 1$: underdamped/ringing). The metadata also records two other conventions:
 * `Q_ref` $=\sqrt{m B_{\text{ref}} I}/b$, the convention used to build the damping grid in `damping_sweepV03.py`;
 * `Q_field` $=\omega_0 I/b$, the old protocol-dependent definition (before October 2026, this was the value written as `Q`). It changes with `--B_max_factor` and is kept only for comparison with older data.
+
+### Dimensionless sweep rate $r$
+
+Loop area, coercive field and avalanche statistics depend strongly on how fast the field is swept. A claim about the effect of $Q_0$ must therefore be made at the quasi-static limit ($r \to 0$) or as an explicit function of the dimensionless sweep rate
+
+$$r = \frac{dB/dt \;\cdot\; \tau_{\text{relax}}}{B_{\text{ref}}}, \qquad \tau_{\text{relax}} = \max\!\left(\frac{1}{\omega_{\text{lat}}},\; \frac{b}{m\,B_{\text{lat}}}\right) = \frac{\max(1,\,1/Q_0)}{\omega_{\text{lat}}}.$$
+
+$\tau_{\text{relax}}$ is the needle relaxation time: the inertial response time $1/\omega_{\text{lat}}$ when underdamped ($Q_0 \ge 1$) and the viscous time $b/(m B_{\text{lat}})$ when overdamped ($Q_0 < 1$). $b$ is the mean damping (`--damping_noise` is ignored). $r$ is the field change, in units of $B_{\text{ref}}$, during one relaxation time: $r \ll 1$ means the array follows the field adiabatically.
+
+* `--sweep_rate_dimless r` sets the rate directly. In `hysteresis` mode it fixes the base rate of the five-branch cycle, so $t_{\text{sim}} = 5\,|B_{\max}|\,\tau_{\text{relax}}/(r B_{\text{ref}})$; it cannot be combined with `--t_sim`. In `forc` mode it fixes the ramp rate of every curve (the fixed ramp times are ignored); it cannot be combined with `--forc_rate`. Other modes reject it.
+* Every `hysteresis` and `forc` run records the $r$ it actually used in the metadata block `sweep_rate`, also when the ramp came from `--t_sim`, `--forc_rate` or fixed FORC ramp times. With fixed FORC ramp times each curve has its own rate; `sweep_rate_dimless` is then the fastest curve, and `forc_sweep_rate_dimless_per_curve` lists all of them. With `--hyst_spacing log` the rate is not constant along a branch and $r$ is the branch-mean rate; inside a `--hyst_slow_window` the local rate is $r/$`hyst_slow_factor`.
+* Cost: the number of steps grows as $1/r$. For a $6\times 6$ triangular array at $Q_0 = 2$, $|B_{\max}| = 3B_{\text{ref}}$, the loop area was $1.03\times10^{-3}$, $2.80\times10^{-4}$, $1.62\times10^{-4}$ and $1.46\times10^{-4}$ J at $r = 10^{-1}, 10^{-2}, 10^{-3}, 3\times10^{-4}$: it converges, but only below $r \approx 10^{-3}$. Check convergence in $r$ for each geometry and size before quoting a quasi-static value (`tests/test_physics.py::test_loop_area_converges_in_the_quasi_static_limit`).
 
 ---
 
@@ -124,7 +157,9 @@ After either mode completes, `--t_relax_after` extra seconds of zero-field relax
 `compass_sim` is designed to scale from small testing runs to large arrays containing thousands of needles.
 
 ### CPU Execution (Default)
-Uses **NumPy** for vectorization. The dipolar field is computed via a precomputed pairwise interaction tensor, so each integration step is a matrix-vector product rather than an $O(K^2)$ rebuild.
+Uses **NumPy** for vectorization. The dipolar field is computed from a precomputed $K\times K$ interaction tensor (three dense matrices), so each integration step is a matrix-vector product: $O(K^2)$ arithmetic, with no geometry to rebuild. Memory is $3K^2\times8$ bytes in double precision: about 25 MB for $K\approx10^3$ ($32\times32$) and about 2.4 GB for $K=10^4$ ($100\times100$). `--tensor_mem_limit_gb` guards it.
+
+Since October 2026 the default time step is smaller (≈ 2–4× more steps than before, see §1), and quasi-static hysteresis needs $r \lesssim 10^{-3}$, which multiplies the run time as $1/r$. For campaigns, prefer many independent CPU processes (`damping_sweepV03.py --n_workers`) over a single GPU context.
 
 ### GPU Execution (`--use_gpu`)
 Uses **CuPy** to run the same tensor operations on an NVIDIA GPU.
@@ -162,7 +197,7 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--damping_noise <float>`: Relative uniform random per-needle damping variation (default: `0.0`).
 
 ### Time integration and avalanche detection
-* `--t_sim <float>`: Total simulated time in seconds; ignored for `forc`/`demag_rot`/`demag_linear` modes, which compute their own duration (default: `2.0`).
+* `--t_sim <float>`: Total simulated time in seconds; ignored for `forc`/`demag_rot`/`demag_linear` modes, which compute their own duration. In `hysteresis` mode it cannot be combined with `--sweep_rate_dimless` (default: `2.0`, taken from `config.yaml`).
 * `--dt_factor <float>`: Integration step as a fraction of the worst-case local period $T_{\text{loc}} = 2\pi/\omega_{\text{loc}}$, where $\omega_{\text{loc}} = \sqrt{m B_{\text{loc}}/I}$ and $B_{\text{loc}}$ bounds the field any needle can feel in any configuration (dipolar bound $\max_i\max_{\hat u}\sum_j|A_{ij}\hat u|\,m$ plus the maximum applied field). This guarantees $\omega_{\text{loc}}\Delta t \le 2\pi\,$`dt_factor` (default: `0.025`, i.e. $\le 0.157$). Before October 2026, $\Delta t$ was a fraction of $T_0$ (built from $B_{\text{ref}}$), which left $\omega_{\text{loc}}\Delta t\approx0.5$. $T_0$ is still used as the time unit for dwell times and sweep rates.
 * `--noise <float>`: Initial angular noise amplitude in radians (default: `1.5`).
 * `--seed <int>`: RNG seed; time-derived if omitted (default: `None`).
@@ -196,6 +231,7 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--hyst_log_k <float>`: Log-spacing concentration parameter (default: `5.0`).
 * `--hyst_slow_window <B_lo,B_hi>`: Divides the sweep rate by `--hyst_slow_factor` while `|B|` is inside this window, on both up- and down-sweeps (default: `None`, disabled).
 * `--hyst_slow_factor <float>`: Sweep-rate divisor inside `--hyst_slow_window`; `1.0` is a no-op (default: `1.0`).
+* `--sweep_rate_dimless <float>`: Dimensionless sweep rate $r = (dB/dt)\,\tau_{\text{relax}}/B_{\text{ref}}$ (see Section 1). Sets the ramp of `hysteresis` (instead of `--t_sim`) and `forc` (instead of `--forc_rate`) runs (default: `None`, i.e. the ramp comes from `--t_sim` / FORC flags as before).
 
 ### FORC protocol
 * `--forc_Br_min <float>`: Minimum reversal field in Tesla; defaults to $-B_{\max}$ (default: `None`).
@@ -254,7 +290,7 @@ E_total_J,omega_rms_rad_s,omega_max_rad_s,W_field_J,E_diss_J
 They satisfy $E_{\text{total}}(t)-E_{\text{total}}(0) = W_{\text{field}}(t) - E_{\text{diss}}(t)$ up to $O(\Delta t^2)$, with a larger error at field jumps (step/pulse). Over a closed hysteresis cycle, $W_{\text{field}}$ equals the loop area $-K m\oint M_{\text{proj}}\,dB$. The metadata summarizes the balance in `energy_ledger` (`balance_residual_rel`), which is a per-run quality-control number.
 
 ### Metadata JSON (`meta/<tag>.json`)
-Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $T_{\text{loc}}$, $\Delta t$, $Q$ (= $Q_0$), $B_{\text{lat}}$, `Q_ref`, `Q_field`, cutoff policy, the reported sweep rate, the `energy_ledger` summary, and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
+Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $T_{\text{loc}}$, $\Delta t$, $Q$ (= $Q_0$), $B_{\text{lat}}$, `Q_ref`, `Q_field`, cutoff policy, the reported sweep rate, the `energy_ledger` summary, the `sweep_rate` block (for hysteresis/FORC runs: $r$, $dB/dt$, $\tau_{\text{relax}}$ and its regime, and which input set the rate), and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
 
 ### Regenerating images later
 `compass_generate_images.py --run_dir <out_dir> [--recursive]` regenerates lattice PNGs from already-saved CSV/NPZ output (e.g. after changing `--dpi`/`--transparent`/style), without re-running the simulation.
@@ -289,6 +325,15 @@ python3 compass.py --geometry square --N 20 --M 20 \
     --out_dir ~/results/hyst_slow --tag square_hyst_slow
 ```
 
+### Example 3b: Hysteresis at a controlled dimensionless rate
+Sweep at $r = 10^{-3}$ (close to quasi-static for small arrays); the ramp duration follows from $r$, $B_{\max}$ and $\tau_{\text{relax}}$.
+```bash
+python3 compass.py --geometry triangular --N 6 --M 6 \
+    --field_mode hysteresis --B_max_factor 3 --damping 1e-7 \
+    --sweep_rate_dimless 1e-3 --verbose \
+    --out_dir ~/results/hyst_rate --tag tri_r1e-3
+```
+
 ### Example 4: Demagnetization then a field pulse
 Rotationally demagnetize at 5 Hz over 40 cycles, relax for 0.5 s, in a separate run apply a $100\,\mu\text{T}$ pulse at $90^\circ$ for 0.5 s.
 ```bash
@@ -312,12 +357,14 @@ python3 compass.py --geometry square --N 30 --M 30 --use_gpu \
 
 ## 9. Running Sweep Campaigns
 
-For parametric studies (e.g. how damping/$Q$ alters hysteresis loops and avalanche statistics across geometries), use **`damping_sweepV03.py`** — the only campaign wrapper currently compatible with `compass.py`'s API (`damping_sweep.py`, `damping_sweepV02.py`, and `sweep_damping_hysteresis.py` all call functions removed from the engine years ago and cannot run at all; see `docs/AUDIT.md` bugs B1/B3 — do not use them).
+For parametric studies (e.g. how damping/$Q$ alters hysteresis loops and avalanche statistics across geometries), use **`damping_sweepV03.py`** — the only campaign wrapper currently compatible with `compass.py`'s API (`damping_sweep.py`, `damping_sweepV02.py`, and `sweep_damping_hysteresis.py` all call functions removed from the engine in July 2026 and cannot run at all; see `docs/AUDIT.md` bugs B1/B3 — do not use them).
 
 ```bash
 python3 damping_sweepV03.py --out_dir ./damping_campaign --grid_n 20 \
     --n_seeds 3 --n_dampings 5 --geometries square,triangular
 ```
+
+To make the sweep rate a campaign axis ($Q_0 \times r \times$ geometry $\times$ seed), pass `--sweep_rates_dimless "0.1,0.01,0.001"`. The hysteresis and FORC stages are then repeated for each $r$ (tags get a suffix `_rNN`, and `manifest.csv` gets the columns `r_idx` and `sweep_rate_dimless`); `--t_sim_periods` and the FORC ramp flags are ignored for those stages, and the relax stage runs once. Extract the quasi-static $A_0(Q_0) = \lim_{r\to0} A(r, Q_0)$ from these runs. Note that `damping_sweep_analysis.py` still groups by `(geometry, damp_idx)` only and does not yet separate rates.
 
 Notable flags: `--n_workers N` runs N campaign entries in parallel (separate processes); `--resume 1` skips runs already present in `manifest.csv` on an interrupted campaign; `--quick_test 1` overrides several parameters to a fast pipeline-validation configuration (`n_seeds=1, n_dampings=3, t_sim_periods=8, grid_n=12`). Run `python3 damping_sweepV03.py --help` for the full flag list (it has its own independent argparse surface, separate from `compass.py`'s).
 
@@ -350,7 +397,7 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--damping` | `float` | `5.0e-08` | Viscous damping coefficient $b$ (N·m·s/rad). |
 | `--damping_noise` | `float` | `0.0` | Relative per-needle damping variation. |
 | **Time Integration & Avalanche Detection** | | | |
-| `--t_sim` | `float` | `2.0` | Total simulated time (s); ignored for `forc`/demag modes. |
+| `--t_sim` | `float` | `None` → `2.0` (config.yaml) | Total simulated time (s); ignored for `forc`/demag modes; excluded by `--sweep_rate_dimless` in hysteresis. |
 | `--dt_factor` | `float` | `0.025` | $\Delta t / T_{\text{loc}}$ (worst-case local period). |
 | `--noise` | `float` | `1.5` | Initial angular noise amplitude (rad). |
 | `--seed` | `int` | `None` | RNG seed; time-derived if omitted. |
@@ -389,6 +436,7 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--forc_t_ramp_down` | `float` | `0.10` | Ramp-down time to $B_r$ (s). |
 | `--forc_t_ramp_up` | `float` | `0.20` | Ramp-up time to $+B_{\max}$ (s). |
 | `--forc_rate` | `float` | `None` | Constant $dB/dt$ (T/s); overrides fixed ramp times. |
+| `--sweep_rate_dimless` | `float` | `None` | Dimensionless rate $r$ for hysteresis/FORC; excludes `--t_sim` (hysteresis) and `--forc_rate` (FORC). |
 | **Demagnetization** | | | |
 | `--demag_freq` | `float` | `2.0` | Demag field frequency (Hz). |
 | `--demag_cycles` | `int` | `20` | Number of decay cycles. |
@@ -405,3 +453,32 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--png_with_axes` | flag | off | Show axes/grid/title on lattice PNGs. |
 | `--png_no_panel_titles` | flag | off | Remove panel titles in the side-by-side PNG. |
 | `--domain_tol_deg` | `float` | `15.0` | Angular tolerance for domain clustering. |
+
+---
+
+## 11. Validation & Quality Control
+
+### Automated tests
+```bash
+python3 -m pytest -q tests
+```
+* `tests/test_physics.py` checks the physics against independent calculations. It covers the tensor against the direct dipole-dipole sum, torque $=-\partial E/\partial\theta$, second-order energy conservation at $b=0$, energy decay with damping, the full-sum default, the dt bound, protocol independence of $Q_0$, the energy balance $\Delta E_{\text{total}} = W_{\text{field}} - E_{\text{diss}}$, loop area = field work, and convergence of the loop area as $r\to0$.
+* `tests/test_reference_runs.py` checks that the numbers did not change (frozen 3×3 runs). When a physics default changes on purpose, regenerate the references with `python3 tests/generate_reference.py` in the same commit.
+* Known physics defects are encoded as `xfail(strict=True)` tests until they are fixed (none are open as of October 2026).
+
+### Per-run checks (metadata JSON)
+| Field | Healthy value | If not |
+|---|---|---|
+| `stability_monitor.flagged_steps` | `0` | lower `--dt_factor` |
+| `stability_monitor.max_omega_local_dt` | $\le 0.16$ with the default `dt_factor` | lower `--dt_factor` |
+| `energy_ledger.balance_residual_rel` | a few $\times10^{-3}$ or less (the manual's examples give $2\times10^{-4}$–$2\times10^{-3}$) | lower `--dt_factor`; larger values are expected at step/pulse field jumps |
+| `derived.cutoff_policy` | `full_sum` | a finite cutoff biases the field; only for convergence studies |
+| `sweep_rate.sweep_rate_dimless` (hysteresis/FORC) | $r$ small enough that the loop area has converged | repeat at $r/10$ |
+
+### Before quoting a physical result
+1. **Rate:** show convergence in $r$ (quasi-static limit) or report the result explicitly as a function of $r$.
+2. **Time step:** repeat representative runs at `dt_factor` halved.
+3. **Size and boundaries:** repeat at ≥ 3 array sizes. With free boundaries, edge fields are part of the physics of a finite array.
+4. **Seeds:** aggregate over seeds per $(\text{geometry}, Q_0, r)$ condition before fitting anything.
+5. **Avalanches:** compare the `flip_field`, `flip_angle` and `--event_log` channels. Test a power law against log-normal and stretched-exponential alternatives, and report when the tail is too short.
+
