@@ -135,7 +135,10 @@ def condition_key(meta: Dict, group_by: Sequence[str]) -> Tuple:
     for g in group_by:
         if g == "Q":
             q = der.get("Q", float("nan"))
-            key.append(float(f"{q:.3g}") if math.isfinite(q) else "inf")
+            if q is None:  # compass.py writes null for b = 0 (Q infinite)
+                key.append("inf")
+            else:
+                key.append(float(f"{q:.3g}") if math.isfinite(q) else "inf")
         elif g in cfg:
             key.append(cfg[g])
         elif g in der:

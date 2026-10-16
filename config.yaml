@@ -99,7 +99,7 @@ physics:
     pivot_density: 8500.0            # kg/m^3
     B_max_factor: 8.0                # dimensionless
     noise: 1.5                       # rad
-    cutoff_default: 3.5              # multiples of r_nn = 2R (units of r_nn, NOT metres)
+    cutoff_default: 0.0              # multiples of r_nn = 2R; <= 0 means full pair sum (no cutoff)
 
   # ---------------------------------------------------------------------
   # sweep_damping_hysteresis.py -- its own independent profile (module
@@ -161,20 +161,20 @@ numerics:
       geometry: square                # square|triangular|honeycomb
       N: 16                           # rows (or nominal honeycomb height)
       M: 16                           # columns (or nominal honeycomb width)
-      cutoff_shells: 3.5               # multiples of r_nn, dipolar interaction cutoff
+      cutoff_shells: 0.0               # multiples of r_nn; <= 0 means no cutoff (full pair sum, the default)
       n_images: 1                      # count, periodic images per direction
       tensor_mem_limit_gb: 6.0         # GB, memory guard on the K x K dipolar tensor
       float32: false                   # use float32 tensor/state instead of float64
       pbc: false                       # periodic boundary conditions
     time:
-      dt_factor: 0.04                  # dimensionless, dt/T0
+      dt_factor: 0.025                 # dimensionless, dt/T_loc (worst-case local period); omega_loc*dt <= 2*pi*dt_factor ~ 0.157
       log_every: 10                    # steps, CSV row written every N integration steps
     tolerances:
       flip_angle_deg: 90.0              # deg, rest-angle displacement threshold (flip_angle channel)
       flip_band_deg: 30.0               # deg, Schmitt dead-band half-width (flip_field channel)
       flip_dwell_T0: 0.5                 # multiples of T0, dwell time to commit a flip
       flip_settle_frac: 0.05             # fraction of omega0, |omega| settling threshold
-      dt_guard_alpha: 0.35               # dimensionless, stability-monitor threshold
+      dt_guard_alpha: 0.2                # dimensionless, stability-monitor threshold on omega_loc*dt
       domain_tol_deg: 15.0               # deg, angular tolerance for domain clustering
       log_adaptive_threshold: 0.0        # |delta M_proj| between consecutive samples that forces a log row every step (0.0 = disabled, default)
 
@@ -188,7 +188,7 @@ numerics:
     Q_min: 0.05                       # dimensionless, overdamped end of Q grid
     Q_max: 15.0                       # dimensionless, underdamped end of Q grid
     t_sim_periods: 40.0               # multiples of T0, total hysteresis-cycle duration
-    dt_factor: 0.05                   # dimensionless, dt/T0
+    dt_factor: 0.025                  # dimensionless, dt/T_loc (see compass_engine.time.dt_factor)
     domain_tol: 15.0                  # deg
     forc_n_curves: 20                 # count
     quick_test:                       # values substituted when --quick_test 1

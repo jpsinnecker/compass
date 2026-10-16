@@ -1,0 +1,105 @@
+# compass — inertial dynamics of dipolar compass-needle arrays
+
+Simulator and analysis tools for two-dimensional arrays of **interacting magnetic compass needles**: rigid planar rotors with point dipoles on fixed pivots, coupled by the full long-range dipolar interaction and driven by a time-dependent applied field. Each needle obeys Newton's equation for rotation,
+
+$$I\,\ddot\theta_i = \tau_i^{\rm dip} + \tau_i^{\rm ext} - b\,\dot\theta_i ,$$
+
+in SI units. Inertia $I$ and moment $m$ come from the real needle geometry, and $b$ is a viscous damping coefficient. The damping regime is summarized by an intrinsic quality factor $Q_0$, from overdamped ($Q_0 \ll 1$) to ringing ($Q_0 \gg 1$).
+
+**Research question.** How do inertia and damping change hysteresis, collective reversal, avalanches, relaxation and memory in long-range, anisotropic dipolar lattices (square, triangular, honeycomb)? Answering it requires separating these effects from plain sweep-rate (viscous-lag) effects.
+
+Author: J. P. Sinnecker (CBPF, Rio de Janeiro). Status: research code under active development, supporting a manuscript in preparation.
+
+> **Resumo (PT).** Simulador de redes 2D de agulhas de bússola com dinâmica newtoniana inercial e interação dipolar completa. O objetivo é um artigo sobre como inércia e amortecimento (Q₀) alteram histerese, reversão coletiva e memória, separando esses efeitos da taxa de varredura do campo. O roteiro científico está em [`docs/AUDIT_PHYSICS_ROADMAP.md`](docs/AUDIT_PHYSICS_ROADMAP.md) e o manual em [`USER_GUIDE.md`](USER_GUIDE.md).
+
+## Scope and framing
+
+* This is a **macroscopic inertial dipolar-rotor system**. It models the tabletop compass-needle experiment (cf. Olive & Molho, PRB 58, 9238 (1998); Novak & Sinnecker, JMMM 272–276, 1557 (2004)).
+* It is **not** a model of nanomagnetic artificial spin ice, whose dynamics is gyromagnetic (LLG) and has switching barriers. Artificial spin ice is motivation only.
+* Physical claims about $Q_0$ are made at the **quasi-static limit** (dimensionless sweep rate $r \to 0$) or explicitly as functions of $r$. The accessible array sizes do not support claims about avalanche exponents or universality classes.
+
+## Quick start
+
+```bash
+git clone https://github.com/jpsinnecker/compass.git
+cd compass
+python3 -m pip install -r requirements.txt
+python3 -m pytest -q tests          # ~20 s
+```
+
+A hysteresis loop of a 6×6 triangular array at a controlled, nearly quasi-static sweep rate:
+
+```bash
+python3 compass.py --geometry triangular --N 6 --M 6 \
+    --field_mode hysteresis --B_max_factor 3 --damping 1e-7 \
+    --sweep_rate_dimless 1e-3 --verbose \
+    --out_dir ~/compass_runs/demo --tag tri_r1e-3
+```
+
+Each run writes `data/<tag>.csv` (time series), `meta/<tag>.json` (configuration, derived quantities, quality-control numbers), `states/*.npz` (initial and final states) and `images/*.png`. Keep run outputs **outside** the repository.
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `compass.py` | The simulation engine (the only one). CLI: `python3 compass.py --help`. |
+| `config.yaml`, `sim_config.py` | All defaults, loaded once at import; CLI flags override them. |
+| `damping_sweepV03.py` | Campaign driver: geometry × $Q_0$ × sweep rate $r$ × seed, parallel, resumable. |
+| `damping_sweep_analysis.py`, `avalanche_processor.py` | Loop metrics, avalanche and waiting-time statistics, event clustering. |
+| `compass_generate_images.py`, `plot_default_geometries_clean.py`, `plotting_common.py` | Figures from saved runs. |
+| `tests/` | Physics-validity tests (`test_physics.py`), regression tests (`test_reference_runs.py`), protocol tests. |
+| `USER_GUIDE.md` | **User manual**: model, flags, outputs, examples, campaigns, validation. |
+| `FORC.md`, `compass_sim_protocol_notes.md` | Notes on FORC sweep-rate discipline and demagnetization protocols. |
+| `docs/AUDIT_PHYSICS_ROADMAP.md` | Physics audit, literature gaps and research roadmap (Portuguese). |
+| `docs/AUDIT.md` | Code-organization audit (July 2026, historical snapshot). |
+| `docs/project_report.tex` | Laboratory notebook / development report. |
+| `papers/` | Reference list (`references.bib`, `references.md`). |
+| `archive/` | Dead code and old reports. Never import from it. |
+| `CLAUDE.md` | Conventions for AI coding agents working on this repository. |
+
+`damping_sweep.py`, `damping_sweepV02.py` and `sweep_damping_hysteresis.py` call an API that no longer exists and do not run; use `damping_sweepV03.py`.
+
+## Physics and numerics in brief
+
+* **Dipolar field:** a precomputed dense $K\times K$ tensor, with the **full pair sum** over the finite array and free boundaries by default. A finite cutoff is only for convergence studies.
+* **Integrator:** damped velocity Verlet with implicit damping, symplectic at $b=0$. Energy error is second order in $\Delta t$.
+* **Time step:** $\Delta t = $ `dt_factor` $\cdot T_{\rm loc}$, from a bound on the local field that holds for every configuration, so that $\omega_{\rm loc}\Delta t \le 0.157$ by default.
+* **Quality factor:** $Q_0 = \sqrt{m B_{\rm lat} I}/b$, with $B_{\rm lat}$ the intrinsic lattice field scale ($\approx 2.2\,B_{\rm ref}$ for large square arrays). It does not depend on the protocol.
+* **Sweep rate:** $r = (dB/dt)\,\tau_{\rm relax}/B_{\rm ref}$, set with `--sweep_rate_dimless` and recorded for every hysteresis/FORC run.
+* **Energy ledger:** the cumulative columns `W_field_J` (field work) and `E_diss_J` (dissipation) satisfy $\Delta E_{\rm total} = W - D$, and the loop area equals the field work over a closed cycle.
+* **Protocols:** static, hysteresis (with optional slow window), FORC, sine, step, pulse, rotational and linear demagnetization.
+* **Observables:** magnetization, polar ($S_1$) and nematic ($S_2$) order, director angle, ringing-proof flip counters, per-event log, energies, domain statistics.
+
+**October 2026 (Phase 1):** the cutoff, time-step and $Q$ conventions changed, and the energy ledger and $r$ were added. Results are not comparable number by number with earlier runs or with the figures in `figs/`. See the "Breaking changes of October 2026" section of `USER_GUIDE.md` and `docs/AUDIT_PHYSICS_ROADMAP.md`.
+
+**Known limitations:** point dipoles (needle length ≈ 0.77 of the spacing), no dry pivot friction, no thermal bath ($T=0$, deterministic for a given seed).
+
+## Validation
+
+```bash
+python3 -m pytest -q tests
+```
+
+The physics tests check the dipolar tensor against a direct pair sum, torque $= -\partial E/\partial\theta$, second-order energy conservation, the time-step bound, protocol independence of $Q_0$, the energy balance, loop area = field work, and convergence of the loop area as $r \to 0$. Per-run checks (stability monitor, energy-balance residual, cutoff policy, $r$) are listed in `USER_GUIDE.md` §11.
+
+## Roadmap
+
+Summary of `docs/AUDIT_PHYSICS_ROADMAP.md`:
+
+1. **Phase 1 – numerical corrections.** Full sum, dt, $Q_0$, energy ledger, dimensionless rate. Implemented in PRs #4 and #5.
+2. **Phase 2 – dynamic hysteresis.** Map $A(r, Q_0)$ for the three geometries and several sizes. Extract the quasi-static limit $A_0(Q_0)$ and the rate exponent.
+3. **Phase 3 – memory.** Test whether return-point memory degrades with inertia (subloops/FORC at quasi-static rate).
+4. **Phase 4 – robustness.** Dumbbell model, Coulomb friction as controlled disorder, size and shape.
+5. **Phase 5 – tabletop experiment.** Calibrate $I$, $m$, $b$ and friction on real needles, and compare loops and memory.
+
+## Contributing / workflow
+
+One branch per change (`fase1/...`, `docs/...`), small commits, and `pytest` before every commit. If a physics default changes on purpose, regenerate the regression references (`python3 tests/generate_reference.py`) in the same commit. Code, comments and commit messages are in English; notes for the author are in Portuguese.
+
+## License and citation
+
+The code and documentation in this repository are released under the [MIT License](LICENSE), © 2026 João Paulo Sinnecker.
+
+Third-party material is **not** covered by this license. This includes the publications under `papers/`, which remain under their publishers' and authors' terms.
+
+If you use this code or results obtained with it in a publication, please cite the repository (https://github.com/jpsinnecker/compass) and, once available, the accompanying manuscript. A citation entry will be added here when the manuscript is published.

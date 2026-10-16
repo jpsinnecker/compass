@@ -299,10 +299,12 @@ $B_{\rm ref}$ (the auto-selected field amplitude via
 \code{--B\_max\_factor}, pulse amplitudes, and reported sweep rates)
 inherit this convention.
 
-The quality factor is
+The quality factor is defined from an intrinsic lattice field scale,
 \begin{equation}
-Q=\frac{\omega_0 I}{b}.
+Q\equiv Q_0=\frac{\omega_{\rm lat} I}{b},\qquad
+\omega_{\rm lat}=\sqrt{\frac{mB_{\rm lat}}{I}},
 \end{equation}
+where $B_{\rm lat}$ is the median over sites of $|B_i^{\rm dip}|$ in uniform states, averaged over in-plane directions ($B_{\rm lat}\approx2.2\,B_{\rm ref}$ for large square arrays). \textbf{Update (October 2026).} Until then the code reported $Q=\omega_0I/b$ with $\omega_0$ built from $B_{\rm eff}=\max(B_{\rm ref},B_{\rm ext})$. That value depended on the protocol amplitude: with \code{--B\_max\_factor 8} it was $\sqrt8\approx2.8$ times larger than in a static run with the same damping. The campaign script, meanwhile, labelled its grid with yet another convention, $Q_{\rm ref}=\sqrt{mB_{\rm ref}I}/b$. The metadata now records $Q_0$ as \code{Q}, together with \code{Q\_ref} and the old value as \code{Q\_field}; see \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.4.
 For $Q\ll 1$ the dynamics is overdamped and relaxation is slow and monotonic. For $Q\gg1$ the needles overshoot and may trigger chain-reaction switching. The regime near $Q\sim 1$ is expected to be the most sensitive because inertial memory and damping compete on comparable timescales.
 
 \subsection{Time integration scheme}
@@ -325,9 +327,17 @@ rather than by evaluating the damping force explicitly. Because the
 damping enters through the denominator, the scheme is unconditionally
 stable with respect to the damping parameter $b$: arbitrarily strong
 damping cannot drive a numerical instability, only over-relax the
-dynamics. The time step itself is set from the nearest-neighbour
-dipolar frequency scale, $\Delta t = f_{\rm dt}\,T_0$ with
-$f_{\rm dt} = 0.04$ by default, and a runtime guard monitors the
+dynamics. The time step is set from a worst-case local stiffness:
+$\Delta t = f_{\rm dt}\,T_{\rm loc}$, $T_{\rm loc}=2\pi/\omega_{\rm loc}$,
+$\omega_{\rm loc}=\sqrt{m B_{\rm loc}/I}$, where
+$B_{\rm loc}=m\max_i\max_{\hat u}\sum_j|A_{ij}\hat u| + \max_t|B_{\rm ext}|$
+bounds the field any needle can feel in any configuration
+($\approx 6$--$8\,B_{\rm ref}$ for the three geometries), so that
+$\omega_{i,\rm loc}\Delta t\le 2\pi f_{\rm dt}$ always holds; $f_{\rm dt}=0.025$
+by default. (Until October 2026, $\Delta t = 0.04\,T_0$ with $T_0$ built from
+$B_{\rm ref}$, which gave $\omega_{\rm loc}\Delta t\approx0.47$ and a 1.4\,\%
+energy error at $b=0$; see \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.3.)
+A runtime guard still monitors the
 instantaneous local field-derived stiffness frequency
 $\omega_{i,\rm loc}=\sqrt{m|B_i|/I}$ (not the needle's own angular
 velocity) through $\omega_{i,\rm loc}\,\Delta t$ against a threshold,
@@ -344,6 +354,8 @@ A critical correction in \code{compass.py} is the explicit separation between a 
 r_{\rm cut} = c_{\rm shell} r_{\rm nn},
 \end{equation}
 unless the user explicitly supplies \code{--cutoff\_m}. This avoids the ambiguity present in earlier scripts, where ``3.5'' could be interpreted either as metres or as $3.5r_{\rm nn}$ depending on context.
+
+\textbf{Update (October 2026).} The default is now \emph{no cutoff}: \code{--cutoff\_shells 0} (the new default) means the full pair sum over the finite array with free boundaries. The dipolar tensor is a dense $K\times K$ matrix, so a cutoff never reduced the cost per step. It only truncated the sum. In two dimensions the in-plane dipolar sum is absolutely convergent, because the tail scales as $\int r\,dr/r^3$. Convergence is slow, however: the truncated tail is $\simeq \pi m/(a^2 r_{\rm cut})$. With $r_{\rm cut}=3.5\,r_{\rm nn}$, the interior field of a uniformly magnetized $20\times20$ square array came out about 15\,\% too low (17\,\% for $36\times36$), and the edge and shape fields of the finite array were lost. The test \code{tests/test\_physics.py::test\_default\_cutoff\_reproduces\_full\_dipolar\_sum} guards against regressions. The discussion below therefore applies only to explicitly requested finite cutoffs and to periodic boundaries, where the finite image sum is still not an Ewald sum. See \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.2.
 
 Two caveats apply to this truncation. First, the dipolar interaction
 decays as $1/r^3$, which in two dimensions is only conditionally
@@ -785,12 +797,12 @@ This is the point at which the code becomes credible as a research tool, provide
 \code{--steel\_density}, \code{--steel\_Ms}, \code{--steel\_Bsat} & Material parameters for automatic physical derivation of $m$ and $I$. \code{--steel\_Bsat}, when supplied, overrides \code{--steel\_Ms}.\\
 \code{--pivot\_radius}, \code{--pivot\_thickness}, \code{--pivot\_density}, \code{--pivot\_mass} & Optional pivot-hole and pivot-cylinder corrections for inertia and magnetic volume.\\
 \code{--damping}, \code{--damping\_noise} & Central viscous damping and random per-needle relative damping variation.\\
-\code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, time-step factor $\Delta t/T_0$, initial angular noise amplitude, random seed, and CSV output cadence.\\
+\code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, time-step factor $\Delta t/T_{\rm loc}$, initial angular noise amplitude, random seed, and CSV output cadence.\\
 \code{--log\_adaptive} & If $>0$, also logs a row whenever $|\Delta M_{\rm proj}|$ since the last logged row exceeds this threshold, or a flip event just committed, in addition to the \code{--log\_every} cadence. $0.0$ (default) reproduces the \code{--log\_every} cadence exactly.\\
 \code{--flip\_angle\_deg} & Threshold for the field-independent large-rotation activity counter.\\
 \code{--flip\_band\_deg}, \code{--flip\_dwell\_T0}, \code{--flip\_settle\_frac} & Parameters of the V2.1 hardened, ringing-proof \code{flip\_field}/\code{flip\_angle} avalanche counters (Schmitt-trigger dead-band half-width around the perpendicular to the drive axis; dwell time, in units of $T_0$, required before a state change is committed; and the $|\omega|$ settling threshold, as a fraction of $\omega_0$, for the rest-angle channel). Defaults: \SI{30}{\degree}, $0.5\,T_0$, and $0.05\,\omega_0$.\\
 \code{--event\_log} & If set, writes a per-committed-event CSV (\code{step}, \code{t}, \code{needle\_id}, \code{channel}, \code{theta}) for offline spatio-temporal avalanche clustering. Off by default.\\
-\code{--dt\_guard\_alpha}, \code{--dt\_guard\_substep} & V2.1 numerical-stability monitor: an integration step is flagged when the local field-derived stiffness frequency $\sqrt{m|B_i|/I}$ times $\Delta t$ exceeds the threshold \code{--dt\_guard\_alpha} (default $0.35$). \code{--dt\_guard\_substep} optionally re-integrates flagged steps with 4 global sub-steps (off by default; breaks strict symplecticity, so treat as exploratory).\\
+\code{--dt\_guard\_alpha}, \code{--dt\_guard\_substep} & V2.1 numerical-stability monitor: an integration step is flagged when the local field-derived stiffness frequency $\sqrt{m|B_i|/I}$ times $\Delta t$ exceeds the threshold \code{--dt\_guard\_alpha} (default $0.2$). \code{--dt\_guard\_substep} optionally re-integrates flagged steps with 4 global sub-steps (off by default; breaks strict symplecticity, so treat as exploratory).\\
 \code{--cutoff\_shells}, \code{--cutoff\_m} & Dipolar cutoff in units of the computed nearest-neighbour distance or as an absolute length. \code{--cutoff\_m} overrides \code{--cutoff\_shells}.\\
 \code{--pbc}, \code{--n\_images} & Periodic boundary conditions and number of periodic images in each direction.\\
 \code{--tensor\_mem\_limit\_gb} & Memory limit for the precomputed dipolar tensor.\\
@@ -820,10 +832,10 @@ The V2.0.2 CSV header is explicitly written by the code. Its current order is:
 \begin{lstlisting}[style=csvstyle]
 step,t_s,Bx_T,By_T,B_scalar_T,branch,forc_index,Mx,My,M_proj,S1,S2,
 theta_director_rad,q_axis,flip_field,flip_angle,E_dip_J,E_ext_J,E_kin_J,
-E_total_J,omega_rms_rad_s,omega_max_rad_s
+E_total_J,omega_rms_rad_s,omega_max_rad_s,W_field_J,E_diss_J
 \end{lstlisting}
 
-The header separates field information, protocol branch labels, magnetization observables, director observables, activity counters, energies, and angular-velocity diagnostics. The field is stored both as Cartesian components and as the scalar protocol value. For FORC runs, \code{forc\_index} identifies the active FORC curve; for other modes it remains at the protocol default value. Energy columns are in joules, field columns are in tesla, and angular velocities are in radians per second.
+The header separates field information, protocol branch labels, magnetization observables, director observables, activity counters, energies, and angular-velocity diagnostics. The field is stored both as Cartesian components and as the scalar protocol value. For FORC runs, \code{forc\_index} identifies the active FORC curve; for other modes it remains at the protocol default value. Energy columns are in joules, field columns are in tesla, and angular velocities are in radians per second. \textbf{Update (October 2026).} Two cumulative energy-ledger columns were added: \code{W\_field\_J}, the work of the time-dependent applied field $-\sum_i\int\mathbf m_i\cdot d\mathbf B_{\rm ext}$, and \code{E\_diss\_J}, the viscous dissipation $\int\sum_i b_i\omega_i^2\,dt$. They satisfy $\Delta E_{\rm total}=W_{\rm field}-E_{\rm diss}$ to $O(\Delta t^2)$, and over a closed cycle $W_{\rm field}$ equals the loop area. This identity is tested in \code{tests/test\_physics.py}.
 
 % ======================================================================
 \section{Appendix C: version history}

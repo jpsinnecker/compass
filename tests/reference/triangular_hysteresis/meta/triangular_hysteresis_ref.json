@@ -1,10 +1,10 @@
 {
-  "program": "compassV02.py",
+  "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-07-10T11:50:24-03:00",
-  "created_unix_time": 1783899494.533674,
-  "created_datetime_utc": "2026-07-12T23:38:14+00:00",
-  "created_datetime_local": "2026-07-12T20:38:14-03:00",
+  "source_file_timestamp": "2026-10-16T11:50:09-03:00",
+  "created_unix_time": 1792162252.3936388,
+  "created_datetime_utc": "2026-10-16T14:50:52+00:00",
+  "created_datetime_local": "2026-10-16T11:50:52-03:00",
   "tag": "triangular_hysteresis_ref",
   "config": {
     "geometry": "triangular",
@@ -28,8 +28,8 @@
     "field_mode": "hysteresis",
     "B_ext": 0.006947655894401461,
     "phi_ext_deg": 0.0,
-    "cutoff_m": 0.04549999999999999,
-    "cutoff_shells": 3.5,
+    "cutoff_m": null,
+    "cutoff_shells": null,
     "pbc": false,
     "n_images": 1,
     "seed": 23456,
@@ -39,7 +39,7 @@
     "flip_band_deg": 30.0,
     "flip_dwell_T0": 0.5,
     "flip_settle_frac": 0.05,
-    "dt_guard_alpha": 0.35,
+    "dt_guard_alpha": 0.2,
     "dt_guard_substep": false,
     "event_log": false,
     "domain_tol_deg": 15.0
@@ -56,17 +56,75 @@
     "B_eff_T": 0.006947655894401461,
     "omega0_rad_s": 556.6410823922898,
     "T0_s": 0.011287678013588556,
-    "dt_s": 0.0016931517020382834,
-    "n_steps": 12,
-    "Q": 2.3814497107448145,
-    "cutoff_policy": "shells_times_r_nn",
+    "B_loc_bound_T": 0.011283597309668403,
+    "omega_loc_bound_rad_s": 709.3815599195144,
+    "T_loc_s": 0.008857271829694119,
+    "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
+    "dt_s": 0.0013285907744541177,
+    "n_steps": 16,
+    "Q": 0.8920027858639409,
+    "Q_definition": "Q0 = omega_lat I / b, omega_lat = sqrt(m B_lat / I); protocol independent",
+    "B_lat_T": 0.0009747379883561388,
+    "omega_lat_rad_s": 208.49711584501625,
+    "Q_ref": 0.8419696197612002,
+    "Q_field": 2.3814497107448145,
+    "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
     "u_thresh": 0.49999999999999994,
-    "n_dwell_steps": 3,
+    "n_dwell_steps": 4,
     "omega_settle_rad_s": 27.832054119614494,
     "sweep_rate_T_per_s": 1.7369139736003654,
     "sweep_rate_Bref_per_T0": 22.575356027177115
+  },
+  "hyst_schedule": {
+    "base_rate_T_per_s": 1.7369139736003654,
+    "slow_rate_T_per_s": null,
+    "slow_window_T": null,
+    "slow_factor": null,
+    "total_time_s": 0.02,
+    "segments": [
+      {
+        "t_start_s": 0.0,
+        "t_end_s": 0.004,
+        "B_start_T": 0.0,
+        "B_end_T": 0.006947655894401461,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "0_to_pos"
+      },
+      {
+        "t_start_s": 0.004,
+        "t_end_s": 0.008,
+        "B_start_T": 0.006947655894401461,
+        "B_end_T": 0.0,
+        "rate_T_per_s": -1.7369139736003654,
+        "branch": "pos_to_0"
+      },
+      {
+        "t_start_s": 0.008,
+        "t_end_s": 0.012,
+        "B_start_T": 0.0,
+        "B_end_T": -0.006947655894401461,
+        "rate_T_per_s": -1.7369139736003654,
+        "branch": "0_to_neg"
+      },
+      {
+        "t_start_s": 0.012,
+        "t_end_s": 0.016,
+        "B_start_T": -0.006947655894401461,
+        "B_end_T": 0.0,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "neg_to_0"
+      },
+      {
+        "t_start_s": 0.016,
+        "t_end_s": 0.02,
+        "B_start_T": 0.0,
+        "B_end_T": 0.006947655894401461,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "0_to_pos_final"
+      }
+    ]
   },
   "notes": {
     "S1": "polar order |<exp(i theta)>|",
@@ -75,14 +133,17 @@
     "flip_angle": "COMMITTED rest-angle displacement events since previous log row (>= flip_angle_deg from last settled angle, |omega| settled); geometry-agnostic",
     "E_dip": "-0.5 sum_i m_i dot B_i^dip",
     "E_ext": "-sum_i m_i dot B_ext",
-    "E_kin": "0.5 I sum_i omega_i^2"
+    "E_kin": "0.5 I sum_i omega_i^2",
+    "W_field": "cumulative work of the time-dependent applied field, -sum_i int m_i . dB_ext (trapezoidal)",
+    "E_diss": "cumulative viscous dissipation, int sum_i b_i omega_i^2 dt (trapezoidal); E_total(t)-E_total(0) = W_field - E_diss"
   },
   "domain_statistics_final": {
-    "n_domains": 8,
-    "mean_domain_size": 1.125,
-    "max_domain_size": 2,
+    "n_domains": 9,
+    "mean_domain_size": 1.0,
+    "max_domain_size": 1,
     "domain_sizes": [
-      2,
+      1,
+      1,
       1,
       1,
       1,
@@ -92,19 +153,28 @@
       1
     ]
   },
-  "runtime_s": 0.0013837500009685755,
+  "runtime_s": 0.001904125001601642,
   "flip_statistics": {
-    "flip_field_total_committed": 1,
+    "flip_field_total_committed": 2,
     "flip_angle_total_committed": 0,
     "u_thresh": 0.49999999999999994,
-    "n_dwell_steps": 3,
+    "n_dwell_steps": 4,
     "omega_settle_rad_s": 27.832054119614494
   },
+  "energy_ledger": {
+    "E_total_initial_J": -3.1690063789793663e-07,
+    "E_total_final_J": -2.550971389330629e-05,
+    "W_field_total_J": 0.00030101175533340526,
+    "E_diss_total_J": 0.0003478412968701615,
+    "balance_residual_J": 2.1636728281347864e-05,
+    "balance_residual_rel": 0.06220287377040281,
+    "note": "residual = dE_total - (W_field - E_diss); O(dt^2) for continuous protocols, larger at field jumps (step/pulse)"
+  },
   "stability_monitor": {
-    "dt_guard_alpha": 0.35,
-    "flagged_steps": 12,
+    "dt_guard_alpha": 0.2,
+    "flagged_steps": 16,
     "substepped_steps": 0,
-    "max_omega_local_dt": 1.1059577095645627,
+    "max_omega_local_dt": 0.8676195419955237,
     "note": "omega_local = sqrt(m|B_i|/I); flagged when max_i(omega_local)*dt > alpha"
   }
 }
