@@ -314,3 +314,82 @@ def test_hysteresis_loop_area_equals_dissipated_energy(tmp_path):
     assert area_work == pytest.approx(W[i1] - W[i0], rel=2e-2)
     assert (W[i1] - W[i0]) - (D[i1] - D[i0]) == pytest.approx(E[i1] - E[i0], abs=1e-3 * (D[i1] - D[i0]))
 
+
+
+# ----------------------------------------------------------------------------
+# dimensionless sweep rate r = (dB/dt) tau_relax / B_ref (roadmap item 4)
+# ----------------------------------------------------------------------------
+
+def _closed_loop_area_and_work(rows, meta):
+    """Loop area -K m * closed integral of M_proj dB and field work over the
+    closed cycle +Bmax -> -Bmax -> +Bmax (start of pos_to_0 to the end)."""
+    branch = [r["branch"] for r in rows]
+    i0 = branch.index("pos_to_0") - 1
+    i1 = len(rows) - 1
+    B = _col(rows, "B_scalar_T")[i0:i1 + 1]
+    M = _col(rows, "M_proj")[i0:i1 + 1]
+    W = _col(rows, "W_field_J")
+    area = -meta["derived"]["K"] * meta["config"]["moment"] * np.trapz(M, B)
+    return area, W[i1] - W[i0]
+
+
+def test_sweep_rate_dimless_sets_ramp_and_is_recorded(tmp_path):
+    common = ["--geometry", "square", "--N", "4", "--M", "4", "--field_mode", "hysteresis",
+              "--B_max_factor", "3", "--damping", "1e-7", "--log_every", "50"]
+    _, meta = _run(tmp_path, "r_in", *common, "--sweep_rate_dimless", "0.5")
+    sr, d = meta["sweep_rate"], meta["derived"]
+    assert sr["input"] == "sweep_rate_dimless"
+    assert sr["sweep_rate_dimless"] == pytest.approx(0.5, rel=1e-12)
+    tau = max(1.0 / d["omega_lat_rad_s"], 1e-7 / (meta["config"]["moment"] * d["B_lat_T"]))
+    assert sr["tau_relax_s"] == pytest.approx(tau, rel=1e-12)
+    B_ext = meta["config"]["B_ext"]
+    assert meta["config"]["t_sim"] == pytest.approx(5.0 * B_ext * tau / (0.5 * d["B_ref_T"]), rel=1e-12)
+
+    # Recorded also when the ramp comes from --t_sim, and round-trips.
+    _, meta_t = _run(tmp_path, "r_t", *common, "--t_sim", str(meta["config"]["t_sim"]))
+    assert meta_t["sweep_rate"]["input"] == "t_sim"
+    assert meta_t["sweep_rate"]["sweep_rate_dimless"] == pytest.approx(0.5, rel=1e-9)
+
+    # ... and for FORC, with the flag and with fixed ramp times.
+    forc = ["--geometry", "square", "--N", "4", "--M", "4", "--field_mode", "forc",
+            "--B_max_factor", "3", "--damping", "1e-7", "--forc_n_curves", "2",
+            "--forc_t_sat", "0.002", "--log_every", "50"]
+    _, meta_f = _run(tmp_path, "r_forc", *forc, "--sweep_rate_dimless", "2")
+    assert meta_f["sweep_rate"]["sweep_rate_dimless"] == pytest.approx(2.0, rel=1e-12)
+    assert meta_f["derived"]["sweep_rate_T_per_s"] == pytest.approx(meta_f["sweep_rate"]["sweep_rate_T_per_s"])
+    _, meta_ff = _run(tmp_path, "r_forc_fixed", *forc, "--forc_t_ramp_down", "0.01", "--forc_t_ramp_up", "0.01")
+    assert meta_ff["sweep_rate"]["input"] == "forc_ramp_times"
+    assert meta_ff["sweep_rate"]["sweep_rate_dimless"] > 0.0
+
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "r_both", *common, "--sweep_rate_dimless", "0.5", "--t_sim", "1")
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "r_forc_both", *forc, "--sweep_rate_dimless", "2", "--forc_rate", "0.1")
+
+
+def test_loop_area_converges_in_the_quasi_static_limit(tmp_path):
+    # At fixed Q0 the loop area must approach a finite quasi-static value
+    # A0 = lim_{r->0} A(r): successive differences over decades of r shrink.
+    # 6x6 triangular, Q0 = 2. Measured (Oct 2026): A = 1.03e-3, 2.80e-4,
+    # 1.62e-4 J at r = 0.1, 0.01, 0.001 (and 1.46e-4 at r = 3e-4), dt-converged
+    # to 1e-5 at dt_factor 0.05. The closed-cycle field work must equal the area.
+    geo = ["--geometry", "triangular", "--N", "6", "--M", "6"]
+    _, probe = _run(tmp_path, "qs_probe", *geo, "--field_mode", "static", "--t_sim", "0.001")
+    Q0 = 2.0
+    damping = probe["derived"]["omega_lat_rad_s"] * probe["config"]["inertia"] / Q0
+
+    areas = []
+    for r in (0.1, 0.01, 0.001):
+        rows, meta = _run(
+            tmp_path, f"qs_{r:g}", *geo,
+            "--field_mode", "hysteresis", "--B_max_factor", "3", "--damping", repr(damping),
+            "--sweep_rate_dimless", repr(r), "--dt_factor", "0.05", "--log_every", "4",
+        )
+        assert meta["derived"]["Q"] == pytest.approx(Q0, rel=1e-9)
+        area, work = _closed_loop_area_and_work(rows, meta)
+        assert work == pytest.approx(area, rel=1e-3)
+        areas.append(area)
+
+    a_fast, a_mid, a_slow = areas
+    assert a_fast > a_mid > a_slow > 0.0
+    assert abs(a_mid - a_slow) < 0.3 * abs(a_fast - a_mid), f"no convergence: areas {areas}"

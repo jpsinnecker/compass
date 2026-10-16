@@ -498,6 +498,33 @@ def lattice_field_per_moment(tensor: DipolarTensor, backend: Backend, n_dir: int
     return float(np.mean(vals))
 
 
+def relaxation_time(moment: float, inertia: float, damping: float, B_lat: float) -> float:
+    """
+    Needle relaxation time scale tau_relax [s] used to make the sweep rate
+    dimensionless:
+
+        tau_relax = max(1 / omega_lat, b / (m B_lat)),  omega_lat = sqrt(m B_lat / I).
+
+    1/omega_lat is the inertial (underdamped) response time; b/(m B_lat) is
+    the viscous (overdamped) one. Since b/(m B_lat) = 1/(Q0 omega_lat), this
+    is tau_relax = max(1, 1/Q0) / omega_lat: the crossover is at Q0 = 1.
+    b is the mean damping (damping_noise is ignored).
+    """
+    tau_inertial = 1.0 / math.sqrt(moment * B_lat / inertia)
+    tau_viscous = damping / (moment * B_lat) if damping > 0.0 else 0.0
+    return max(tau_inertial, tau_viscous)
+
+
+def dimless_sweep_rate(rate_T_per_s: float, tau_relax: float, B_ref: float) -> float:
+    """r = (dB/dt) * tau_relax / B_ref."""
+    return abs(rate_T_per_s) * tau_relax / B_ref
+
+
+def sweep_rate_from_dimless(r: float, tau_relax: float, B_ref: float) -> float:
+    """Inverse of dimless_sweep_rate: dB/dt [T/s] = r * B_ref / tau_relax."""
+    return r * B_ref / tau_relax
+
+
 def local_field_bound_per_moment(tensor: DipolarTensor, backend: Backend, n_phi: int = 32, chunk: int = 2048) -> float:
     """
     Worst-case dipolar field magnitude at any needle, per unit moment [T/(A m^2)].
@@ -1127,6 +1154,60 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     omega0 = math.sqrt(moment * B_eff / inertia)
     T0 = 2.0 * math.pi / omega0
 
+    backend = select_backend(args.use_gpu)
+    dtype = np.float32 if args.float32 else np.float64
+    tensor_bytes = 3.0 * geom.K * geom.K * np.dtype(dtype).itemsize
+    if tensor_bytes > args.tensor_mem_limit_gb * 1e9:
+        raise MemoryError(
+            f"Dipolar tensor would require {tensor_bytes/1e9:.2f} GB. "
+            f"Increase --tensor_mem_limit_gb or reduce grid size."
+        )
+
+    tensor = precompute_dipolar_tensor(
+        geom.xs,
+        geom.ys,
+        cutoff_m,
+        cutoff_shells,
+        backend,
+        pbc=args.pbc,
+        Lx=geom.Lx,
+        Ly=geom.Ly,
+        n_images=args.n_images,
+        dtype=dtype,
+    )
+
+    # Intrinsic lattice field and needle relaxation time. They are needed
+    # before the field schedule is built, because a dimensionless sweep rate
+    # r = (dB/dt) tau_relax / B_ref is converted to T/s with tau_relax.
+    B_lat = moment * lattice_field_per_moment(tensor, backend)
+    omega_lat = math.sqrt(moment * B_lat / inertia)
+    tau_relax = relaxation_time(moment, inertia, args.damping, B_lat)
+
+    # Dimensionless sweep rate (hysteresis and FORC only). Mutually exclusive
+    # with --t_sim (hysteresis) and --forc_rate (FORC); absent, nothing changes.
+    sweep_rate_dimless_in = getattr(args, "sweep_rate_dimless", None)
+    forc_rate = args.forc_rate
+    t_sim_arg = args.t_sim
+    if sweep_rate_dimless_in is not None:
+        if not sweep_rate_dimless_in > 0.0:
+            raise SystemExit(f"--sweep_rate_dimless must be > 0 (got {sweep_rate_dimless_in})")
+        rate_from_r = sweep_rate_from_dimless(sweep_rate_dimless_in, tau_relax, B_ref)
+        if args.field_mode == "hysteresis":
+            if t_sim_arg is not None:
+                raise SystemExit("--sweep_rate_dimless and --t_sim are mutually exclusive in hysteresis mode")
+            if abs(B_ext) <= 0.0:
+                raise SystemExit("--sweep_rate_dimless needs a nonzero field amplitude")
+            # Five branches of span |B_ext| each at the base rate.
+            t_sim_arg = 5.0 * abs(B_ext) / rate_from_r
+        elif args.field_mode == "forc":
+            if forc_rate is not None:
+                raise SystemExit("--sweep_rate_dimless and --forc_rate are mutually exclusive")
+            forc_rate = rate_from_r
+        else:
+            raise SystemExit("--sweep_rate_dimless applies only to --field_mode hysteresis or forc")
+    if t_sim_arg is None:
+        t_sim_arg = CFG.physics.compass_engine.t_sim
+
     if args.field_mode == "forc":
         forc_Br_min = args.forc_Br_min if args.forc_Br_min is not None else -abs(B_ext)
         forc_schedule = build_forc_schedule(
@@ -1136,7 +1217,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             args.forc_t_sat,
             args.forc_t_ramp_down,
             args.forc_t_ramp_up,
-            args.forc_rate,
+            forc_rate,
         )
         t_sim = forc_schedule.total_time
     elif args.field_mode == "demag_rot" or args.field_mode == "demag_linear":
@@ -1144,7 +1225,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         t_sim = args.demag_cycles / max(args.demag_freq, 1e-30) + args.t_relax_after
     else:
         forc_schedule = None
-        t_sim = args.t_sim
+        t_sim = t_sim_arg
 
     slow_lo, slow_hi = _parse_hyst_slow_window(args.hyst_slow_window)
     has_slow_window = slow_lo is not None
@@ -1180,28 +1261,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         demag_cycles=args.demag_cycles,
     )
 
-    backend = select_backend(args.use_gpu)
-    dtype = np.float32 if args.float32 else np.float64
-    tensor_bytes = 3.0 * geom.K * geom.K * np.dtype(dtype).itemsize
-    if tensor_bytes > args.tensor_mem_limit_gb * 1e9:
-        raise MemoryError(
-            f"Dipolar tensor would require {tensor_bytes/1e9:.2f} GB. "
-            f"Increase --tensor_mem_limit_gb or reduce grid size."
-        )
-
-    tensor = precompute_dipolar_tensor(
-        geom.xs,
-        geom.ys,
-        cutoff_m,
-        cutoff_shells,
-        backend,
-        pbc=args.pbc,
-        Lx=geom.Lx,
-        Ly=geom.Ly,
-        n_images=args.n_images,
-        dtype=dtype,
-    )
-
     # Time step from the worst-case local stiffness, not from omega0(B_ref):
     # B_ref is a single-neighbour field, while the field at a needle can be
     # several times larger (~2 B_ref in an ordered array, more during
@@ -1232,9 +1291,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     # protocol amplitude. Q_ref uses the nearest-neighbour B_ref (the
     # convention of damping_sweepV03.make_damping_grid); Q_field is the old
     # protocol-dependent definition with B_eff = max(|B_ext|, B_ref), kept
-    # only for comparison with pre-October-2026 metadata.
-    B_lat = moment * lattice_field_per_moment(tensor, backend)
-    omega_lat = math.sqrt(moment * B_lat / inertia)
+    # only for comparison with pre-October-2026 metadata. B_lat and
+    # omega_lat were computed above, before the field schedule.
     omega_ref = math.sqrt(moment * B_ref / inertia)
     if args.damping > 0:
         Q = omega_lat * inertia / args.damping
@@ -1393,10 +1451,52 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                 for leg in hyst_schedule.legs
             ],
         }
-    elif args.field_mode == "forc" and args.forc_rate is not None:
-        sweep_rate_T_s = float(args.forc_rate)
+    elif args.field_mode == "forc" and forc_rate is not None:
+        sweep_rate_T_s = float(forc_rate)
     else:
         sweep_rate_T_s = None
+
+    # Dimensionless sweep rate r = (dB/dt) tau_relax / B_ref, recorded for
+    # every hysteresis/FORC run whether it was the input (--sweep_rate_dimless)
+    # or derived from --t_sim / --forc_rate / fixed FORC ramp times. It lives
+    # in its own block so the regression-checked 'derived' keys are unchanged.
+    sweep_rate_meta = None
+    if args.field_mode in ("hysteresis", "forc"):
+        if args.field_mode == "hysteresis":
+            rate_governing = hyst_schedule.base_rate_T_per_s
+            rate_note = ("base rate of the five-branch cycle, |B_ext| / (t_sim / 5); "
+                         "for --hyst_spacing log it is the branch-mean rate; inside a slow "
+                         "window the rate is r / hyst_slow_factor")
+            per_curve = None
+        else:
+            # Fixed ramp times give a different rate on each FORC curve; the
+            # fastest one governs how far the run is from quasi-static.
+            per_curve = [
+                max(abs(B_ext - Br) / max(td, 1e-300), abs(B_ext - Br) / max(tu, 1e-300))
+                for Br, td, tu in zip(forc_schedule.Br, forc_schedule.t_down, forc_schedule.t_up)
+            ]
+            rate_governing = sweep_rate_T_s if sweep_rate_T_s is not None else max(per_curve, default=0.0)
+            rate_note = ("constant ramp rate" if sweep_rate_T_s is not None
+                         else "fixed ramp times: maximum over curves of span / ramp time")
+        sweep_rate_meta = {
+            "definition": "r = (dB/dt) * tau_relax / B_ref, tau_relax = max(1/omega_lat, b/(m B_lat))",
+            "input": "sweep_rate_dimless" if sweep_rate_dimless_in is not None
+                     else ("forc_rate" if (args.field_mode == "forc" and forc_rate is not None)
+                           else ("t_sim" if args.field_mode == "hysteresis" else "forc_ramp_times")),
+            "sweep_rate_dimless": dimless_sweep_rate(rate_governing, tau_relax, B_ref),
+            "sweep_rate_dimless_requested": sweep_rate_dimless_in,
+            "sweep_rate_T_per_s": rate_governing,
+            "note": rate_note,
+            "tau_relax_s": tau_relax,
+            "tau_relax_regime": "underdamped (1/omega_lat)" if tau_relax * omega_lat <= 1.0 + 1e-12
+                                else "overdamped (b/(m B_lat))",
+            "B_ref_T": B_ref,
+            "B_lat_T": B_lat,
+            "omega_lat_rad_s": omega_lat,
+            "forc_sweep_rate_dimless_per_curve": (
+                [dimless_sweep_rate(v, tau_relax, B_ref) for v in per_curve] if per_curve is not None else None
+            ),
+        }
 
     metadata = {
         "program": "compass.py",
@@ -1441,6 +1541,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "sweep_rate_Bref_per_T0": (sweep_rate_T_s * T0 / B_ref) if (sweep_rate_T_s and B_ref > 0.0) else None,
         },
         "hyst_schedule": hyst_schedule_meta,
+        "sweep_rate": sweep_rate_meta,
         "notes": {
             "S1": "polar order |<exp(i theta)>|",
             "S2": "nematic/director order |<exp(2 i theta)>|",
@@ -1476,6 +1577,9 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         print(f"B_loc bound  : {B_loc_bound*1e3:.6g} mT  (T_loc = {T_loc:.6g} s)")
         print(f"dt, n_steps  : {dt:.6g} s, {n_steps}")
         print(f"Q0 (lattice) : {Q:.6g}   [Q_ref={Q_ref:.6g}, Q_field={Q_field:.6g}, B_lat={B_lat*1e3:.6g} mT]")
+        if sweep_rate_meta is not None:
+            print(f"sweep rate   : r = {sweep_rate_meta['sweep_rate_dimless']:.6g} "
+                  f"({sweep_rate_meta['sweep_rate_T_per_s']:.6g} T/s, tau_relax = {tau_relax:.6g} s)")
         if cutoff_policy == "full_sum":
             print("cutoff       : none (full pair sum)")
         else:
@@ -2013,7 +2117,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--damping_noise", type=float, default=phys_cfg.damping_noise, help="relative uniform random damping variation per needle")
 
     g = p.add_argument_group("time integration")
-    g.add_argument("--t_sim", type=float, default=phys_cfg.t_sim, help="simulation time [s], except FORC and demag modes")
+    g.add_argument("--t_sim", type=float, default=None, help=f"simulation time [s], except FORC and demag modes; default {phys_cfg.t_sim} from config.yaml. In hysteresis mode, mutually exclusive with --sweep_rate_dimless")
     g.add_argument("--dt_factor", type=float, default=time_cfg.dt_factor, help="dt / T_loc, with T_loc = 2 pi / omega_loc_bound from the worst-case local field (dipolar bound + max applied field); omega_loc*dt <= 2 pi dt_factor")
     g.add_argument("--noise", type=float, default=phys_cfg.noise, help="initial angular noise amplitude [rad]")
     g.add_argument("--seed", type=int, default=run_cfg.seed)
@@ -2046,6 +2150,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--hyst_spacing", choices=["linear", "log"], default=phys_cfg.hyst_spacing)
     g.add_argument("--hyst_log_k", type=float, default=phys_cfg.hyst_log_k)
     g.add_argument("--hyst_slow_window", type=str, default=None, help="'B_lo,B_hi' [T]: sweep rate is divided by --hyst_slow_factor while |B| is inside this window (applies to both up- and down-sweeps); default None disables the feature (base rate everywhere, identical to previous behavior)")
+    g.add_argument("--sweep_rate_dimless", type=float, default=None, help="dimensionless sweep rate r = (dB/dt) tau_relax / B_ref, tau_relax = max(1/omega_lat, b/(m B_lat)). Hysteresis: sets the base rate, t_sim = 5 |B_ext| tau_relax / (r B_ref); mutually exclusive with --t_sim. FORC: sets the ramp rate; mutually exclusive with --forc_rate. Default None keeps the old behaviour")
     g.add_argument("--hyst_slow_factor", type=float, default=phys_cfg.hyst_slow_factor, help="sweep-rate divisor inside --hyst_slow_window; 1.0 (default) is a no-op")
 
     g = p.add_argument_group("FORC protocol")
