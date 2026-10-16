@@ -141,6 +141,7 @@ dipolo pontual × halteres no estado fundamental e no campo coercivo; FORC "de h
 **Fase 1: correções numéricas (≈ 2 semanas)**
 - Soma completa por padrão; cutoff só opcional.
 - dt por ω_loc; Q₀ intrínseco; taxa adimensional r como parâmetro de entrada (em vez de `t_sim`).
+  - Feito (out/2026): `--sweep_rate_dimless r`, com r = (dB/dt)·τ_relax/B_ref e τ_relax = max(1/ω_lat, b/(m B_lat)) = max(1, 1/Q₀)/ω_lat (inercial se Q₀ ≥ 1, viscoso se Q₀ < 1). Em histerese, t_sim = 5|B_max|τ_relax/(r B_ref); em FORC, define a taxa das rampas. Todo run de histerese/FORC grava o r efetivo no bloco `sweep_rate` dos metadados. `damping_sweepV03.py --sweep_rates_dimless` faz de r um eixo da campanha. Rede triangular 6×6, Q₀ = 2: a área converge (1,03e-3; 2,80e-4; 1,62e-4; 1,46e-4 J em r = 1e-1; 1e-2; 1e-3; 3e-4), mas só abaixo de r ≈ 1e-3. A análise (`damping_sweep_analysis.py`) ainda não separa por r.
 - Livro-caixa de trabalho e dissipação; teste da identidade área = dissipação.
 - Wrapper de varredura apontando para a V2.1 e análise usando os contadores e o `event_log`.
 - Espessura padrão unificada (0,26 ou 0,40 mm: decidir pela agulha real).
