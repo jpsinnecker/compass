@@ -155,3 +155,22 @@ afterward** before committing -- a diff here means either:
 Do not regenerate references just because a test failed and you want it to
 pass again -- that defeats the point of a regression test. Regenerate only
 when you can explain *why* the numbers are supposed to be different now.
+
+## Physics-validity tests (`test_physics.py`)
+
+Unlike the regression suite, these check that the numbers are *physically*
+right, independently of `compass.py`'s own code paths where possible:
+
+| test | checks |
+|---|---|
+| `test_tensor_matches_direct_pair_sum` | precomputed tensor == explicit dipole-dipole pair sum |
+| `test_torque_is_minus_energy_gradient` | tau_i == -dE/dtheta_i (finite differences) |
+| `test_energy_conservation_at_zero_damping_is_second_order` | b=0 energy drift small and scaling ~dt^2 |
+| `test_damped_relaxation_dissipates_energy` | total energy never rises during free damped relaxation |
+
+Four further tests are `xfail(strict=True)`: they encode the *target*
+behaviour for known defects listed in `docs/AUDIT_PHYSICS_ROADMAP.md`
+(cutoff bias, under-resolved default dt, protocol-dependent Q, missing
+work/dissipation ledger). When a fix makes one of them pass, pytest reports
+XPASS as a failure. Remove that test's marker in the same commit as the fix.
+Run `pytest --runxfail tests/test_physics.py` to see the current magnitude of each defect.
