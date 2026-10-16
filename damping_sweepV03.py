@@ -34,7 +34,7 @@ Retained from V02:
 This script DOES NOT modify compass.py. It imports the module and calls
 relax() programmatically, sweeping:
 
-    damping  x  seed  x  geometry
+    damping  x  seed  x  geometry   [x  r, with --sweep_rates_dimless]
 
 for the field mode 'hysteresis' (Stage 1) and 'static' B=0 (Stage 2,
 free relaxation for domain statistics).
@@ -50,6 +50,14 @@ And a metadata JSON per run (derived physical parameters, Q, etc.):
 
 A manifest.csv at the top of out_dir summarizes all runs (one row
 per run), updated incrementally.
+
+Dimensionless sweep rate axis
+-----------------------------
+    --sweep_rates_dimless "0.1,0.01,0.001" repeats the hysteresis and FORC
+    stages for each r = (dB/dt) tau_relax / B_ref (compass.py
+    --sweep_rate_dimless), so A(r, Q0) can be extrapolated to the
+    quasi-static limit r -> 0. Tags gain a suffix _rNN; manifest.csv gains
+    the columns r_idx and sweep_rate_dimless (empty without the option).
 
 Usage
 -----
@@ -184,6 +192,7 @@ def _default_compass_args(**overrides):
     a.hyst_log_k = 5.0
     a.hyst_slow_window = None
     a.hyst_slow_factor = 1.0
+    a.sweep_rate_dimless = None
 
     # FORC
     a.forc_Br_min = None
@@ -265,8 +274,12 @@ def _run_compass_v02_run(tag, out_dir, *, geometry, R, n_grid, seed,
                          pivot_radius, pivot_thickness, pivot_density, pivot_mass,
                          domain_tol,
                          forc_n_curves=None, forc_Br_min=None, forc_rate=None,
-                         forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None):
-    """Run one compass.py simulation and return paths and parsed outputs."""
+                         forc_t_sat=None, forc_t_ramp_down=None, forc_t_ramp_up=None,
+                         sweep_rate_dimless=None):
+    """Run one compass.py simulation and return paths and parsed outputs.
+
+    sweep_rate_dimless (hysteresis/FORC only) replaces t_sim / forc_rate:
+    compass.py derives the ramp from r = (dB/dt) tau_relax / B_ref."""
     args = _default_compass_args(
         geometry=geometry,
         N=n_grid,
@@ -305,7 +318,10 @@ def _run_compass_v02_run(tag, out_dir, *, geometry, R, n_grid, seed,
         make_plot=False,
         png_dpi=80,
         png_no_panel_titles=True,
+        sweep_rate_dimless=sweep_rate_dimless,
     )
+    if sweep_rate_dimless is not None and field_mode == "hysteresis":
+        args.t_sim = None   # mutually exclusive with sweep_rate_dimless in compass.py
 
     if field_mode == "forc":
         args.forc_n_curves = int(forc_n_curves if forc_n_curves is not None else 20)
@@ -418,6 +434,17 @@ def make_damping_grid(inertia, moment, r_nn, n_points=8, Q_min=0.05, Q_max=15.0)
     return damping_vals, Q_vals, omega0
 
 
+def _sweep_rate_fields(metadata):
+    """Dimensionless sweep rate actually used by compass.py (metadata block
+    'sweep_rate'), for the per-run campaign meta JSON."""
+    sr = metadata.get("sweep_rate") or {}
+    return dict(
+        sweep_rate_dimless=sr.get("sweep_rate_dimless"),
+        sweep_rate_dimless_requested=sr.get("sweep_rate_dimless_requested"),
+        sweep_rate_T_per_s=sr.get("sweep_rate_T_per_s"),
+        tau_relax=sr.get("tau_relax_s"),
+    )
+
 
 def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
                         pbc=False, dt_factor=0.05, use_gpu=False,
@@ -426,7 +453,8 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
                         steel_density=7850.0, steel_Bsat=None,
                         moment=None, inertia=None, noise=1.5,
                         pivot_radius=0.0, pivot_thickness=0.0,
-                        pivot_density=8500.0, pivot_mass=None):
+                        pivot_density=8500.0, pivot_mass=None,
+                        sweep_rate_dimless=None):
     np.random.seed(seed)
     inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
         R, needle_frac=needle_frac, needle_thickness=needle_thickness,
@@ -453,7 +481,7 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
             moment=moment_val, inertia=inertia_val,
             pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
             pivot_density=pivot_density, pivot_mass=pivot_mass,
-            domain_tol=15.0)
+            domain_tol=15.0, sweep_rate_dimless=sweep_rate_dimless)
     wall_s = time.perf_counter() - t0
 
     derived = metadata.get("derived", {})
@@ -464,7 +492,8 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
         pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
         pivot_density=pivot_density, pivot_mass=pivot_mass,
-        t_sim=t_sim, dt=derived.get("dt_s", np.nan), dt_factor=dt_factor, n_steps=len(field_log),
+        **_sweep_rate_fields(metadata),
+        t_sim=metadata.get("config", {}).get("t_sim", t_sim), dt=derived.get("dt_s", np.nan), dt_factor=dt_factor, n_steps=len(field_log),
         pbc=pbc, stop_reason="completed", wall_seconds=wall_s,
         field_mode="hysteresis",
         compass_version=metadata.get("version"),
@@ -543,7 +572,8 @@ def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
                   pivot_density=8500.0, pivot_mass=None,
                   forc_n_curves=20, forc_Br_min=None,
                   forc_rate=None, forc_t_sat=None,
-                  forc_t_ramp_down=None, forc_t_ramp_up=None):
+                  forc_t_ramp_down=None, forc_t_ramp_up=None,
+                  sweep_rate_dimless=None):
     """Runs one complete FORC measurement using compass.py's run_simulation()."""
     np.random.seed(seed)
     inertia_val, moment_val, needle_len, needle_width, thickness = compute_physical_params(
@@ -578,7 +608,8 @@ def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
             forc_rate=forc_rate,
             forc_t_sat=forc_t_sat,
             forc_t_ramp_down=forc_t_ramp_down,
-            forc_t_ramp_up=forc_t_ramp_up)
+            forc_t_ramp_up=forc_t_ramp_up,
+            sweep_rate_dimless=sweep_rate_dimless)
     wall_s = time.perf_counter() - t0
 
     derived = metadata.get("derived", {})
@@ -589,6 +620,7 @@ def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
         pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
         pivot_density=pivot_density, pivot_mass=pivot_mass,
+        **_sweep_rate_fields(metadata),
         dt=derived.get("dt_s", np.nan), dt_factor=dt_factor, n_steps=len(field_log),
         pbc=pbc, stop_reason="completed", wall_seconds=wall_s,
         field_mode="forc",
@@ -651,7 +683,8 @@ def run_job(job):
                 moment=job["moment"], inertia=job["inertia"], dt_factor=job["dt_factor"],
                 noise=job["noise"],
                 pivot_radius=job["pivot_radius"], pivot_thickness=job["pivot_thickness"],
-                pivot_density=job["pivot_density"], pivot_mass=job["pivot_mass"])
+                pivot_density=job["pivot_density"], pivot_mass=job["pivot_mass"],
+                sweep_rate_dimless=job["sweep_rate_dimless"])
             csv_path = os.path.join(job["hyst_dir"], tag + ".csv")
             meta_path = os.path.join(job["meta_dir"], tag + "_hyst.json")
             save_field_log_csv(field_log, csv_path)
@@ -672,7 +705,8 @@ def run_job(job):
                 forc_rate=job["forc_rate"],
                 forc_t_sat=job["forc_t_sat"],
                 forc_t_ramp_down=job["forc_t_ramp_down"],
-                forc_t_ramp_up=job["forc_t_ramp_up"])
+                forc_t_ramp_up=job["forc_t_ramp_up"],
+                sweep_rate_dimless=job["sweep_rate_dimless"])
             csv_path = os.path.join(job["forc_dir"], tag + ".csv")
             meta_path = os.path.join(job["meta_dir"], tag + "_forc.json")
             save_forc_csv(field_log, csv_path)
@@ -702,13 +736,15 @@ def run_job(job):
         Q=meta["Q"], n_steps=meta["n_steps"],
         wall_seconds=meta["wall_seconds"],
         csv_path=csv_path, meta_path=meta_path,
+        r_idx=job["r_idx"] if job["r_idx"] is not None else "",
+        sweep_rate_dimless=meta.get("sweep_rate_dimless", ""),
     )
     return row
 
 
 MANIFEST_FIELDS = ["tag", "stage", "geometry", "damp_idx", "seed",
                    "damping", "Q", "n_steps", "wall_seconds",
-                   "csv_path", "meta_path"]
+                   "csv_path", "meta_path", "r_idx", "sweep_rate_dimless"]
 
 
 def _append_manifest_row(manifest_path, row):
@@ -768,6 +804,12 @@ def main():
     ap.add_argument('--forc_rate', type=float, default=None,
                      help='Constant field sweep rate for FORC ramps [T/s]. '
                           'If None, fixed forc_t_ramp_down/up times are used.')
+    ap.add_argument('--sweep_rates_dimless', type=str, default=None,
+                     help='Comma-separated dimensionless sweep rates r = (dB/dt) tau_relax / B_ref '
+                          '(e.g. "0.1,0.03,0.01,0.003"). Adds r as a campaign axis of the '
+                          'hysteresis and FORC stages (Q0 x r x geometry x seed); replaces '
+                          '--t_sim_periods for hysteresis and --forc_rate/ramp times for FORC. '
+                          'The relax stage has no field ramp and is not repeated per r.')
     ap.add_argument('--forc_t_sat', type=float, default=None,
                      help='Saturation hold time per FORC cycle [s] (default: compass.py default 0.05 s)')
     ap.add_argument('--forc_t_ramp_down', type=float, default=None,
@@ -831,6 +873,15 @@ def main():
 
     geometries = args.geometries.split(',')
 
+    if args.sweep_rates_dimless:
+        r_vals = [float(v) for v in args.sweep_rates_dimless.split(',') if v.strip()]
+        if not r_vals or any(not r > 0.0 for r in r_vals):
+            raise SystemExit("--sweep_rates_dimless needs positive values")
+        if args.forc_rate is not None:
+            raise SystemExit("--sweep_rates_dimless and --forc_rate are mutually exclusive")
+    else:
+        r_vals = None
+
     out_dir = args.out_dir
     hyst_dir   = os.path.join(out_dir, 'hysteresis')
     relax_dir  = os.path.join(out_dir, 'relax')
@@ -868,10 +919,14 @@ def main():
     for d, q in zip(damping_vals, Q_nominal):
         print(f"    damping={d:.4e}  N.m.s/rad   ->  Q_nominal={q:.3f}")
     print(f"B_max = {B_max:.5f} T  ({args.B_max_factor}x B_ref)")
-    print(f"t_sim = {t_sim:.4f} s  ({args.t_sim_periods} periods T0={T0_ref:.5f}s)")
+    if r_vals is None:
+        print(f"t_sim = {t_sim:.4f} s  ({args.t_sim_periods} periods T0={T0_ref:.5f}s)")
+    else:
+        print(f"sweep rates r = {', '.join(f'{r:g}' for r in r_vals)}  "
+              f"(r = (dB/dt) tau_relax / B_ref; t_sim_periods ignored for hysteresis)")
     print()
 
-    total_runs = len(geometries) * len(damping_vals) * args.n_seeds
+    total_runs = len(geometries) * len(damping_vals) * args.n_seeds * (len(r_vals) if r_vals else 1)
     t_campaign_start = time.perf_counter()
 
     # ── V02: builds the complete list of jobs (Stages 1 and 2) ──────────────
@@ -899,9 +954,17 @@ def main():
             for damp_idx, damping in enumerate(damping_vals):
                 for seed in range(args.n_seeds):
                     tag = f"{geometry}_damp{damp_idx:02d}_seed{seed:02d}"
-                    jobs.append(dict(common, stage=stage, tag=tag,
-                                     geometry=geometry, damp_idx=damp_idx,
-                                     seed=seed, damping=damping))
+                    if r_vals is None or stage == 'relax':
+                        jobs.append(dict(common, stage=stage, tag=tag,
+                                         geometry=geometry, damp_idx=damp_idx,
+                                         seed=seed, damping=damping,
+                                         r_idx=None, sweep_rate_dimless=None))
+                        continue
+                    for r_idx, r in enumerate(r_vals):
+                        jobs.append(dict(common, stage=stage, tag=f"{tag}_r{r_idx:02d}",
+                                         geometry=geometry, damp_idx=damp_idx,
+                                         seed=seed, damping=damping,
+                                         r_idx=r_idx, sweep_rate_dimless=r))
 
     # ── V02: resume — skips jobs already registered in manifest ──────────────
     if args.resume:
