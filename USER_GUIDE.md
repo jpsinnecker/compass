@@ -155,7 +155,7 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 
 ### Time integration and avalanche detection
 * `--t_sim <float>`: Total simulated time in seconds; ignored for `forc`/`demag_rot`/`demag_linear` modes, which compute their own duration (default: `2.0`).
-* `--dt_factor <float>`: Integration step as a fraction of the natural period $T_0$ (default: `0.04`).
+* `--dt_factor <float>`: Integration step as a fraction of the worst-case local period $T_{\text{loc}} = 2\pi/\omega_{\text{loc}}$, where $\omega_{\text{loc}} = \sqrt{m B_{\text{loc}}/I}$ and $B_{\text{loc}}$ bounds the field any needle can feel in any configuration (dipolar bound $\max_i\max_{\hat u}\sum_j|A_{ij}\hat u|\,m$ plus the maximum applied field). This guarantees $\omega_{\text{loc}}\Delta t \le 2\pi\,$`dt_factor` (default: `0.025`, i.e. $\le 0.157$). Before October 2026, $\Delta t$ was a fraction of $T_0$ (built from $B_{\text{ref}}$), which left $\omega_{\text{loc}}\Delta t\approx0.5$. $T_0$ is still used as the time unit for dwell times and sweep rates.
 * `--noise <float>`: Initial angular noise amplitude in radians (default: `1.5`).
 * `--seed <int>`: RNG seed; time-derived if omitted (default: `None`).
 * `--log_every <int>`: Write one CSV row every N integration steps (default: `10`).
@@ -165,7 +165,7 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--flip_dwell_T0 <float>`: Dwell time required to commit a flip, in units of $T_0$ (default: `0.5`).
 * `--flip_settle_frac <float>`: `|omega|` settling threshold as a fraction of $\omega_0$, for the `flip_angle` channel (default: `0.05`).
 * `--event_log`: Write a per-committed-event CSV (`step,t,needle_id,channel,theta`) for offline avalanche clustering (default: off).
-* `--dt_guard_alpha <float>`: Stability-monitor threshold on `max_i sqrt(m|B_i|/I)*dt` (default: `0.35`).
+* `--dt_guard_alpha <float>`: Stability-monitor threshold on `max_i sqrt(m|B_i|/I)*dt` (default: `0.2`; never reached with the default `dt_factor`).
 * `--dt_guard_substep`: Re-integrate flagged steps with 4 global sub-steps; breaks strict symplecticity, exploratory (default: off).
 
 ### Dipolar cutoff and boundaries
@@ -337,7 +337,7 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--damping_noise` | `float` | `0.0` | Relative per-needle damping variation. |
 | **Time Integration & Avalanche Detection** | | | |
 | `--t_sim` | `float` | `2.0` | Total simulated time (s); ignored for `forc`/demag modes. |
-| `--dt_factor` | `float` | `0.04` | $\Delta t / T_0$. |
+| `--dt_factor` | `float` | `0.025` | $\Delta t / T_{\text{loc}}$ (worst-case local period). |
 | `--noise` | `float` | `1.5` | Initial angular noise amplitude (rad). |
 | `--seed` | `int` | `None` | RNG seed; time-derived if omitted. |
 | `--log_every` | `int` | `10` | CSV row cadence (integration steps). |
@@ -347,7 +347,7 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--flip_dwell_T0` | `float` | `0.5` | Dwell time to commit a flip (units of $T_0$). |
 | `--flip_settle_frac` | `float` | `0.05` | `|omega|` settling threshold (fraction of $\omega_0$). |
 | `--event_log` | flag | off | Write a per-event CSV for offline clustering. |
-| `--dt_guard_alpha` | `float` | `0.35` | Stability-monitor threshold. |
+| `--dt_guard_alpha` | `float` | `0.2` | Stability-monitor threshold. |
 | `--dt_guard_substep` | flag | off | Sub-step flagged integration steps. |
 | **Dipolar Cutoff & Boundaries** | | | |
 | `--cutoff_shells` | `float` | `0.0` | Cutoff in multiples of $r_{nn}$; `<= 0` = full pair sum. |

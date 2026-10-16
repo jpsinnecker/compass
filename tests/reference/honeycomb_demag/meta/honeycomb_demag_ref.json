@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:41:49-03:00",
-  "created_unix_time": 1792161748.277272,
-  "created_datetime_utc": "2026-10-16T14:42:28+00:00",
-  "created_datetime_local": "2026-10-16T11:42:28-03:00",
+  "source_file_timestamp": "2026-10-16T11:44:01-03:00",
+  "created_unix_time": 1792161903.6815412,
+  "created_datetime_utc": "2026-10-16T14:45:03+00:00",
+  "created_datetime_local": "2026-10-16T11:45:03-03:00",
   "tag": "honeycomb_demag_ref",
   "config": {
     "geometry": "honeycomb",
@@ -39,7 +39,7 @@
     "flip_band_deg": 30.0,
     "flip_dwell_T0": 0.5,
     "flip_settle_frac": 0.05,
-    "dt_guard_alpha": 0.35,
+    "dt_guard_alpha": 0.2,
     "dt_guard_substep": false,
     "event_log": false,
     "domain_tol_deg": 15.0
@@ -56,8 +56,12 @@
     "B_eff_T": 0.006947655894401461,
     "omega0_rad_s": 556.6410823922898,
     "T0_s": 0.011287678013588556,
-    "dt_s": 0.0033863034040765667,
-    "n_steps": 17,
+    "B_loc_bound_T": 0.010300020417501422,
+    "omega_loc_bound_rad_s": 677.7587739638502,
+    "T_loc_s": 0.009270533335087027,
+    "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
+    "dt_s": 0.0027811600005261078,
+    "n_steps": 20,
     "Q": 2.3814497107448145,
     "cutoff_policy": "full_sum",
     "tensor_bytes": 1176.0,
@@ -90,19 +94,19 @@
       1
     ]
   },
-  "runtime_s": 0.0017941249971045181,
+  "runtime_s": 0.002089291996526299,
   "flip_statistics": {
     "flip_field_total_committed": 9,
-    "flip_angle_total_committed": 0,
+    "flip_angle_total_committed": 1,
     "u_thresh": 0.49999999999999994,
     "n_dwell_steps": 2,
     "omega_settle_rad_s": 27.832054119614494
   },
   "stability_monitor": {
-    "dt_guard_alpha": 0.35,
-    "flagged_steps": 17,
+    "dt_guard_alpha": 0.2,
+    "flagged_steps": 20,
     "substepped_steps": 0,
-    "max_omega_local_dt": 2.00237721198581,
+    "max_omega_local_dt": 1.7200814666862356,
     "note": "omega_local = sqrt(m|B_i|/I); flagged when max_i(omega_local)*dt > alpha"
   }
 }

@@ -192,7 +192,6 @@ def test_full_sum_default_runs_and_writes_valid_json(tmp_path):
     assert "Infinity" not in text and "NaN" not in text
 
 
-@pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.3: default dt is set from omega0(B_ref), local frequency is ~2x higher")
 def test_default_timestep_resolves_local_frequency(tmp_path):
     _, meta = _run(
         tmp_path, "dt_default",
@@ -200,6 +199,36 @@ def test_default_timestep_resolves_local_frequency(tmp_path):
         "--field_mode", "static", "--B_ext", "0", "--t_sim", "0.05",
     )
     assert meta["stability_monitor"]["max_omega_local_dt"] <= 0.2
+
+
+def test_local_field_bound_dominates_actual_fields():
+    # The dt bound must hold for any configuration: check random states and
+    # the fully aligned state, on all three geometries.
+    backend = compass.select_backend(False)
+    moment = 1.0e-3
+    rng = np.random.default_rng(5)
+    for geometry in ("square", "triangular", "honeycomb"):
+        geom = _lattice(6, geometry)
+        tensor = _tensor(geom, FULL_CUTOFF_SHELLS)
+        bound = moment * compass.local_field_bound_per_moment(tensor, backend)
+        states = [rng.uniform(-math.pi, math.pi, geom.K) for _ in range(50)]
+        states += [np.full(geom.K, a) for a in np.linspace(0.0, math.pi, 7)]
+        for theta in states:
+            Bx, By = _field(tensor, moment, theta)
+            assert np.max(np.hypot(Bx, By)) <= bound * (1.0 + 1e-12)
+
+
+def test_default_timestep_resolves_local_frequency_during_hysteresis(tmp_path):
+    # Field sweeps reach |B_ext| = 8 B_ref; the guard must still never flag.
+    _, meta = _run(
+        tmp_path, "dt_hyst",
+        "--geometry", "triangular", "--N", "6", "--M", "6",
+        "--field_mode", "hysteresis", "--B_max_factor", "8", "--damping", "1e-8",
+        "--t_sim", "0.3",
+    )
+    monitor = meta["stability_monitor"]
+    assert monitor["flagged_steps"] == 0
+    assert monitor["max_omega_local_dt"] <= 2.0 * math.pi * 0.025 + 1e-12
 
 
 @pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.4: Q uses B_eff=max(B_ext,B_ref) and so depends on the protocol amplitude")

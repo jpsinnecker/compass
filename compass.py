@@ -475,6 +475,36 @@ def precompute_dipolar_tensor(
     return DipolarTensor(Axx, Axy, Ayy, cutoff_m, cutoff_shells, n_images, pbc)
 
 
+def local_field_bound_per_moment(tensor: DipolarTensor, backend: Backend, n_phi: int = 32, chunk: int = 2048) -> float:
+    """
+    Worst-case dipolar field magnitude at any needle, per unit moment [T/(A m^2)].
+
+    Every needle can point anywhere, so needle j can contribute at most
+    |A_ij u| along a chosen field direction u at site i. The worst field at i
+    is therefore max_u sum_j |A_ij u|, maximised over n_phi directions u in
+    [0, pi) (A_ij is symmetric, so u and -u give the same value). This bound
+    holds for any configuration, unlike B_ref or the field of the ordered
+    state. The time step uses it so that omega_loc * dt stays bounded for
+    every state the dynamics can reach.
+    """
+    xp = backend.xp
+    K = int(tensor.Axx.shape[0])
+    best = 0.0
+    phis = np.linspace(0.0, math.pi, n_phi, endpoint=False)
+    for start in range(0, K, chunk):
+        stop = min(K, start + chunk)
+        axx = tensor.Axx[start:stop]
+        axy = tensor.Axy[start:stop]
+        ayy = tensor.Ayy[start:stop]
+        for phi in phis:
+            c, s = math.cos(phi), math.sin(phi)
+            bx = axx * c + axy * s
+            by = axy * c + ayy * s
+            row = xp.sum(xp.sqrt(bx * bx + by * by), axis=1)
+            best = max(best, safe_float(xp.max(row)))
+    return best
+
+
 # =============================================================================
 # Field protocols
 # =============================================================================
@@ -1073,7 +1103,6 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     B_eff = max(abs(B_ext), B_ref)
     omega0 = math.sqrt(moment * B_eff / inertia)
     T0 = 2.0 * math.pi / omega0
-    dt = args.dt_factor * T0
 
     if args.field_mode == "forc":
         forc_Br_min = args.forc_Br_min if args.forc_Br_min is not None else -abs(B_ext)
@@ -1149,6 +1178,20 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         n_images=args.n_images,
         dtype=dtype,
     )
+
+    # Time step from the worst-case local stiffness, not from omega0(B_ref):
+    # B_ref is a single-neighbour field, while the field at a needle can be
+    # several times larger (~2 B_ref in an ordered array, more during
+    # reversal), so dt = dt_factor * T0 left omega_loc*dt ~ 0.5. With
+    # T_loc = 2 pi / omega_loc_bound, omega_loc*dt <= 2 pi * dt_factor holds
+    # for every configuration and every applied field the protocol can reach.
+    B_applied_max = abs(B_ext)
+    if forc_schedule is not None and forc_schedule.Br:
+        B_applied_max = max(B_applied_max, max(abs(b) for b in forc_schedule.Br))
+    B_loc_bound = moment * local_field_bound_per_moment(tensor, backend) + B_applied_max
+    omega_loc_bound = math.sqrt(moment * max(B_loc_bound, B_ref) / inertia)
+    T_loc = 2.0 * math.pi / omega_loc_bound
+    dt = args.dt_factor * T_loc
 
     xp = backend.xp
     theta = backend.asarray(geom.theta0, dtype=dtype)
@@ -1339,6 +1382,10 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "B_eff_T": B_eff,
             "omega0_rad_s": omega0,
             "T0_s": T0,
+            "B_loc_bound_T": B_loc_bound,
+            "omega_loc_bound_rad_s": omega_loc_bound,
+            "T_loc_s": T_loc,
+            "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
             "dt_s": dt,
             "n_steps": n_steps,
             "Q": Q,
@@ -1382,6 +1429,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         print(f"B_ref        : {B_ref*1e3:.6g} mT")
         print(f"B_ext        : {B_ext*1e3:.6g} mT")
         print(f"omega0, T0   : {omega0:.6g} rad/s, {T0:.6g} s")
+        print(f"B_loc bound  : {B_loc_bound*1e3:.6g} mT  (T_loc = {T_loc:.6g} s)")
         print(f"dt, n_steps  : {dt:.6g} s, {n_steps}")
         print(f"Q            : {Q:.6g}")
         if cutoff_policy == "full_sum":
@@ -1868,7 +1916,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = p.add_argument_group("time integration")
     g.add_argument("--t_sim", type=float, default=phys_cfg.t_sim, help="simulation time [s], except FORC and demag modes")
-    g.add_argument("--dt_factor", type=float, default=time_cfg.dt_factor, help="dt/T0")
+    g.add_argument("--dt_factor", type=float, default=time_cfg.dt_factor, help="dt / T_loc, with T_loc = 2 pi / omega_loc_bound from the worst-case local field (dipolar bound + max applied field); omega_loc*dt <= 2 pi dt_factor")
     g.add_argument("--noise", type=float, default=phys_cfg.noise, help="initial angular noise amplitude [rad]")
     g.add_argument("--seed", type=int, default=run_cfg.seed)
     g.add_argument("--log_every", type=int, default=time_cfg.log_every, help="write one CSV row every this many integration steps")

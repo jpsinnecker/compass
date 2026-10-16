@@ -325,9 +325,17 @@ rather than by evaluating the damping force explicitly. Because the
 damping enters through the denominator, the scheme is unconditionally
 stable with respect to the damping parameter $b$: arbitrarily strong
 damping cannot drive a numerical instability, only over-relax the
-dynamics. The time step itself is set from the nearest-neighbour
-dipolar frequency scale, $\Delta t = f_{\rm dt}\,T_0$ with
-$f_{\rm dt} = 0.04$ by default, and a runtime guard monitors the
+dynamics. The time step is set from a worst-case local stiffness:
+$\Delta t = f_{\rm dt}\,T_{\rm loc}$, $T_{\rm loc}=2\pi/\omega_{\rm loc}$,
+$\omega_{\rm loc}=\sqrt{m B_{\rm loc}/I}$, where
+$B_{\rm loc}=m\max_i\max_{\hat u}\sum_j|A_{ij}\hat u| + \max_t|B_{\rm ext}|$
+bounds the field any needle can feel in any configuration
+($\approx 6$--$8\,B_{\rm ref}$ for the three geometries), so that
+$\omega_{i,\rm loc}\Delta t\le 2\pi f_{\rm dt}$ always holds; $f_{\rm dt}=0.025$
+by default. (Until October 2026, $\Delta t = 0.04\,T_0$ with $T_0$ built from
+$B_{\rm ref}$, which gave $\omega_{\rm loc}\Delta t\approx0.47$ and a 1.4\,\%
+energy error at $b=0$; see \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.3.)
+A runtime guard still monitors the
 instantaneous local field-derived stiffness frequency
 $\omega_{i,\rm loc}=\sqrt{m|B_i|/I}$ (not the needle's own angular
 velocity) through $\omega_{i,\rm loc}\,\Delta t$ against a threshold,
@@ -787,12 +795,12 @@ This is the point at which the code becomes credible as a research tool, provide
 \code{--steel\_density}, \code{--steel\_Ms}, \code{--steel\_Bsat} & Material parameters for automatic physical derivation of $m$ and $I$. \code{--steel\_Bsat}, when supplied, overrides \code{--steel\_Ms}.\\
 \code{--pivot\_radius}, \code{--pivot\_thickness}, \code{--pivot\_density}, \code{--pivot\_mass} & Optional pivot-hole and pivot-cylinder corrections for inertia and magnetic volume.\\
 \code{--damping}, \code{--damping\_noise} & Central viscous damping and random per-needle relative damping variation.\\
-\code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, time-step factor $\Delta t/T_0$, initial angular noise amplitude, random seed, and CSV output cadence.\\
+\code{--t\_sim}, \code{--dt\_factor}, \code{--noise}, \code{--seed}, \code{--log\_every} & Simulation time, time-step factor $\Delta t/T_{\rm loc}$, initial angular noise amplitude, random seed, and CSV output cadence.\\
 \code{--log\_adaptive} & If $>0$, also logs a row whenever $|\Delta M_{\rm proj}|$ since the last logged row exceeds this threshold, or a flip event just committed, in addition to the \code{--log\_every} cadence. $0.0$ (default) reproduces the \code{--log\_every} cadence exactly.\\
 \code{--flip\_angle\_deg} & Threshold for the field-independent large-rotation activity counter.\\
 \code{--flip\_band\_deg}, \code{--flip\_dwell\_T0}, \code{--flip\_settle\_frac} & Parameters of the V2.1 hardened, ringing-proof \code{flip\_field}/\code{flip\_angle} avalanche counters (Schmitt-trigger dead-band half-width around the perpendicular to the drive axis; dwell time, in units of $T_0$, required before a state change is committed; and the $|\omega|$ settling threshold, as a fraction of $\omega_0$, for the rest-angle channel). Defaults: \SI{30}{\degree}, $0.5\,T_0$, and $0.05\,\omega_0$.\\
 \code{--event\_log} & If set, writes a per-committed-event CSV (\code{step}, \code{t}, \code{needle\_id}, \code{channel}, \code{theta}) for offline spatio-temporal avalanche clustering. Off by default.\\
-\code{--dt\_guard\_alpha}, \code{--dt\_guard\_substep} & V2.1 numerical-stability monitor: an integration step is flagged when the local field-derived stiffness frequency $\sqrt{m|B_i|/I}$ times $\Delta t$ exceeds the threshold \code{--dt\_guard\_alpha} (default $0.35$). \code{--dt\_guard\_substep} optionally re-integrates flagged steps with 4 global sub-steps (off by default; breaks strict symplecticity, so treat as exploratory).\\
+\code{--dt\_guard\_alpha}, \code{--dt\_guard\_substep} & V2.1 numerical-stability monitor: an integration step is flagged when the local field-derived stiffness frequency $\sqrt{m|B_i|/I}$ times $\Delta t$ exceeds the threshold \code{--dt\_guard\_alpha} (default $0.2$). \code{--dt\_guard\_substep} optionally re-integrates flagged steps with 4 global sub-steps (off by default; breaks strict symplecticity, so treat as exploratory).\\
 \code{--cutoff\_shells}, \code{--cutoff\_m} & Dipolar cutoff in units of the computed nearest-neighbour distance or as an absolute length. \code{--cutoff\_m} overrides \code{--cutoff\_shells}.\\
 \code{--pbc}, \code{--n\_images} & Periodic boundary conditions and number of periodic images in each direction.\\
 \code{--tensor\_mem\_limit\_gb} & Memory limit for the precomputed dipolar tensor.\\

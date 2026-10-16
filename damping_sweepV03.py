@@ -145,7 +145,7 @@ def _default_compass_args(**overrides):
 
     # Time integration
     a.t_sim = 2.0
-    a.dt_factor = 0.04
+    a.dt_factor = 0.025   # dt / T_loc (compass.py worst-case local period)
     a.noise = 1.5
     a.seed = None
     a.log_every = 10

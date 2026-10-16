@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:41:49-03:00",
-  "created_unix_time": 1792161747.622158,
-  "created_datetime_utc": "2026-10-16T14:42:27+00:00",
-  "created_datetime_local": "2026-10-16T11:42:27-03:00",
+  "source_file_timestamp": "2026-10-16T11:44:01-03:00",
+  "created_unix_time": 1792161903.0535371,
+  "created_datetime_utc": "2026-10-16T14:45:03+00:00",
+  "created_datetime_local": "2026-10-16T11:45:03-03:00",
   "tag": "square_static_ref",
   "config": {
     "geometry": "square",
@@ -39,7 +39,7 @@
     "flip_band_deg": 30.0,
     "flip_dwell_T0": 0.5,
     "flip_settle_frac": 0.05,
-    "dt_guard_alpha": 0.35,
+    "dt_guard_alpha": 0.2,
     "dt_guard_substep": false,
     "event_log": false,
     "domain_tol_deg": 15.0
@@ -56,14 +56,18 @@
     "B_eff_T": 0.006947655894401457,
     "omega0_rad_s": 556.6410823922896,
     "T0_s": 0.011287678013588561,
-    "dt_s": 0.0013545213616306274,
-    "n_steps": 15,
+    "B_loc_bound_T": 0.010615095759379686,
+    "omega_loc_bound_rad_s": 688.046933832701,
+    "T_loc_s": 0.00913191382480217,
+    "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
+    "dt_s": 0.0010958296589762603,
+    "n_steps": 19,
     "Q": 2.3814497107448136,
     "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
     "u_thresh": 0.49999999999999994,
-    "n_dwell_steps": 4,
+    "n_dwell_steps": 5,
     "omega_settle_rad_s": 27.832054119614483,
     "sweep_rate_T_per_s": null,
     "sweep_rate_Bref_per_T0": null
@@ -86,19 +90,19 @@
       9
     ]
   },
-  "runtime_s": 0.0018104580012732185,
+  "runtime_s": 0.004528457997366786,
   "flip_statistics": {
     "flip_field_total_committed": 1,
     "flip_angle_total_committed": 0,
     "u_thresh": 0.49999999999999994,
-    "n_dwell_steps": 4,
+    "n_dwell_steps": 5,
     "omega_settle_rad_s": 27.832054119614483
   },
   "stability_monitor": {
-    "dt_guard_alpha": 0.35,
-    "flagged_steps": 15,
+    "dt_guard_alpha": 0.2,
+    "flagged_steps": 19,
     "substepped_steps": 0,
-    "max_omega_local_dt": 0.8393037682232579,
+    "max_omega_local_dt": 0.6796891075154222,
     "note": "omega_local = sqrt(m|B_i|/I); flagged when max_i(omega_local)*dt > alpha"
   }
 }

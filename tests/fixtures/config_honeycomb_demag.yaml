@@ -103,7 +103,7 @@ numerics:
       flip_band_deg: 30.0
       flip_dwell_T0: 0.5
       flip_settle_frac: 0.05
-      dt_guard_alpha: 0.35
+      dt_guard_alpha: 0.2
       domain_tol_deg: 15.0
       log_adaptive_threshold: 0.0
   damping_sweep:
@@ -113,7 +113,7 @@ numerics:
     Q_min: 0.05
     Q_max: 15.0
     t_sim_periods: 40.0
-    dt_factor: 0.05
+    dt_factor: 0.025
     domain_tol: 15.0
     forc_n_curves: 20
     quick_test:
