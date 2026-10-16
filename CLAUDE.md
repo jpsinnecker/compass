@@ -29,9 +29,10 @@ python3 tests/generate_reference.py             # regenerate regression referenc
 - `B_ref = μ0/4π · 2m/r_nn³` is a normalization, not the local field. The real local field
   in an ordered array is ≈2 B_ref.
 - Known defects that Phase 1 fixes (see the roadmap). Keep the matching xfail tests in sync:
-  1. Dipolar cutoff 3.5 r_nn biases the field by ~17% and removes edge physics. The tensor is
-     dense, so the full sum costs nothing extra. The target default is free boundaries plus the full sum.
-  2. dt comes from ω0(B_ref). The local frequency is ~2× higher. Target: dt from max ω_loc.
+  1. FIXED (de455f6): the default is now the full pair sum (`--cutoff_shells 0`). A finite cutoff is
+     only for convergence studies.
+  2. FIXED (31f435b): dt = dt_factor · T_loc, from the worst-case local field bound
+     (`local_field_bound_per_moment`). `dt_factor` is now relative to T_loc, not T0.
   3. Q uses B_eff = max(B_ext, B_ref), so it depends on the protocol. Target: an intrinsic Q₀
      from the lattice local field, with the field-dependent Q reported separately.
   4. Sweep rate is not a controlled dimensionless axis. Loop area depends strongly on it.
