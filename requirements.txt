@@ -1,0 +1,12 @@
+# Core (simulation engine, campaigns, analysis, tests). Tested with Python 3.10.
+numpy>=1.26
+scipy>=1.13
+matplotlib>=3.8
+pandas>=2.0
+PyYAML>=6.0
+pytest>=8.0
+
+# Optional:
+#   cupy-cuda12x   GPU backend for compass.py --use_gpu (match your CUDA version)
+#   powerlaw       reference implementation for the power-law fits in
+#                  damping_sweep_analysis.py (a built-in MLE is used otherwise)
