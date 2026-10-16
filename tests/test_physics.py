@@ -33,7 +33,7 @@ compass = helpers.load_fresh_compass(helpers.BASE_CONFIG_PATH)
 
 MU0_OVER_4PI = 1.0e-7
 R = 0.0065                    # default half pivot spacing [m]
-FULL_CUTOFF_SHELLS = 1.0e3    # effectively no cutoff for the small arrays used here
+FULL_CUTOFF_SHELLS = 1.0e3    # explicit, effectively infinite cutoff (independent of the CLI default)
 
 
 # ----------------------------------------------------------------------------
@@ -168,16 +168,28 @@ def test_damped_relaxation_dissipates_energy(tmp_path):
 # known defects (docs/AUDIT_PHYSICS_ROADMAP.md) -- remove the marker when fixed
 # ----------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.2: default cutoff 3.5 r_nn underestimates the interior field ~17%")
 def test_default_cutoff_reproduces_full_dipolar_sum():
     geom = _lattice(20)
     moment = 1.0e-3
     default_shells = compass.build_parser().parse_args([]).cutoff_shells
+    if default_shells is None or default_shells <= 0.0:   # documented sentinel: full pair sum
+        default_shells = math.inf
     theta = np.zeros(geom.K)  # uniform state along +x
     Bx_def, _ = _field(_tensor(geom, default_shells), moment, theta)
     Bx_full, _ = _field(_tensor(geom, FULL_CUTOFF_SHELLS), moment, theta)
     centre = np.argmin((geom.xs - geom.xs.mean()) ** 2 + (geom.ys - geom.ys.mean()) ** 2)
     assert abs(Bx_def[centre] / Bx_full[centre] - 1.0) < 0.02
+
+
+def test_full_sum_default_runs_and_writes_valid_json(tmp_path):
+    # Default CLI run (no cutoff flags) must use the full sum and keep the
+    # metadata strict-JSON (no Infinity) so other tools can parse it.
+    _, meta = _run(tmp_path, "fullsum", "--geometry", "honeycomb", "--N", "4", "--M", "4",
+                   "--field_mode", "static", "--t_sim", "0.01")
+    assert meta["derived"]["cutoff_policy"] == "full_sum"
+    assert meta["config"]["cutoff_m"] is None
+    text = (tmp_path / "meta" / "fullsum.json").read_text()
+    assert "Infinity" not in text and "NaN" not in text
 
 
 @pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.3: default dt is set from omega0(B_ref), local frequency is ~2x higher")

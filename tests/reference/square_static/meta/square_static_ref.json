@@ -1,10 +1,10 @@
 {
-  "program": "compassV02.py",
+  "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-07-10T11:50:24-03:00",
-  "created_unix_time": 1783899494.080353,
-  "created_datetime_utc": "2026-07-12T23:38:14+00:00",
-  "created_datetime_local": "2026-07-12T20:38:14-03:00",
+  "source_file_timestamp": "2026-10-16T11:41:49-03:00",
+  "created_unix_time": 1792161747.622158,
+  "created_datetime_utc": "2026-10-16T14:42:27+00:00",
+  "created_datetime_local": "2026-10-16T11:42:27-03:00",
   "tag": "square_static_ref",
   "config": {
     "geometry": "square",
@@ -28,8 +28,8 @@
     "field_mode": "static",
     "B_ext": 0.006947655894401457,
     "phi_ext_deg": 0.0,
-    "cutoff_m": 0.0455,
-    "cutoff_shells": 3.5,
+    "cutoff_m": null,
+    "cutoff_shells": null,
     "pbc": false,
     "n_images": 1,
     "seed": 12345,
@@ -59,7 +59,7 @@
     "dt_s": 0.0013545213616306274,
     "n_steps": 15,
     "Q": 2.3814497107448136,
-    "cutoff_policy": "shells_times_r_nn",
+    "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
     "u_thresh": 0.49999999999999994,
@@ -68,6 +68,7 @@
     "sweep_rate_T_per_s": null,
     "sweep_rate_Bref_per_T0": null
   },
+  "hyst_schedule": null,
   "notes": {
     "S1": "polar order |<exp(i theta)>|",
     "S2": "nematic/director order |<exp(2 i theta)>|",
@@ -85,7 +86,7 @@
       9
     ]
   },
-  "runtime_s": 0.0018409999902360141,
+  "runtime_s": 0.0018104580012732185,
   "flip_statistics": {
     "flip_field_total_committed": 1,
     "flip_angle_total_committed": 0,

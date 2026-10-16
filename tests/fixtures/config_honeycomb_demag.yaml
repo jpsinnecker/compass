@@ -60,7 +60,7 @@ physics:
     pivot_density: 8500.0
     B_max_factor: 8.0
     noise: 1.5
-    cutoff_default: 3.5
+    cutoff_default: 0.0
   sweep_damping_hysteresis:
     R_default: 0.0075
     needle_frac: 0.6666666666666666
@@ -90,7 +90,7 @@ numerics:
       geometry: honeycomb
       N: 3
       M: 3
-      cutoff_shells: 3.5
+      cutoff_shells: 0.0
       n_images: 1
       tensor_mem_limit_gb: 6.0
       float32: false

@@ -1,10 +1,10 @@
 {
-  "program": "compassV02.py",
+  "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-07-10T11:50:24-03:00",
-  "created_unix_time": 1783899494.533674,
-  "created_datetime_utc": "2026-07-12T23:38:14+00:00",
-  "created_datetime_local": "2026-07-12T20:38:14-03:00",
+  "source_file_timestamp": "2026-10-16T11:41:49-03:00",
+  "created_unix_time": 1792161748.115187,
+  "created_datetime_utc": "2026-10-16T14:42:28+00:00",
+  "created_datetime_local": "2026-10-16T11:42:28-03:00",
   "tag": "triangular_hysteresis_ref",
   "config": {
     "geometry": "triangular",
@@ -28,8 +28,8 @@
     "field_mode": "hysteresis",
     "B_ext": 0.006947655894401461,
     "phi_ext_deg": 0.0,
-    "cutoff_m": 0.04549999999999999,
-    "cutoff_shells": 3.5,
+    "cutoff_m": null,
+    "cutoff_shells": null,
     "pbc": false,
     "n_images": 1,
     "seed": 23456,
@@ -59,7 +59,7 @@
     "dt_s": 0.0016931517020382834,
     "n_steps": 12,
     "Q": 2.3814497107448145,
-    "cutoff_policy": "shells_times_r_nn",
+    "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
     "u_thresh": 0.49999999999999994,
@@ -67,6 +67,55 @@
     "omega_settle_rad_s": 27.832054119614494,
     "sweep_rate_T_per_s": 1.7369139736003654,
     "sweep_rate_Bref_per_T0": 22.575356027177115
+  },
+  "hyst_schedule": {
+    "base_rate_T_per_s": 1.7369139736003654,
+    "slow_rate_T_per_s": null,
+    "slow_window_T": null,
+    "slow_factor": null,
+    "total_time_s": 0.02,
+    "segments": [
+      {
+        "t_start_s": 0.0,
+        "t_end_s": 0.004,
+        "B_start_T": 0.0,
+        "B_end_T": 0.006947655894401461,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "0_to_pos"
+      },
+      {
+        "t_start_s": 0.004,
+        "t_end_s": 0.008,
+        "B_start_T": 0.006947655894401461,
+        "B_end_T": 0.0,
+        "rate_T_per_s": -1.7369139736003654,
+        "branch": "pos_to_0"
+      },
+      {
+        "t_start_s": 0.008,
+        "t_end_s": 0.012,
+        "B_start_T": 0.0,
+        "B_end_T": -0.006947655894401461,
+        "rate_T_per_s": -1.7369139736003654,
+        "branch": "0_to_neg"
+      },
+      {
+        "t_start_s": 0.012,
+        "t_end_s": 0.016,
+        "B_start_T": -0.006947655894401461,
+        "B_end_T": 0.0,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "neg_to_0"
+      },
+      {
+        "t_start_s": 0.016,
+        "t_end_s": 0.02,
+        "B_start_T": 0.0,
+        "B_end_T": 0.006947655894401461,
+        "rate_T_per_s": 1.7369139736003654,
+        "branch": "0_to_pos_final"
+      }
+    ]
   },
   "notes": {
     "S1": "polar order |<exp(i theta)>|",
@@ -92,7 +141,7 @@
       1
     ]
   },
-  "runtime_s": 0.0013837500009685755,
+  "runtime_s": 0.0013667079983861186,
   "flip_statistics": {
     "flip_field_total_committed": 1,
     "flip_angle_total_committed": 0,

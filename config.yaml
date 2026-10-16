@@ -99,7 +99,7 @@ physics:
     pivot_density: 8500.0            # kg/m^3
     B_max_factor: 8.0                # dimensionless
     noise: 1.5                       # rad
-    cutoff_default: 3.5              # multiples of r_nn = 2R (units of r_nn, NOT metres)
+    cutoff_default: 0.0              # multiples of r_nn = 2R; <= 0 means full pair sum (no cutoff)
 
   # ---------------------------------------------------------------------
   # sweep_damping_hysteresis.py -- its own independent profile (module
@@ -161,7 +161,7 @@ numerics:
       geometry: square                # square|triangular|honeycomb
       N: 16                           # rows (or nominal honeycomb height)
       M: 16                           # columns (or nominal honeycomb width)
-      cutoff_shells: 3.5               # multiples of r_nn, dipolar interaction cutoff
+      cutoff_shells: 0.0               # multiples of r_nn; <= 0 means no cutoff (full pair sum, the default)
       n_images: 1                      # count, periodic images per direction
       tensor_mem_limit_gb: 6.0         # GB, memory guard on the K x K dipolar tensor
       float32: false                   # use float32 tensor/state instead of float64

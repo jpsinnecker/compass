@@ -984,8 +984,8 @@ class SimulationConfig:
     field_mode: str
     B_ext: float
     phi_ext_deg: float
-    cutoff_m: float
-    cutoff_shells: float
+    cutoff_m: Optional[float]
+    cutoff_shells: Optional[float]
     pbc: bool
     n_images: int
     seed: int
@@ -1052,14 +1052,23 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     B_ext = args.B_ext if args.B_ext is not None else args.B_max_factor * B_ref
     phi = math.radians(args.phi_ext_deg)
 
-    if args.cutoff_m is not None:
+    # Cutoff policy. The tensor is a dense K x K matrix either way, so a cutoff
+    # saves no time per step; it only truncates a slowly converging 2D sum
+    # (tail ~ pi m / (a^2 r_c)) and removes edge/shape fields. The default is
+    # therefore the full pair sum (cutoff_shells <= 0). A finite cutoff is kept
+    # only for convergence studies.
+    if args.cutoff_m is not None and args.cutoff_m > 0.0:
         cutoff_m = float(args.cutoff_m)
         cutoff_shells = cutoff_m / geom.r_nn
         cutoff_policy = "absolute_m"
-    else:
+    elif args.cutoff_shells is not None and args.cutoff_shells > 0.0:
         cutoff_shells = float(args.cutoff_shells)
         cutoff_m = cutoff_shells * geom.r_nn
         cutoff_policy = "shells_times_r_nn"
+    else:
+        cutoff_shells = math.inf
+        cutoff_m = math.inf
+        cutoff_policy = "full_sum"
 
     B_eff = max(abs(B_ext), B_ref)
     omega0 = math.sqrt(moment * B_eff / inertia)
@@ -1260,8 +1269,9 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         field_mode=args.field_mode,
         B_ext=B_ext,
         phi_ext_deg=args.phi_ext_deg,
-        cutoff_m=cutoff_m,
-        cutoff_shells=cutoff_shells,
+        # None (JSON null) rather than inf for the full-sum policy: inf is not valid JSON.
+        cutoff_m=cutoff_m if math.isfinite(cutoff_m) else None,
+        cutoff_shells=cutoff_shells if math.isfinite(cutoff_shells) else None,
         pbc=args.pbc,
         n_images=args.n_images,
         seed=seed,
@@ -1374,7 +1384,10 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         print(f"omega0, T0   : {omega0:.6g} rad/s, {T0:.6g} s")
         print(f"dt, n_steps  : {dt:.6g} s, {n_steps}")
         print(f"Q            : {Q:.6g}")
-        print(f"cutoff       : {cutoff_m:.6g} m = {cutoff_shells:.3g} r_nn")
+        if cutoff_policy == "full_sum":
+            print("cutoff       : none (full pair sum)")
+        else:
+            print(f"cutoff       : {cutoff_m:.6g} m = {cutoff_shells:.3g} r_nn")
         print(f"tensor       : {tensor_bytes/1e6:.1f} MB")
         print(f"output       : {csv_path}")
 
@@ -1869,8 +1882,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--dt_guard_substep", action="store_true", default=run_cfg.dt_guard_substep, help="re-integrate flagged steps with 4 global sub-steps (breaks strict symplecticity; exploratory)")
 
     g = p.add_argument_group("dipolar cutoff and boundaries")
-    g.add_argument("--cutoff_shells", type=float, default=grid_cfg.cutoff_shells, help="cutoff in units of r_nn")
-    g.add_argument("--cutoff_m", type=float, default=None, help="absolute cutoff [m], overrides cutoff_shells")
+    g.add_argument("--cutoff_shells", type=float, default=grid_cfg.cutoff_shells, help="dipolar cutoff in units of r_nn; <= 0 (default) means no cutoff, i.e. the full pair sum")
+    g.add_argument("--cutoff_m", type=float, default=None, help="absolute cutoff [m], overrides cutoff_shells when > 0")
     g.add_argument("--pbc", action="store_true", default=grid_cfg.pbc, help="periodic boundary conditions using finite images")
     g.add_argument("--n_images", type=int, default=grid_cfg.n_images, help="number of periodic images in each direction")
     g.add_argument("--tensor_mem_limit_gb", type=float, default=grid_cfg.tensor_mem_limit_gb)

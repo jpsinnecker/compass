@@ -31,7 +31,7 @@ $$I \ddot{\theta}_i = \tau_i^{\text{dip}} + \tau_i^{\text{ext}} - b_i \dot{\thet
 Where:
 * **$\theta_i$**: Orientation angle of the $i$-th compass needle in the 2D plane ($xy$-plane).
 * **$I$**: Moment of inertia of each needle ($kg \cdot m^2$).
-* **$\tau_i^{\text{dip}}$**: Rotational torque due to dipole-dipole interactions with all other needles (within the interaction cutoff, `--cutoff_shells`/`--cutoff_m`).
+* **$\tau_i^{\text{dip}}$**: Rotational torque due to dipole-dipole interactions with all other needles (by default the full pair sum over the finite array; an optional cutoff is set with `--cutoff_shells`/`--cutoff_m`).
 * **$\tau_i^{\text{ext}}$**: Rotational torque due to the applied external magnetic field ($B_{\text{ext}}(t)$).
 * **$b_i$**: Viscous rotational damping coefficient, optionally randomized per needle via `--damping_noise` ($b_i = b\,[1+\eta_i]$, $\eta_i \in [-\delta_b, \delta_b]$).
 
@@ -169,8 +169,8 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--dt_guard_substep`: Re-integrate flagged steps with 4 global sub-steps; breaks strict symplecticity, exploratory (default: off).
 
 ### Dipolar cutoff and boundaries
-* `--cutoff_shells <float>`: Interaction cutoff in multiples of $r_{nn}$ (default: `3.5`).
-* `--cutoff_m <float>`: Absolute cutoff in meters; overrides `--cutoff_shells` (default: `None`).
+* `--cutoff_shells <float>`: Interaction cutoff in multiples of $r_{nn}$; `<= 0` means no cutoff, i.e. the full pair sum (default: `0.0`). The tensor is dense, so a cutoff gives no speed-up; it only biases the field (a 3.5 $r_{nn}$ cutoff underestimates the interior field of an ordered array by ~15–17 %). Use a finite value only for convergence studies.
+* `--cutoff_m <float>`: Absolute cutoff in meters; overrides `--cutoff_shells` when `> 0` (default: `None`).
 * `--pbc`: Enable periodic boundary conditions via finite image sums (default: off).
 * `--n_images <int>`: Number of periodic images per direction (default: `1`).
 * `--tensor_mem_limit_gb <float>`: Memory guard on the $K \times K$ dipolar tensor (default: `6.0`).
@@ -350,8 +350,8 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--dt_guard_alpha` | `float` | `0.35` | Stability-monitor threshold. |
 | `--dt_guard_substep` | flag | off | Sub-step flagged integration steps. |
 | **Dipolar Cutoff & Boundaries** | | | |
-| `--cutoff_shells` | `float` | `3.5` | Cutoff in multiples of $r_{nn}$. |
-| `--cutoff_m` | `float` | `None` | Absolute cutoff (m); overrides `--cutoff_shells`. |
+| `--cutoff_shells` | `float` | `0.0` | Cutoff in multiples of $r_{nn}$; `<= 0` = full pair sum. |
+| `--cutoff_m` | `float` | `None` | Absolute cutoff (m); overrides `--cutoff_shells` when `> 0`. |
 | `--pbc` | flag | off | Periodic boundary conditions. |
 | `--n_images` | `int` | `1` | Periodic images per direction. |
 | `--tensor_mem_limit_gb` | `float` | `6.0` | Memory guard on the dipolar tensor. |

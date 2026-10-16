@@ -345,6 +345,8 @@ r_{\rm cut} = c_{\rm shell} r_{\rm nn},
 \end{equation}
 unless the user explicitly supplies \code{--cutoff\_m}. This avoids the ambiguity present in earlier scripts, where ``3.5'' could be interpreted either as metres or as $3.5r_{\rm nn}$ depending on context.
 
+\textbf{Update (October 2026).} The default is now \emph{no cutoff}: \code{--cutoff\_shells 0} (the new default) means the full pair sum over the finite array with free boundaries. The dipolar tensor is a dense $K\times K$ matrix, so a cutoff never reduced the cost per step. It only truncated the sum. In two dimensions the in-plane dipolar sum is absolutely convergent, because the tail scales as $\int r\,dr/r^3$. Convergence is slow, however: the truncated tail is $\simeq \pi m/(a^2 r_{\rm cut})$. With $r_{\rm cut}=3.5\,r_{\rm nn}$, the interior field of a uniformly magnetized $20\times20$ square array came out about 15\,\% too low (17\,\% for $36\times36$), and the edge and shape fields of the finite array were lost. The test \code{tests/test\_physics.py::test\_default\_cutoff\_reproduces\_full\_dipolar\_sum} guards against regressions. The discussion below therefore applies only to explicitly requested finite cutoffs and to periodic boundaries, where the finite image sum is still not an Ewald sum. See \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.2.
+
 Two caveats apply to this truncation. First, the dipolar interaction
 decays as $1/r^3$, which in two dimensions is only conditionally
 convergent: lattice sums of dipolar energies are in general
