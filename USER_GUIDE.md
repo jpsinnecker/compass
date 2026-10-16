@@ -51,7 +51,15 @@ The natural oscillation frequency is set from a reference nearest-neighbor dipol
 
 $$B_{\text{ref}} = \frac{\mu_0}{4\pi}\frac{2m}{r_{nn}^3}, \qquad \omega_0 = \sqrt{\frac{m\,B_{\text{eff}}}{I}}, \qquad B_{\text{eff}} = \max(B_{\text{ref}}, |B_{\text{ext}}|)$$
 
-and the integration timestep is $\Delta t = \text{dt\_factor} \cdot T_0$ where $T_0 = 2\pi/\omega_0$. The quality factor $Q = \omega_0 I / b$ characterizes the damping regime ($Q \ll 1$: overdamped; $Q \gg 1$: underdamped/ringing).
+$T_0 = 2\pi/\omega_0$ is the time unit for dwell times and sweep rates. The integration timestep is $\Delta t = \text{dt\_factor}\cdot T_{\text{loc}}$, where $T_{\text{loc}}$ is the worst-case local period (see `--dt_factor`).
+
+The quality factor reported as `Q` in the metadata is the **intrinsic** $Q_0$. It depends on the array and the damping only, not on the field protocol:
+
+$$Q_0 = \frac{\omega_{\text{lat}} I}{b}, \qquad \omega_{\text{lat}} = \sqrt{\frac{m\,B_{\text{lat}}}{I}},$$
+
+where $B_{\text{lat}}$ is the lattice field scale: the median over sites of $|B_i^{\text{dip}}|$ in uniform states, averaged over 8 in-plane directions ($\approx 2.2\,B_{\text{ref}}$ for large square arrays, smaller for small arrays because of their edges). $Q_0$ characterizes the damping regime ($Q_0 \ll 1$: overdamped; $Q_0 \gg 1$: underdamped/ringing). The metadata also records two other conventions:
+* `Q_ref` $=\sqrt{m B_{\text{ref}} I}/b$, the convention used to build the damping grid in `damping_sweepV03.py`;
+* `Q_field` $=\omega_0 I/b$, the old protocol-dependent definition (before October 2026, this was the value written as `Q`). It changes with `--B_max_factor` and is kept only for comparison with older data.
 
 ---
 
@@ -240,7 +248,7 @@ E_total_J,omega_rms_rad_s,omega_max_rad_s
 `branch` is the field-protocol's current segment label (e.g. `0_to_pos`, `pos_to_0` for hysteresis; `sat`/`down`/`up` for FORC). `forc_index` identifies the active FORC curve, `-1` otherwise. `flip_field` and `flip_angle` are **committed** avalanche-event counts accumulated since the previous logged row, not instantaneous states.
 
 ### Metadata JSON (`meta/<tag>.json`)
-Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $\Delta t$, $Q$, cutoff policy, the reported sweep rate, and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
+Records `program` (`"compass.py"`), `version`, `source_file_timestamp` (derived from the file's own mtime), creation timestamps, the full effective configuration, and derived quantities ($r_{nn}$, $B_{\text{ref}}$, $B_{\text{eff}}$, $\omega_0$, $T_0$, $T_{\text{loc}}$, $\Delta t$, $Q$ (= $Q_0$), $B_{\text{lat}}$, `Q_ref`, `Q_field`, cutoff policy, the reported sweep rate, and — for hysteresis runs — the full explicit per-segment schedule if `--hyst_slow_window` was used).
 
 ### Regenerating images later
 `compass_generate_images.py --run_dir <out_dir> [--recursive]` regenerates lattice PNGs from already-saved CSV/NPZ output (e.g. after changing `--dpi`/`--transparent`/style), without re-running the simulation.

@@ -299,10 +299,12 @@ $B_{\rm ref}$ (the auto-selected field amplitude via
 \code{--B\_max\_factor}, pulse amplitudes, and reported sweep rates)
 inherit this convention.
 
-The quality factor is
+The quality factor is defined from an intrinsic lattice field scale,
 \begin{equation}
-Q=\frac{\omega_0 I}{b}.
+Q\equiv Q_0=\frac{\omega_{\rm lat} I}{b},\qquad
+\omega_{\rm lat}=\sqrt{\frac{mB_{\rm lat}}{I}},
 \end{equation}
+where $B_{\rm lat}$ is the median over sites of $|B_i^{\rm dip}|$ in uniform states, averaged over in-plane directions ($B_{\rm lat}\approx2.2\,B_{\rm ref}$ for large square arrays). \textbf{Update (October 2026).} Until then the code reported $Q=\omega_0I/b$ with $\omega_0$ built from $B_{\rm eff}=\max(B_{\rm ref},B_{\rm ext})$. That value depended on the protocol amplitude: with \code{--B\_max\_factor 8} it was $\sqrt8\approx2.8$ times larger than in a static run with the same damping. The campaign script, meanwhile, labelled its grid with yet another convention, $Q_{\rm ref}=\sqrt{mB_{\rm ref}I}/b$. The metadata now records $Q_0$ as \code{Q}, together with \code{Q\_ref} and the old value as \code{Q\_field}; see \code{docs/AUDIT\_PHYSICS\_ROADMAP.md}, Sec.~2.4.
 For $Q\ll 1$ the dynamics is overdamped and relaxation is slow and monotonic. For $Q\gg1$ the needles overshoot and may trigger chain-reaction switching. The regime near $Q\sim 1$ is expected to be the most sensitive because inertial memory and damping compete on comparable timescales.
 
 \subsection{Time integration scheme}

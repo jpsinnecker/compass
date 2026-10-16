@@ -475,6 +475,29 @@ def precompute_dipolar_tensor(
     return DipolarTensor(Axx, Axy, Ayy, cutoff_m, cutoff_shells, n_images, pbc)
 
 
+def lattice_field_per_moment(tensor: DipolarTensor, backend: Backend, n_dir: int = 8) -> float:
+    """
+    Intrinsic dipolar field scale of the array, per unit moment [T/(A m^2)].
+
+    For uniform states theta_j = psi (psi on n_dir directions in [0, pi)),
+    take the median over sites of |B_i^dip| and average over psi. It depends
+    only on geometry, size and boundaries, never on the field protocol, and
+    sets the small-oscillation frequency omega_lat = sqrt(m B_lat / I) of a
+    needle in an ordered neighbourhood. The median makes it insensitive to the
+    weaker fields at the edges. It is ~2.2 B_ref for a large square array.
+    """
+    xp = backend.xp
+    K = int(tensor.Axx.shape[0])
+    vals = []
+    for psi in np.linspace(0.0, math.pi, n_dir, endpoint=False):
+        mx = xp.full(K, math.cos(psi), dtype=tensor.Axx.dtype)
+        my = xp.full(K, math.sin(psi), dtype=tensor.Axx.dtype)
+        bx = tensor.Axx @ mx + tensor.Axy @ my
+        by = tensor.Axy @ mx + tensor.Ayy @ my
+        vals.append(float(np.median(backend.to_cpu(xp.sqrt(bx * bx + by * by)))))
+    return float(np.mean(vals))
+
+
 def local_field_bound_per_moment(tensor: DipolarTensor, backend: Backend, n_phi: int = 32, chunk: int = 2048) -> float:
     """
     Worst-case dipolar field magnitude at any needle, per unit moment [T/(A m^2)].
@@ -1204,7 +1227,21 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     else:
         damping = float(args.damping)
 
-    Q = omega0 * inertia / args.damping if args.damping > 0 else math.inf
+    # Quality factor. Q (= Q0) is intrinsic: it uses the lattice field scale
+    # B_lat, so it depends on the array and the damping only, never on the
+    # protocol amplitude. Q_ref uses the nearest-neighbour B_ref (the
+    # convention of damping_sweepV03.make_damping_grid); Q_field is the old
+    # protocol-dependent definition with B_eff = max(|B_ext|, B_ref), kept
+    # only for comparison with pre-October-2026 metadata.
+    B_lat = moment * lattice_field_per_moment(tensor, backend)
+    omega_lat = math.sqrt(moment * B_lat / inertia)
+    omega_ref = math.sqrt(moment * B_ref / inertia)
+    if args.damping > 0:
+        Q = omega_lat * inertia / args.damping
+        Q_ref = omega_ref * inertia / args.damping
+        Q_field = omega0 * inertia / args.damping
+    else:
+        Q = Q_ref = Q_field = math.inf
     n_steps = max(1, int(math.ceil(t_sim / dt)))
     log_every = max(1, args.log_every)
     flip_threshold = math.radians(args.flip_angle_deg)
@@ -1388,7 +1425,12 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
             "dt_s": dt,
             "n_steps": n_steps,
-            "Q": Q,
+            "Q": Q if math.isfinite(Q) else None,
+            "Q_definition": "Q0 = omega_lat I / b, omega_lat = sqrt(m B_lat / I); protocol independent",
+            "B_lat_T": B_lat,
+            "omega_lat_rad_s": omega_lat,
+            "Q_ref": Q_ref if math.isfinite(Q_ref) else None,
+            "Q_field": Q_field if math.isfinite(Q_field) else None,
             "cutoff_policy": cutoff_policy,
             "tensor_bytes": tensor_bytes,
             "dtype": "float32" if args.float32 else "float64",
@@ -1431,7 +1473,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         print(f"omega0, T0   : {omega0:.6g} rad/s, {T0:.6g} s")
         print(f"B_loc bound  : {B_loc_bound*1e3:.6g} mT  (T_loc = {T_loc:.6g} s)")
         print(f"dt, n_steps  : {dt:.6g} s, {n_steps}")
-        print(f"Q            : {Q:.6g}")
+        print(f"Q0 (lattice) : {Q:.6g}   [Q_ref={Q_ref:.6g}, Q_field={Q_field:.6g}, B_lat={B_lat*1e3:.6g} mT]")
         if cutoff_policy == "full_sum":
             print("cutoff       : none (full pair sum)")
         else:

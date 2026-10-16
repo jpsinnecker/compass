@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:44:01-03:00",
-  "created_unix_time": 1792161903.526518,
-  "created_datetime_utc": "2026-10-16T14:45:03+00:00",
-  "created_datetime_local": "2026-10-16T11:45:03-03:00",
+  "source_file_timestamp": "2026-10-16T11:46:47-03:00",
+  "created_unix_time": 1792162069.578101,
+  "created_datetime_utc": "2026-10-16T14:47:49+00:00",
+  "created_datetime_local": "2026-10-16T11:47:49-03:00",
   "tag": "triangular_hysteresis_ref",
   "config": {
     "geometry": "triangular",
@@ -62,7 +62,12 @@
     "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
     "dt_s": 0.0013285907744541177,
     "n_steps": 16,
-    "Q": 2.3814497107448145,
+    "Q": 0.8920027858639409,
+    "Q_definition": "Q0 = omega_lat I / b, omega_lat = sqrt(m B_lat / I); protocol independent",
+    "B_lat_T": 0.0009747379883561388,
+    "omega_lat_rad_s": 208.49711584501625,
+    "Q_ref": 0.8419696197612002,
+    "Q_field": 2.3814497107448145,
     "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
@@ -146,7 +151,7 @@
       1
     ]
   },
-  "runtime_s": 0.001636916000279598,
+  "runtime_s": 0.0016407500006607734,
   "flip_statistics": {
     "flip_field_total_committed": 2,
     "flip_angle_total_committed": 0,

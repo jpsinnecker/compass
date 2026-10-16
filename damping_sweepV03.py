@@ -397,8 +397,11 @@ def compute_physical_params(R, needle_frac=2.0/3.0, needle_thickness=0.26e-3,
 
 
 def compute_Q(inertia, moment, damping, r_nn):
-    """Replicates the internal calculation of relax() for Q = omega0*I/b,
-    using the dipolar B_ref between nearest neighbors as the scale field."""
+    """Q_ref = omega_ref*I/b with the nearest-neighbour B_ref as field scale.
+
+    This is only the grid-building convention. Each run's metadata records
+    the engine's intrinsic Q0 (compass.py derived["Q"], based on the lattice
+    field B_lat ~ 2 B_ref) as "Q", and this value as "Q_ref"."""
     B_ref  = cs.MU0_OVER_4PI * 2.0 * moment / r_nn**3
     omega0 = np.sqrt(moment * B_ref / inertia)
     Q      = omega0 * inertia / damping if damping > 0 else np.inf
@@ -456,7 +459,7 @@ def run_one_hysteresis(geometry, R, damping, seed, t_sim, B_max, n_grid,
     derived = metadata.get("derived", {})
     meta = dict(
         geometry=geometry, R=R, n_grid=n_grid, seed=seed,
-        damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
+        damping=damping, damping_noise=damping_noise, Q=derived.get("Q", np.nan), Q_ref=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
         inertia=inertia_val, moment=moment_val, r_nn=r_nn,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
         pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
@@ -513,7 +516,7 @@ def run_one_relax(geometry, R, damping, seed, t_sim, n_grid,
     dom = metadata.get("domain_statistics_final", {})
     meta = dict(
         geometry=geometry, R=R, n_grid=n_grid, seed=seed,
-        damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref,
+        damping=damping, damping_noise=damping_noise, Q=derived.get("Q", np.nan), Q_ref=Q, omega0=omega0, B_ref=B_ref,
         inertia=inertia_val, moment=moment_val, r_nn=r_nn,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
         pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,
@@ -581,7 +584,7 @@ def run_one_forc(geometry, R, damping, seed, B_max, n_grid,
     derived = metadata.get("derived", {})
     meta = dict(
         geometry=geometry, R=R, n_grid=n_grid, seed=seed,
-        damping=damping, damping_noise=damping_noise, Q=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
+        damping=damping, damping_noise=damping_noise, Q=derived.get("Q", np.nan), Q_ref=Q, omega0=omega0, B_ref=B_ref, B_max=B_max,
         inertia=inertia_val, moment=moment_val, r_nn=r_nn,
         needle_len=needle_len, needle_width=needle_width, thickness=thickness,
         pivot_radius=pivot_radius, pivot_thickness=pivot_thickness,

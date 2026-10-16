@@ -231,13 +231,30 @@ def test_default_timestep_resolves_local_frequency_during_hysteresis(tmp_path):
     assert monitor["max_omega_local_dt"] <= 2.0 * math.pi * 0.025 + 1e-12
 
 
-@pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.4: Q uses B_eff=max(B_ext,B_ref) and so depends on the protocol amplitude")
 def test_quality_factor_is_independent_of_field_amplitude(tmp_path):
     common = ["--geometry", "square", "--N", "4", "--M", "4", "--field_mode", "static",
               "--damping", "1e-7", "--t_sim", "0.01"]
     _, meta_lo = _run(tmp_path, "q_lo", *common, "--B_max_factor", "1")
     _, meta_hi = _run(tmp_path, "q_hi", *common, "--B_max_factor", "8")
     assert meta_lo["derived"]["Q"] == pytest.approx(meta_hi["derived"]["Q"], rel=1e-9)
+    # ... and on the protocol itself
+    common_forc = [a for a in common if a not in ("static",)]
+    common_forc[common_forc.index("--field_mode") + 1:common_forc.index("--field_mode") + 1] = ["forc"]
+    _, meta_forc = _run(tmp_path, "q_forc", *common_forc, "--B_max_factor", "8",
+                        "--forc_n_curves", "2", "--forc_t_sat", "0.002",
+                        "--forc_t_ramp_down", "0.002", "--forc_t_ramp_up", "0.002")
+    assert meta_forc["derived"]["Q"] == pytest.approx(meta_lo["derived"]["Q"], rel=1e-9)
+
+
+def test_quality_factor_uses_lattice_field_scale(tmp_path):
+    # Q0 = sqrt(m B_lat I) / b with B_lat the intrinsic lattice field; for a
+    # 20x20 square array B_lat ~ 2 B_ref, so Q0 / Q_ref = sqrt(B_lat / B_ref).
+    _, meta = _run(tmp_path, "q_lat", "--geometry", "square", "--N", "20", "--M", "20",
+                   "--field_mode", "static", "--damping", "1e-7", "--t_sim", "0.005")
+    d = meta["derived"]
+    ratio_B = d["B_lat_T"] / d["B_ref_T"]
+    assert 1.8 < ratio_B < 2.3
+    assert d["Q"] / d["Q_ref"] == pytest.approx(math.sqrt(ratio_B), rel=1e-9)
 
 
 @pytest.mark.xfail(strict=True, reason="AUDIT_PHYSICS 2.6: no work/dissipation ledger (W_field_J, E_diss_J) in the CSV")

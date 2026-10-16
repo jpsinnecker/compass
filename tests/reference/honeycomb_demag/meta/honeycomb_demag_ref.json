@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:44:01-03:00",
-  "created_unix_time": 1792161903.6815412,
-  "created_datetime_utc": "2026-10-16T14:45:03+00:00",
-  "created_datetime_local": "2026-10-16T11:45:03-03:00",
+  "source_file_timestamp": "2026-10-16T11:46:47-03:00",
+  "created_unix_time": 1792162069.739559,
+  "created_datetime_utc": "2026-10-16T14:47:49+00:00",
+  "created_datetime_local": "2026-10-16T11:47:49-03:00",
   "tag": "honeycomb_demag_ref",
   "config": {
     "geometry": "honeycomb",
@@ -62,7 +62,12 @@
     "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
     "dt_s": 0.0027811600005261078,
     "n_steps": 20,
-    "Q": 2.3814497107448145,
+    "Q": 0.8174248418913992,
+    "Q_definition": "Q0 = omega_lat I / b, omega_lat = sqrt(m B_lat / I); protocol independent",
+    "B_lat_T": 0.0008185611612111658,
+    "omega_lat_rad_s": 191.0652350590543,
+    "Q_ref": 0.8419696197612002,
+    "Q_field": 2.3814497107448145,
     "cutoff_policy": "full_sum",
     "tensor_bytes": 1176.0,
     "dtype": "float64",
@@ -94,7 +99,7 @@
       1
     ]
   },
-  "runtime_s": 0.002089291996526299,
+  "runtime_s": 0.0019660420002765022,
   "flip_statistics": {
     "flip_field_total_committed": 9,
     "flip_angle_total_committed": 1,

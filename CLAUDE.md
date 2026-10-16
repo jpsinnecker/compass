@@ -33,8 +33,9 @@ python3 tests/generate_reference.py             # regenerate regression referenc
      only for convergence studies.
   2. FIXED (31f435b): dt = dt_factor · T_loc, from the worst-case local field bound
      (`local_field_bound_per_moment`). `dt_factor` is now relative to T_loc, not T0.
-  3. Q uses B_eff = max(B_ext, B_ref), so it depends on the protocol. Target: an intrinsic Q₀
-     from the lattice local field, with the field-dependent Q reported separately.
+  3. FIXED: metadata `Q` is the intrinsic Q₀ = sqrt(m B_lat I)/b (`lattice_field_per_moment`),
+     independent of the protocol. `Q_ref` (B_ref-based, the convention of the sweep grid) and `Q_field`
+     (the old B_eff-based value) are recorded alongside. B_lat depends on array size (edges).
   4. Sweep rate is not a controlled dimensionless axis. Loop area depends strongly on it.
   5. No work/dissipation ledger. Target: W_field and D = ∫ b ω² dt logged, with the energy balance tested.
 - Any change to physics defaults changes the regression references. Regenerate them in the

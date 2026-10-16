@@ -1,10 +1,10 @@
 {
   "program": "compass.py",
   "version": "2.1.0",
-  "source_file_timestamp": "2026-10-16T11:44:01-03:00",
-  "created_unix_time": 1792161903.0535371,
-  "created_datetime_utc": "2026-10-16T14:45:03+00:00",
-  "created_datetime_local": "2026-10-16T11:45:03-03:00",
+  "source_file_timestamp": "2026-10-16T11:46:47-03:00",
+  "created_unix_time": 1792162069.073479,
+  "created_datetime_utc": "2026-10-16T14:47:49+00:00",
+  "created_datetime_local": "2026-10-16T11:47:49-03:00",
   "tag": "square_static_ref",
   "config": {
     "geometry": "square",
@@ -62,7 +62,12 @@
     "dt_policy": "dt = dt_factor * T_loc, T_loc = 2 pi / sqrt(m B_loc_bound / I)",
     "dt_s": 0.0010958296589762603,
     "n_steps": 19,
-    "Q": 2.3814497107448136,
+    "Q": 0.8460880554468415,
+    "Q_definition": "Q0 = omega_lat I / b, omega_lat = sqrt(m B_lat / I); protocol independent",
+    "B_lat_T": 0.0008769737591694635,
+    "omega_lat_rad_s": 197.76498695654564,
+    "Q_ref": 0.8419696197612,
+    "Q_field": 2.3814497107448136,
     "cutoff_policy": "full_sum",
     "tensor_bytes": 1944.0,
     "dtype": "float64",
@@ -90,7 +95,7 @@
       9
     ]
   },
-  "runtime_s": 0.004528457997366786,
+  "runtime_s": 0.008743957998376573,
   "flip_statistics": {
     "flip_field_total_committed": 1,
     "flip_angle_total_committed": 0,

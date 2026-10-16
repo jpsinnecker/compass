@@ -48,6 +48,8 @@ Campo no centro de um array 36×36 uniformemente magnetizado, em unidades de B_r
 ### 2.4 Q depende do protocolo (MÉDIO)
 - Hoje Q = ω0 I/b com ω0 = √(m·max(B_ext, B_ref)/I). Com `B_max_factor 8`, o "Q" reportado é ≈ √8 ≈ 2,8× maior que o Q intrínseco da rede, e muda entre histerese, FORC e pulso.
 - **Correção:** definir Q₀ = √(m B_loc I)/b, com B_loc igual ao campo dipolar local do estado fundamental (propriedade da rede e não do protocolo), e reportar o Q de campo separadamente.
+- **Corrigido em out/2026:** o metadado `Q` agora é Q₀ = √(m B_lat I)/b, onde B_lat é a mediana de |B_i| nos estados uniformes (≈ 2,2 B_ref em redes grandes). Também são gravados `Q_ref` (com B_ref) e `Q_field` (a definição antiga).
+- Achado adicional: o `damping_sweepV03.py` rotulava a grade com Q_ref, enquanto o motor gravava Q_field. O eixo de `figs/area_vs_Q.png` e `figs/tau_vs_Q.png` é, portanto, Q_ref. Para a mesma rede, Q₀ ≈ 1,2–1,5 × Q_ref, dependendo do tamanho.
 
 ### 2.5 Estatística de avalanches insuficiente e pipeline desatualizado (ALTO para o artigo)
 - `figs/tau_vs_Q.png`: n_tail entre 30 e 40 eventos. Nenhum expoente com essa cauda é defensável, e as barras de erro não incluem a escolha de x_min.
