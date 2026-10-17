@@ -126,6 +126,39 @@ def build_jobs(out_dir: Path, sizes=None, q0_values=None, r_values=None, gpu: bo
     return jobs
 
 
+# Event-driven quasi-static protocol (--protocol qs): instead of the rate
+# axis, the relaxation dynamics at fixed field: the gradient-flow limit
+# (Q0 -> 0, "od") and inertial dynamics at several Q0. Steps per loop measured
+# on 6x6 arrays (dB = 0.005 B_ref, tol = 1e-5); QS_SIZE_EXP scales them with N.
+QS_DYNAMICS = [("od", 0.0), ("Q1", 1.0), ("Q3", 3.0), ("Q10", 10.0)]
+QS_STEPS_N6 = {"od": 2.9e6, "Q1": 1.6e6, "Q3": 1.7e6, "Q10": 5.0e6}
+QS_SIZE_EXP = 0.5
+QS_SEEDS = [0, 1]
+QS_OD_Q0_FOR_TIME_UNIT = 0.3     # damping used to set the time unit of the gradient flow
+
+
+def build_qs_jobs(out_dir: Path, sizes=None, labels=None, seeds=None, gpu: bool = False) -> list[dict]:
+    sizes = sizes or SIZES
+    seeds = seeds or QS_SEEDS
+    dyn = [d for d in QS_DYNAMICS if not labels or d[0] in labels]
+    params = {(g, n): lattice_params(g, n) for g in GEOMETRIES for n in sizes}
+    jobs = []
+    for g, n, (label, q0), seed in itertools.product(GEOMETRIES, sizes, dyn, seeds):
+        p = params[(g, n)]
+        q_for_b = q0 if q0 > 0 else QS_OD_Q0_FOR_TIME_UNIT
+        damping = math.sqrt(p["moment"] * p["B_lat"] * p["inertia"]) / q_for_b
+        steps = QS_STEPS_N6[label] * (n / 6.0) ** QS_SIZE_EXP
+        jobs.append(dict(
+            tag=f"{g}_N{n:02d}_qs_{label}_s{seed}", protocol="qs", geometry=g, N=n, K=p["K"],
+            Q0_target=q0, dynamics="overdamped" if label == "od" else "inertial", qs_label=label,
+            r=0.0, seed=seed, damping=damping, B_lat=p["B_lat"], B_ref=p["B_ref"],
+            steps_est=steps, cost_est_s=steps * us_per_step(n, gpu) * 1e-6, use_gpu=gpu,
+            log_every=1, out_dir=str(out_dir),
+        ))
+    jobs.sort(key=lambda j: (-j["cost_est_s"], j["tag"]))
+    return jobs
+
+
 def shard_jobs(jobs: list[dict], k: int, n: int, weights: list[float]) -> list[dict]:
     """Deterministic weighted LPT split: return the jobs of shard k (1-based)."""
     load = [0.0] * n
@@ -147,10 +180,12 @@ def run_job(job: dict) -> dict:
     cmd = [
         sys.executable, str(REPO / "compass.py"),
         "--geometry", job["geometry"], "--N", str(job["N"]), "--M", str(job["N"]),
-        "--field_mode", "hysteresis", "--B_max_factor", str(B_MAX_FACTOR),
+        "--B_max_factor", str(B_MAX_FACTOR),
         "--needle_thickness", str(NEEDLE_THICKNESS),
         "--damping", repr(job["damping"]), "--damping_noise", "0",
-        "--sweep_rate_dimless", repr(job["r"]),
+    ] + (["--field_mode", "hysteresis_qs", "--qs_dynamics", job["dynamics"]]
+         if job.get("protocol") == "qs" else
+         ["--field_mode", "hysteresis", "--sweep_rate_dimless", repr(job["r"])]) + [
         "--seed", str(job["seed"]), "--log_every", str(job["log_every"]),
         "--out_dir", job["out_dir"], "--tag", job["tag"], "--png_dpi", "30",
     ] + (["--use_gpu"] if job.get("use_gpu") else [])
@@ -175,6 +210,10 @@ def main() -> int:
     ap.add_argument("--rates", type=str, default=None, help="comma list of r overriding the default rates")
     ap.add_argument("--no_seed_check", action="store_true", help="omit the extra seeds of the seed-robustness subset")
     ap.add_argument("--use_gpu", action="store_true", help="run each job with compass.py --use_gpu, one at a time")
+    ap.add_argument("--protocol", choices=["sweep", "qs"], default="sweep",
+                    help="sweep: rate sweeps (r axis); qs: event-driven quasi-static loops (dynamics axis: od, Q1, Q3, Q10)")
+    ap.add_argument("--qs_labels", type=str, default=None, help="comma subset of od,Q1,Q3,Q10 (qs protocol)")
+    ap.add_argument("--qs_seeds", type=str, default=None, help="comma list of seeds (qs protocol; default 0,1)")
     ap.add_argument("--shard", type=str, default=None, help="k/n: run only shard k of n (1-based)")
     ap.add_argument("--shard_weights", type=str, default=None, help="comma list of n relative machine speeds (default equal)")
     ap.add_argument("--skip_tags", type=str, default=None, help="comma list of run tags already done on another machine (applied after sharding)")
@@ -188,9 +227,15 @@ def main() -> int:
     if args.use_gpu and args.workers != 1:
         print("--use_gpu: forcing --workers 1 (one CUDA context at a time)")
         args.workers = 1
-    jobs = build_jobs(out_dir, sizes=[int(x) for x in floats(args.sizes)] if args.sizes else None,
-                      q0_values=floats(args.q0), r_values=floats(args.rates), gpu=args.use_gpu,
-                      seed_check=not args.no_seed_check)
+    sizes = [int(x) for x in floats(args.sizes)] if args.sizes else None
+    if args.protocol == "qs":
+        jobs = build_qs_jobs(out_dir, sizes=sizes,
+                             labels=args.qs_labels.split(",") if args.qs_labels else None,
+                             seeds=[int(x) for x in args.qs_seeds.split(",")] if args.qs_seeds else None,
+                             gpu=args.use_gpu)
+    else:
+        jobs = build_jobs(out_dir, sizes=sizes, q0_values=floats(args.q0), r_values=floats(args.rates),
+                          gpu=args.use_gpu, seed_check=not args.no_seed_check)
     shard_info = None
     if args.shard:
         k, n = (int(x) for x in args.shard.split("/"))
