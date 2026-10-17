@@ -132,7 +132,9 @@ def build_jobs(out_dir: Path, sizes=None, q0_values=None, r_values=None, gpu: bo
 # on 6x6 arrays (dB = 0.005 B_ref, tol = 1e-5); QS_SIZE_EXP scales them with N.
 QS_DYNAMICS = [("od", 0.0), ("Q1", 1.0), ("Q3", 3.0), ("Q10", 10.0)]
 QS_STEPS_N6 = {"od": 2.9e6, "Q1": 1.6e6, "Q3": 1.7e6, "Q10": 5.0e6}
-QS_SIZE_EXP = 0.5
+# Measured growth with N (square 6 -> 16): od ~N^0.46, Q3 ~N^0.1, Q10 ~N^0; Q1
+# assumed in between until measured.
+QS_SIZE_EXP = {"od": 0.46, "Q1": 0.3, "Q3": 0.1, "Q10": 0.0}
 QS_SEEDS = [0, 1]
 QS_OD_Q0_FOR_TIME_UNIT = 0.3     # damping used to set the time unit of the gradient flow
 
@@ -147,7 +149,7 @@ def build_qs_jobs(out_dir: Path, sizes=None, labels=None, seeds=None, gpu: bool 
         p = params[(g, n)]
         q_for_b = q0 if q0 > 0 else QS_OD_Q0_FOR_TIME_UNIT
         damping = math.sqrt(p["moment"] * p["B_lat"] * p["inertia"]) / q_for_b
-        steps = QS_STEPS_N6[label] * (n / 6.0) ** QS_SIZE_EXP
+        steps = QS_STEPS_N6[label] * (n / 6.0) ** QS_SIZE_EXP[label]
         jobs.append(dict(
             tag=f"{g}_N{n:02d}_qs_{label}_s{seed}", protocol="qs", geometry=g, N=n, K=p["K"],
             Q0_target=q0, dynamics="overdamped" if label == "od" else "inertial", qs_label=label,
