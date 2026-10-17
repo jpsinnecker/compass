@@ -76,12 +76,13 @@ US_PER_STEP = {6: 47, 10: 56, 16: 103, 24: 300, 32: 800}
 
 
 def us_per_step(N: int, gpu: bool) -> float:
-    """Rough per-step cost [us]. CPU: measured table, K^2 scaling beyond it.
-    GPU: memory-bound matvec at ~0.9 TB/s plus ~150 us of per-step overhead
-    (kernel launches and host syncs); a guess until benchmarked."""
+    """Rough per-step cost [us]. CPU: measured table (M2 Max), K^2 scaling beyond it.
+    GPU: calibrated on an RTX 3090 (float64): 2900 us/step at K = 4096
+    (square 64x64, 13 s run including CuPy kernel compilation), modelled as
+    150 us of per-step overhead plus a K^2 term."""
     K = N * N
     if gpu:
-        return 150.0 + 4 * K * K * 8 / 0.9e6   # four K x K float64 reads per step at ~0.9 TB/s
+        return 150.0 + 2750.0 * (K / 4096.0) ** 2
     if N in US_PER_STEP:
         return US_PER_STEP[N]
     return US_PER_STEP[32] * (K / 1024.0) ** 2
