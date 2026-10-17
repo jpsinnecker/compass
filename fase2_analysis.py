@@ -62,9 +62,16 @@ def run_metrics(csv_path: Path, meta: dict) -> dict:
     der, sr = meta["derived"], meta["sweep_rate"]
     K, m, B_ref = der["K"], meta["config"]["moment"], der["B_ref_T"]
     Bmax = abs(meta["config"]["B_ext"])
-    t_top = Bmax / sr["sweep_rate_T_per_s"]          # first arrival at +B_max
     t, W, D = df.t_s.values, df.W_field_J.values, df.E_diss_J.values
-    W_top, D_top = np.interp(t_top, t, W), np.interp(t_top, t, D)
+    qs = meta.get("quasi_static")
+    if qs is not None:
+        # Event-driven quasi-static loop: one row per field step at rest; the
+        # closed cycle starts at the rest state at +B_max (end of "0_to_pos").
+        i_top = int(np.where(df.branch.values == "0_to_pos")[0][-1])
+        t_top, W_top, D_top = t[i_top], W[i_top], D[i_top]
+    else:
+        t_top = Bmax / sr["sweep_rate_T_per_s"]      # first arrival at +B_max
+        W_top, D_top = np.interp(t_top, t, W), np.interp(t_top, t, D)
     norm = K * m * B_ref
 
     cyc = df[df.t_s >= t_top]
@@ -90,7 +97,9 @@ def run_metrics(csv_path: Path, meta: dict) -> dict:
         Mr=float(np.mean(Mr)) if Mr else np.nan,
         M_at_Bmax=float(df.M_proj.max()),
         Q0=der["Q"],
-        r=sr["sweep_rate_dimless"],
+        r=0.0 if qs is not None else sr["sweep_rate_dimless"],
+        protocol="qs" if qs is not None else "sweep",
+        qs_unconverged=qs["unconverged_field_steps"] if qs is not None else 0,
         balance_residual_rel=meta["energy_ledger"]["balance_residual_rel"],
         flagged_steps=meta["stability_monitor"]["flagged_steps"],
         n_steps=der["n_steps"],

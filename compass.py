@@ -515,6 +515,24 @@ def relaxation_time(moment: float, inertia: float, damping: float, B_lat: float)
     return max(tau_inertial, tau_viscous)
 
 
+def build_qs_path(Bmax: float, dB: float) -> List[Tuple[float, str]]:
+    """
+    Field values of the event-driven quasi-static loop (--field_mode
+    hysteresis_qs): the five hysteresis branches 0 -> +B -> 0 -> -B -> 0 -> +B
+    in equal steps of about dB, with exact endpoints. The first entry is the
+    first step above zero (B = 0 is the initial state).
+    """
+    n = max(1, int(round(abs(Bmax) / max(dB, 1e-300))))
+    B = abs(Bmax)
+    path: List[Tuple[float, str]] = []
+    path += [(B * k / n, "0_to_pos") for k in range(1, n + 1)]
+    path += [(B * k / n, "pos_to_0") for k in range(n - 1, -1, -1)]
+    path += [(-B * k / n, "0_to_neg") for k in range(1, n + 1)]
+    path += [(-B * k / n, "neg_to_0") for k in range(n - 1, -1, -1)]
+    path += [(B * k / n, "0_to_pos_final") for k in range(1, n + 1)]
+    return path
+
+
 def dimless_sweep_rate(rate_T_per_s: float, tau_relax: float, B_ref: float) -> float:
     """r = (dB/dt) * tau_relax / B_ref."""
     return abs(rate_T_per_s) * tau_relax / B_ref
@@ -778,6 +796,12 @@ class FieldProtocol:
 
         if mode == "static":
             Bs = B
+
+        elif mode == "hysteresis_qs":
+            # Event-driven quasi-static loop: the field path is driven by the
+            # main loop (build_qs_path), not by time. Only t = 0 is asked here.
+            Bs = 0.0
+            branch = "0_to_pos"
 
         elif mode == "hysteresis":
             if self.hyst_spacing == "log" and self.hyst_log_k > 1e-12:
@@ -1274,6 +1298,13 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     omega_loc_bound = math.sqrt(moment * max(B_loc_bound, B_ref) / inertia)
     T_loc = 2.0 * math.pi / omega_loc_bound
     dt = args.dt_factor * T_loc
+    qs_overdamped = args.field_mode == "hysteresis_qs" and getattr(args, "qs_dynamics", "inertial") == "overdamped"
+    if qs_overdamped:
+        # Gradient-flow (Q0 -> 0) limit, b dtheta/dt = tau: explicit Euler,
+        # stable for dt < 2 b / (m B_loc_bound); the inertial period is irrelevant.
+        if not args.damping > 0.0:
+            raise SystemExit("--qs_dynamics overdamped needs --damping > 0 (it sets the time unit)")
+        dt = args.qs_od_cfl * args.damping / (moment * B_loc_bound)
 
     xp = backend.xp
     theta = backend.asarray(geom.theta0, dtype=dtype)
@@ -1697,6 +1728,14 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             om_n = om * c_om + (ta + ta_n) * c_ta
             return th_n, om_n, ta_n, btx, bty
 
+        def od_step(th, om, ta, bx, by, dt_s):
+            """One explicit Euler step of the gradient flow b dtheta/dt = tau (Q0 -> 0 limit)."""
+            th_n = wrap_angle(th + dt_s * ta / damping)
+            ta_n, btx, bty = torque_and_field(th_n, bx, by)
+            return th_n, ta_n / damping, ta_n, btx, bty
+
+        step_fn = od_step if qs_overdamped else verlet_step
+
         def flush_events():
             if event_path is None or not event_buffer:
                 return
@@ -1708,11 +1747,39 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                 ew.writerows(event_buffer)
             event_buffer.clear()
 
-        for step in range(1, n_steps + 1):
-            t = step * dt
-            f = protocol.at(t)
+        # Event-driven quasi-static loop: step the field, relax at fixed field
+        # until rest, log the rest state, step again. Time-driven protocols
+        # keep the original fixed-length loop (same numbers bit for bit).
+        qs_mode = args.field_mode == "hysteresis_qs"
+        if qs_mode:
+            qs_values = build_qs_path(B_ext, args.qs_dB_factor * B_ref)
+            qs_tol_om = args.qs_tol_omega * omega_lat
+            qs_tol_tau = args.qs_tol_torque * moment * B_lat
+            qs_check = max(1, int(args.qs_check_every))
+            qs_max_steps = max(qs_check, int(math.ceil(args.qs_max_relax_tau * tau_relax / dt)))
+            qs_index, qs_relax_steps, qs_unconverged, qs_max_relax_used = 0, 0, 0, 0
+            Bs0, br0 = qs_values[0]
+            qs_f = FieldState(Bs0 * cos_phi, Bs0 * sin_phi, Bs0, br0, -1)
+            # Field jump at fixed angles: exact work -sum m . dB, torque refresh.
+            W_field_acc += -(safe_float(xp.sum(moment * xp.cos(theta))) * (qs_f.bx - f_prev.bx)
+                             + safe_float(xp.sum(moment * xp.sin(theta))) * (qs_f.by - f_prev.by))
+            tau, Btx, Bty = torque_and_field(theta, qs_f.bx, qs_f.by)
+            f_prev = qs_f
 
-            theta_new, omega_new, tau_new, Btx, Bty = verlet_step(theta, omega, tau, f.bx, f.by, dt)
+        step = 0
+        t = 0.0
+        while True:
+            step += 1
+            if qs_mode:
+                t = t + dt
+                f = qs_f
+            else:
+                if step > n_steps:
+                    break
+                t = step * dt
+                f = protocol.at(t)
+
+            theta_new, omega_new, tau_new, Btx, Bty = step_fn(theta, omega, tau, f.bx, f.by, dt)
             dW_step, dD_step = ledger_increment(theta, omega, theta_new, omega_new,
                                                 f_prev.bx, f_prev.by, f.bx, f.by, dt)
 
@@ -1725,7 +1792,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             ratio = math.sqrt(moment * math.sqrt(B2max) * invI) * dt
             if ratio > guard_max_ratio:
                 guard_max_ratio = ratio
-            if ratio > guard_alpha:
+            if ratio > guard_alpha and not qs_overdamped:   # inertial criterion; meaningless in gradient flow
                 guard_flagged_steps += 1
                 if args.dt_guard_substep:
                     # Re-integrate this step globally with 4 sub-steps.
@@ -1737,7 +1804,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                     f_sp = f_prev
                     dW_step = dD_step = 0.0
                     for k_sub in range(4):
-                        f_s = protocol.at((step - 1) * dt + (k_sub + 1) * dt_s)
+                        f_s = f if qs_mode else protocol.at((step - 1) * dt + (k_sub + 1) * dt_s)
                         th_n, om_n, ta_s, Btx, Bty = verlet_step(th_s, om_s, ta_s, f_s.bx, f_s.by, dt_s)
                         dW_s, dD_s = ledger_increment(th_s, om_s, th_n, om_n,
                                                       f_sp.bx, f_sp.by, f_s.bx, f_s.by, dt_s)
@@ -1804,6 +1871,33 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             omega = omega_new
             tau = tau_new
 
+            if qs_mode:
+                qs_relax_steps += 1
+                if qs_relax_steps % qs_check == 0:
+                    om_max = safe_float(xp.max(xp.abs(omega)))
+                    ta_max = safe_float(xp.max(xp.abs(tau)))
+                    converged = om_max <= qs_tol_om and ta_max <= qs_tol_tau
+                    if converged or qs_relax_steps >= qs_max_steps:
+                        if not converged:
+                            qs_unconverged += 1
+                        qs_max_relax_used = max(qs_max_relax_used, qs_relax_steps)
+                        last_logged_M_proj = write_row(step, t, f)
+                        if len(event_buffer) >= 4096:
+                            flush_events()
+                        qs_index += 1
+                        if args.progress and qs_index % max(1, len(qs_values) // 100) == 0:
+                            print(f"\r{100*qs_index/len(qs_values):6.2f}%  field step {qs_index}/{len(qs_values)}  integration step {step}", end="", flush=True)
+                        if qs_index >= len(qs_values):
+                            break
+                        Bs_n, br_n = qs_values[qs_index]
+                        qs_f = FieldState(Bs_n * cos_phi, Bs_n * sin_phi, Bs_n, br_n, -1)
+                        W_field_acc += -(safe_float(xp.sum(moment * xp.cos(theta))) * (qs_f.bx - f.bx)
+                                         + safe_float(xp.sum(moment * xp.sin(theta))) * (qs_f.by - f.by))
+                        tau, Btx, Bty = torque_and_field(theta, qs_f.bx, qs_f.by)
+                        f_prev = qs_f
+                        qs_relax_steps = 0
+                continue
+
             adaptive_trigger = False
             if adaptive_enabled:
                 quick_m = safe_float(
@@ -1840,7 +1934,24 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         "n_dwell_steps": int(n_dwell_steps),
         "omega_settle_rad_s": omega_settle,
     }
-    f_last = protocol.at(n_steps * dt)
+    f_last = f if qs_mode else protocol.at(n_steps * dt)
+    if qs_mode:
+        metadata["derived"]["n_steps"] = step
+        metadata["quasi_static"] = {
+            "protocol": "event-driven quasi-static loop: field step, relax at fixed field to rest, log rest state",
+            "dB_T": abs(B_ext) / max(1, int(round(abs(B_ext) / max(args.qs_dB_factor * B_ref, 1e-300)))),
+            "dB_factor_Bref": args.qs_dB_factor,
+            "n_field_steps": len(qs_values),
+            "tol_torque_Nm": qs_tol_tau,
+            "tol_omega_rad_s": qs_tol_om,
+            "check_every": qs_check,
+            "max_relax_steps": qs_max_steps,
+            "max_relax_steps_used": qs_max_relax_used,
+            "unconverged_field_steps": qs_unconverged,
+            "dynamics": "overdamped gradient flow (Q0 -> 0 limit)" if qs_overdamped else "inertial (real Q0)",
+            "integration_steps_total": step,
+            "note": "one CSV row per field step at rest; flip counters and E_diss increments per row are the per-step avalanche size and dissipation",
+        }
     _m_final = compute_metrics(theta, omega, tensor, moment, inertia, f_last.bx, f_last.by, phi, backend)
     E_total_final = _m_final.E_dip + _m_final.E_ext + _m_final.E_kin
     balance_residual = (E_total_final - E_total_initial) - (W_field_acc - E_diss_acc)
@@ -2139,8 +2250,17 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--tensor_mem_limit_gb", type=float, default=grid_cfg.tensor_mem_limit_gb)
     g.add_argument("--float32", action="store_true", default=grid_cfg.float32, help="use float32 tensor/state to save memory; float64 is preferred for final data")
 
+    g = p.add_argument_group("event-driven quasi-static loop (--field_mode hysteresis_qs)")
+    g.add_argument("--qs_dB_factor", type=float, default=0.005, help="field step in units of B_ref (0.005 validated: area within ~2-3%% of the dB->0 trend and of the slowest sweeps)")
+    g.add_argument("--qs_tol_torque", type=float, default=1e-5, help="rest criterion: max |torque| <= tol * m * B_lat (1e-3 stops early near instabilities and inflates the loop; 1e-5 validated)")
+    g.add_argument("--qs_tol_omega", type=float, default=1e-5, help="rest criterion: max |omega| <= tol * omega_lat")
+    g.add_argument("--qs_check_every", type=int, default=5, help="integration steps between rest checks")
+    g.add_argument("--qs_max_relax_tau", type=float, default=2000.0, help="safety cap on relaxation time per field step, in units of tau_relax")
+    g.add_argument("--qs_dynamics", choices=["inertial", "overdamped"], default="inertial", help="relaxation dynamics at fixed field: full inertial dynamics (the real Q0), or the gradient-flow limit b dtheta/dt = tau (Q0 -> 0, no inertia, much cheaper for small Q0)")
+    g.add_argument("--qs_od_cfl", type=float, default=0.2, help="overdamped Euler step as a fraction of b / (m B_loc_bound) (stable below 2)")
+
     g = p.add_argument_group("field protocol")
-    g.add_argument("--field_mode", choices=["static", "hysteresis", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default=phys_cfg.field_mode)
+    g.add_argument("--field_mode", choices=["static", "hysteresis", "hysteresis_qs", "forc", "sine", "step_up", "step_pos", "step_down", "step_neg", "pulse", "demag_rot", "demag_linear"], default=phys_cfg.field_mode)
     g.add_argument("--B_ext", type=float, default=None, help="field amplitude [T]; if omitted, B_max_factor*B_ref")
     g.add_argument("--B_max_factor", type=float, default=phys_cfg.B_max_factor, help="B_ext = factor * B_ref if B_ext omitted")
     g.add_argument("--phi_ext_deg", type=float, default=phys_cfg.phi_ext_deg, help="field direction")
