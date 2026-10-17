@@ -1,0 +1,6 @@
+% Included by tools/build_user_guide.sh: glyph fallback for symbols that the
+% text font lacks (arrows, relations written as Unicode in USER_GUIDE.md).
+\directlua{
+  luaotfload.add_fallback("guidefallback", {"STIX Two Math:mode=harf;", "Apple Symbols:mode=harf;"})
+}
+\setmainfont{STIX Two Text}[RawFeature={fallback=guidefallback}]

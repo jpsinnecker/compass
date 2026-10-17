@@ -48,7 +48,7 @@ Each run writes `data/<tag>.csv` (time series), `meta/<tag>.json` (configuration
 | `damping_sweep_analysis.py`, `avalanche_processor.py` | Loop metrics, avalanche and waiting-time statistics, event clustering. |
 | `compass_generate_images.py`, `plot_default_geometries_clean.py`, `plotting_common.py` | Figures from saved runs. |
 | `tests/` | Physics-validity tests (`test_physics.py`), regression tests (`test_reference_runs.py`), protocol tests. |
-| `USER_GUIDE.md` | **User manual**: model, flags, outputs, examples, campaigns, validation. |
+| `USER_GUIDE.md` | **User manual** (single source): model, flags, outputs, examples, campaigns, validation. PDF: `docs/USER_GUIDE.pdf`, rebuilt with `bash tools/build_user_guide.sh` (pandoc + LuaLaTeX). |
 | `FORC.md`, `compass_sim_protocol_notes.md` | Notes on FORC sweep-rate discipline and demagnetization protocols. |
 | `docs/AUDIT_PHYSICS_ROADMAP.md` | Physics audit, literature gaps and research roadmap (Portuguese). |
 | `docs/AUDIT.md` | Code-organization audit (July 2026, historical snapshot). |
