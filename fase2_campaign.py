@@ -17,9 +17,25 @@ job is appended to <out_dir>/manifest.jsonl.
 
 Analysis: fase2_analysis.py.
 
-Example:
+Splitting a campaign between machines: every machine builds the same job
+list and keeps only its shard (--shard k/n). Shards are balanced by estimated
+cost with longest-processing-time assignment, weighted by --shard_weights
+(relative throughput of each machine). Use the same --shard_weights and grid
+options on every machine; run outputs can be merged afterwards by copying the
+data/ and meta/ folders and concatenating the manifests.
+
+Large arrays on a GPU (--use_gpu): runs one job at a time on the GPU
+(--workers is forced to 1). Use it with --sizes for the finite-size extension,
+e.g. --sizes 48,64,96.
+
+Examples:
     python3 fase2_campaign.py --out_dir ~/compass_runs/fase2 --workers 10
     python3 fase2_campaign.py --out_dir ~/compass_runs/fase2 --dry_run
+    # two machines, the first ~1.5x faster:
+    python3 fase2_campaign.py --out_dir ~/compass_runs/fase2 --shard 1/2 --shard_weights 0.6,0.4 --workers 10
+    python3 fase2_campaign.py --out_dir ~/compass_runs/fase2 --shard 2/2 --shard_weights 0.6,0.4 --workers 7
+    # finite-size extension on the GPU:
+    python3 fase2_campaign.py --out_dir ~/compass_runs/fase2_large --sizes 48,64,96 --use_gpu
 """
 
 from __future__ import annotations
@@ -59,6 +75,18 @@ STEPS_AT_R01 = 4500.0
 US_PER_STEP = {6: 47, 10: 56, 16: 103, 24: 300, 32: 800}
 
 
+def us_per_step(N: int, gpu: bool) -> float:
+    """Rough per-step cost [us]. CPU: measured table, K^2 scaling beyond it.
+    GPU: memory-bound matvec at ~0.9 TB/s plus ~150 us of per-step overhead
+    (kernel launches and host syncs); a guess until benchmarked."""
+    K = N * N
+    if gpu:
+        return 150.0 + 4 * K * K * 8 / 0.9e6   # four K x K float64 reads per step at ~0.9 TB/s
+    if N in US_PER_STEP:
+        return US_PER_STEP[N]
+    return US_PER_STEP[32] * (K / 1024.0) ** 2
+
+
 def lattice_params(geometry: str, N: int) -> dict:
     """m, I, B_lat, B_ref for a geometry/size, computed exactly as compass.py does."""
     geom = cs.make_lattice(N, N, geometry, cs.R_DEFAULT, 0.8, 0.0, np.random.default_rng(0))
@@ -71,26 +99,42 @@ def lattice_params(geometry: str, N: int) -> dict:
     return dict(K=geom.K, moment=moment, inertia=inertia, B_lat=B_lat, B_ref=B_ref)
 
 
-def build_jobs(out_dir: Path) -> list[dict]:
-    params = {(g, n): lattice_params(g, n) for g in GEOMETRIES for n in SIZES}
+def build_jobs(out_dir: Path, sizes=None, q0_values=None, r_values=None, gpu: bool = False,
+               seed_check: bool = True) -> list[dict]:
+    sizes = sizes or SIZES
+    q0_values = q0_values or Q0_VALUES
+    r_base = r_values or R_VALUES
+    params = {(g, n): lattice_params(g, n) for g in GEOMETRIES for n in sizes}
     jobs = []
-    for g, n, q0 in itertools.product(GEOMETRIES, SIZES, Q0_VALUES):
+    for g, n, q0 in itertools.product(GEOMETRIES, sizes, q0_values):
         p = params[(g, n)]
         damping = math.sqrt(p["moment"] * p["B_lat"] * p["inertia"]) / q0
-        r_list = R_VALUES + (R_EXTRA_SMALL if n <= SMALL_N_MAX else [])
-        seeds = SEEDS + (SEED_CHECK["seeds"] if n == SEED_CHECK["N"] else [])
+        r_list = list(r_base) + ([] if r_values else (R_EXTRA_SMALL if n <= SMALL_N_MAX else []))
+        seeds = SEEDS + (SEED_CHECK["seeds"] if (seed_check and n == SEED_CHECK["N"]) else [])
         for r, seed in itertools.product(r_list, seeds):
             steps = STEPS_AT_R01 * (0.1 / r) * max(1.0, 1.0 / q0) / 1.6
             tag = f"{g}_N{n:02d}_Q{q0:g}_r{r:g}_s{seed}"
             jobs.append(dict(
                 tag=tag, geometry=g, N=n, K=p["K"], Q0_target=q0, r=r, seed=seed,
                 damping=damping, B_lat=p["B_lat"], B_ref=p["B_ref"],
-                steps_est=steps, cost_est_s=steps * US_PER_STEP[n] * 1e-6,
+                steps_est=steps, cost_est_s=steps * us_per_step(n, gpu) * 1e-6, use_gpu=gpu,
                 log_every=max(1, int(steps / TARGET_ROWS)),
                 out_dir=str(out_dir),
             ))
-    jobs.sort(key=lambda j: -j["cost_est_s"])
+    jobs.sort(key=lambda j: (-j["cost_est_s"], j["tag"]))
     return jobs
+
+
+def shard_jobs(jobs: list[dict], k: int, n: int, weights: list[float]) -> list[dict]:
+    """Deterministic weighted LPT split: return the jobs of shard k (1-based)."""
+    load = [0.0] * n
+    mine = []
+    for j in jobs:                       # already sorted by decreasing cost
+        s = min(range(n), key=lambda i: ((load[i] + j["cost_est_s"]) / weights[i], i))
+        load[s] += j["cost_est_s"]
+        if s == k - 1:
+            mine.append(j)
+    return mine
 
 
 def run_job(job: dict) -> dict:
@@ -108,7 +152,7 @@ def run_job(job: dict) -> dict:
         "--sweep_rate_dimless", repr(job["r"]),
         "--seed", str(job["seed"]), "--log_every", str(job["log_every"]),
         "--out_dir", job["out_dir"], "--tag", job["tag"], "--png_dpi", "30",
-    ]
+    ] + (["--use_gpu"] if job.get("use_gpu") else [])
     t0 = time.time()
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=str(REPO))
     status = "ok" if proc.returncode == 0 else f"error:{proc.returncode}"
@@ -125,11 +169,42 @@ def main() -> int:
     ap.add_argument("--dry_run", action="store_true", help="print the plan and the cost estimate only")
     ap.add_argument("--max_N", type=int, default=None, help="restrict to N <= max_N (pilot runs)")
     ap.add_argument("--only_r", type=str, default=None, help="comma list restricting r values (pilot runs)")
+    ap.add_argument("--sizes", type=str, default=None, help="comma list of N overriding the default sizes")
+    ap.add_argument("--q0", type=str, default=None, help="comma list of Q0 overriding the default values")
+    ap.add_argument("--rates", type=str, default=None, help="comma list of r overriding the default rates")
+    ap.add_argument("--no_seed_check", action="store_true", help="omit the extra seeds of the seed-robustness subset")
+    ap.add_argument("--use_gpu", action="store_true", help="run each job with compass.py --use_gpu, one at a time")
+    ap.add_argument("--shard", type=str, default=None, help="k/n: run only shard k of n (1-based)")
+    ap.add_argument("--shard_weights", type=str, default=None, help="comma list of n relative machine speeds (default equal)")
+    ap.add_argument("--skip_tags", type=str, default=None, help="comma list of run tags already done on another machine (applied after sharding)")
     args = ap.parse_args()
+
+    def floats(txt):
+        return [float(x) for x in txt.split(",")] if txt else None
 
     out_dir = Path(args.out_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
-    jobs = build_jobs(out_dir)
+    if args.use_gpu and args.workers != 1:
+        print("--use_gpu: forcing --workers 1 (one CUDA context at a time)")
+        args.workers = 1
+    jobs = build_jobs(out_dir, sizes=[int(x) for x in floats(args.sizes)] if args.sizes else None,
+                      q0_values=floats(args.q0), r_values=floats(args.rates), gpu=args.use_gpu,
+                      seed_check=not args.no_seed_check)
+    shard_info = None
+    if args.shard:
+        k, n = (int(x) for x in args.shard.split("/"))
+        weights = floats(args.shard_weights) or [1.0] * n
+        if len(weights) != n or not 1 <= k <= n:
+            raise SystemExit("--shard k/n needs 1 <= k <= n and n weights")
+        n_all = len(jobs)
+        jobs = shard_jobs(jobs, k, n, weights)
+        shard_info = dict(k=k, n=n, weights=weights, n_jobs_all=n_all)
+        print(f"shard {k}/{n} (weights {weights}): {len(jobs)} of {n_all} jobs")
+    if args.skip_tags:
+        skip = {t.strip() for t in args.skip_tags.split(",") if t.strip()}
+        n_before = len(jobs)
+        jobs = [j for j in jobs if j["tag"] not in skip]
+        print(f"--skip_tags: skipping {n_before - len(jobs)} job(s) done elsewhere")
     if args.max_N is not None:
         jobs = [j for j in jobs if j["N"] <= args.max_N]
     if args.only_r:
@@ -141,10 +216,12 @@ def main() -> int:
     print(f"{len(jobs)} jobs; estimated CPU time {total/3600:.1f} h; "
           f"wall >= max({total/args.workers/3600:.2f} h, longest job {longest/60:.0f} min) "
           f"with {args.workers} workers")
-    (out_dir / "campaign_plan.json").write_text(json.dumps(dict(
+    plan_name = "campaign_plan.json" if not shard_info else f"campaign_plan_shard{shard_info['k']}of{shard_info['n']}.json"
+    (out_dir / plan_name).write_text(json.dumps(dict(
         geometries=GEOMETRIES, sizes=SIZES, Q0=Q0_VALUES, r=R_VALUES, r_extra_small=R_EXTRA_SMALL,
         small_N_max=SMALL_N_MAX, seeds=SEEDS, seed_check=SEED_CHECK, B_max_factor=B_MAX_FACTOR,
         needle_thickness=NEEDLE_THICKNESS, n_jobs=len(jobs), est_cpu_h=total / 3600,
+        cli=vars(args), shard=shard_info,
         git_commit=subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True,
                                   text=True).stdout.strip(),
     ), indent=2))
