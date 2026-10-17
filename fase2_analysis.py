@@ -17,10 +17,12 @@ Per (geometry, N, Q0): fit a(r) = a0 + c * r**beta on all r (scipy curve_fit,
 a0 >= 0, 0 < beta < 2), plus a model-free convergence flag: relative change of
 a between the two smallest r.
 
-Outputs in <out_dir>/analysis/: runs.csv, fits.csv, seed_check.csv and PNG/PDF
-figures.
+Outputs in <analysis_dir>: runs.csv, fits.csv, seed_check.csv and PNG/PDF
+figures. Several run folders (e.g. the shards of different machines and the
+GPU large-size extension) are merged by tag.
 
-    python3 fase2_analysis.py --out_dir ~/compass_runs/fase2
+    python3 fase2_analysis.py --run_dirs ~/compass_runs/fase2 ~/compass_runs/fase2_mumax \
+        --analysis_dir ~/compass_runs/fase2_analysis
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
+
+_trapz = getattr(np, "trapezoid", None) or np.trapz   # NumPy 2 renamed trapz
 
 GEOM_ORDER = ["square", "triangular", "honeycomb"]
 # Reference palette (dataviz skill): categorical slots 1-3 for geometries,
@@ -65,7 +69,7 @@ def run_metrics(csv_path: Path, meta: dict) -> dict:
 
     cyc = df[df.t_s >= t_top]
     B, M = cyc.B_scalar_T.values, cyc.M_proj.values
-    a_MdB = -np.trapz(M, B) / B_ref
+    a_MdB = -_trapz(M, B) / B_ref
 
     desc = df[df.branch.isin(["pos_to_0", "0_to_neg"])]
     asc = df[df.branch.isin(["neg_to_0", "0_to_pos_final"])]
@@ -94,21 +98,26 @@ def run_metrics(csv_path: Path, meta: dict) -> dict:
     )
 
 
-def collect(out_dir: Path) -> pd.DataFrame:
-    rows = []
-    for line in open(out_dir / "manifest.jsonl"):
-        job = json.loads(line)
-        if job.get("status") not in ("ok", "skipped_existing"):
+def collect(run_dirs: list[Path]) -> pd.DataFrame:
+    rows, seen = [], set()
+    for out_dir in run_dirs:
+        if not (out_dir / "manifest.jsonl").exists():
             continue
-        meta_path = out_dir / "meta" / f"{job['tag']}.json"
-        csv_path = out_dir / "data" / f"{job['tag']}.csv"
-        if not (meta_path.exists() and csv_path.exists()):
-            continue
-        meta = json.loads(meta_path.read_text())
-        rec = dict(tag=job["tag"], geometry=job["geometry"], N=job["N"], K=job["K"],
-                   Q0_target=job["Q0_target"], r_target=job["r"], seed=job["seed"])
-        rec.update(run_metrics(csv_path, meta))
-        rows.append(rec)
+        for line in open(out_dir / "manifest.jsonl"):
+            job = json.loads(line)
+            if job.get("status") not in ("ok", "skipped_existing") or job["tag"] in seen:
+                continue
+            meta_path = out_dir / "meta" / f"{job['tag']}.json"
+            csv_path = out_dir / "data" / f"{job['tag']}.csv"
+            if not (meta_path.exists() and csv_path.exists()):
+                continue
+            seen.add(job["tag"])
+            meta = json.loads(meta_path.read_text())
+            rec = dict(tag=job["tag"], geometry=job["geometry"], N=job["N"], K=job["K"],
+                       Q0_target=job["Q0_target"], r_target=job["r"], seed=job["seed"],
+                       run_dir=str(out_dir), backend=meta["config"].get("backend", ""))
+            rec.update(run_metrics(csv_path, meta))
+            rows.append(rec)
     df = pd.DataFrame(rows).drop_duplicates("tag")
     return df.sort_values(["geometry", "N", "Q0_target", "r_target", "seed"]).reset_index(drop=True)
 
@@ -246,9 +255,10 @@ def figures(runs: pd.DataFrame, fits: pd.DataFrame, fig_dir: Path):
         rs = d.r_target.values
         pick = [rs[0], rs[len(rs) // 2], rs[-1]] if len(rs) >= 3 else rs
         for i, rr in enumerate(pick):
-            tag = d[d.r_target == rr].tag.iloc[0]
-            c = pd.read_csv(fig_dir.parent.parent / "data" / f"{tag}.csv")
-            meta = json.loads((fig_dir.parent.parent / "meta" / f"{tag}.json").read_text())
+            row = d[d.r_target == rr].iloc[0]
+            tag, rdir = row.tag, Path(row.run_dir)
+            c = pd.read_csv(rdir / "data" / f"{tag}.csv")
+            meta = json.loads((rdir / "meta" / f"{tag}.json").read_text())
             B_ref = meta["derived"]["B_ref_T"]
             sr = meta["sweep_rate"]
             t_top = abs(meta["config"]["B_ext"]) / sr["sweep_rate_T_per_s"]
@@ -267,14 +277,15 @@ def figures(runs: pd.DataFrame, fits: pd.DataFrame, fig_dir: Path):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--run_dirs", nargs="+", required=True, help="campaign output folders to merge (by tag)")
+    ap.add_argument("--analysis_dir", default=None, help="default: <first run dir>/analysis")
     args = ap.parse_args()
-    out_dir = Path(args.out_dir).expanduser()
-    an = out_dir / "analysis"
+    run_dirs = [Path(d).expanduser() for d in args.run_dirs]
+    an = Path(args.analysis_dir).expanduser() if args.analysis_dir else run_dirs[0] / "analysis"
     figs = an / "figs"
     figs.mkdir(parents=True, exist_ok=True)
 
-    runs = collect(out_dir)
+    runs = collect(run_dirs)
     runs.to_csv(an / "runs.csv", index=False)
     print(f"{len(runs)} runs collected")
     q = runs
