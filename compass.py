@@ -1764,6 +1764,17 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             qs_check = max(1, int(args.qs_check_every))
             qs_max_steps = max(qs_check, int(math.ceil(args.qs_max_relax_tau * tau_relax / dt)))
             qs_index, qs_relax_steps, qs_unconverged, qs_max_relax_used = 0, 0, 0, 0
+            # Stability check: a state with zero torque can be a saddle point
+            # (the gradient flow preserves lattice symmetries exactly and can
+            # stay on a symmetric branch after it turns unstable). After the
+            # first rest, every needle gets a random kick of qs_kick rad and
+            # the array relaxes again; only the second rest is logged. A true
+            # minimum returns to the same state, a saddle is abandoned. The
+            # energy injected by the kicks is booked separately (E_kick).
+            qs_kick = float(getattr(args, "qs_kick", 0.0))
+            qs_rng = np.random.default_rng((seed + 7919) % (2**32 - 1))
+            qs_kicked = False
+            E_kick_acc = 0.0
             Bs0, br0 = qs_values[0]
             qs_f = FieldState(Bs0 * cos_phi, Bs0 * sin_phi, Bs0, br0, -1)
             # Field jump at fixed angles: exact work -sum m . dB, torque refresh.
@@ -1883,9 +1894,24 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                     om_max = safe_float(xp.max(xp.abs(omega)))
                     ta_max = safe_float(xp.max(xp.abs(tau)))
                     converged = om_max <= qs_tol_om and ta_max <= qs_tol_tau
+                    if (converged or qs_relax_steps >= qs_max_steps) and qs_kick > 0.0 and not qs_kicked:
+                        # Kick and relax again before logging (saddle check).
+                        qs_max_relax_used = max(qs_max_relax_used, qs_relax_steps)
+                        _mb = compute_metrics(theta, omega, tensor, moment, inertia, f.bx, f.by, phi, backend)
+                        kick = qs_kick * qs_rng.standard_normal(geom.K)
+                        theta = wrap_angle(theta + backend.asarray(kick, dtype=dtype))
+                        tau, Btx, Bty = torque_and_field(theta, f.bx, f.by)
+                        if qs_overdamped:
+                            omega = tau / damping
+                        _ma = compute_metrics(theta, omega, tensor, moment, inertia, f.bx, f.by, phi, backend)
+                        E_kick_acc += (_ma.E_dip + _ma.E_ext + _ma.E_kin) - (_mb.E_dip + _mb.E_ext + _mb.E_kin)
+                        qs_kicked = True
+                        qs_relax_steps = 0
+                        continue
                     if converged or qs_relax_steps >= qs_max_steps:
                         if not converged:
                             qs_unconverged += 1
+                        qs_kicked = False
                         qs_max_relax_used = max(qs_max_relax_used, qs_relax_steps)
                         last_logged_M_proj = write_row(step, t, f)
                         if len(event_buffer) >= 4096:
@@ -1960,19 +1986,23 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "integration_steps_total": step,
             "field_steps_done": qs_index,
             "stopped_early": bool(getattr(args, "qs_stop_after", 0) > 0 and qs_index < len(qs_values)),
+            "kick_rad": qs_kick,
+            "kick_note": "after the first rest each needle gets a N(0, kick_rad) kick and relaxes again; only the second rest is logged (saddle check); 0 disables",
             "note": "one CSV row per field step at rest; flip counters and E_diss increments per row are the per-step avalanche size and dissipation",
         }
     _m_final = compute_metrics(theta, omega, tensor, moment, inertia, f_last.bx, f_last.by, phi, backend)
     E_total_final = _m_final.E_dip + _m_final.E_ext + _m_final.E_kin
-    balance_residual = (E_total_final - E_total_initial) - (W_field_acc - E_diss_acc)
+    E_kick_total = E_kick_acc if qs_mode and qs_kick > 0.0 else 0.0
+    balance_residual = (E_total_final - E_total_initial) - (W_field_acc - E_diss_acc + E_kick_total)
     metadata["energy_ledger"] = {
         "E_total_initial_J": E_total_initial,
         "E_total_final_J": E_total_final,
         "W_field_total_J": W_field_acc,
         "E_diss_total_J": E_diss_acc,
+        "E_kick_total_J": E_kick_total,
         "balance_residual_J": balance_residual,
         "balance_residual_rel": abs(balance_residual) / max(abs(E_diss_acc), abs(W_field_acc), abs(E_total_initial), 1e-300),
-        "note": "residual = dE_total - (W_field - E_diss); O(dt^2) for continuous protocols, larger at field jumps (step/pulse)",
+        "note": "residual = dE_total - (W_field - E_diss + E_kick); O(dt^2) for continuous protocols, larger at field jumps (step/pulse); E_kick is the energy injected by the quasi-static saddle-check kicks",
     }
     metadata["stability_monitor"] = {
         "dt_guard_alpha": guard_alpha,
@@ -2280,6 +2310,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--qs_dynamics", choices=["inertial", "overdamped"], default="inertial", help="relaxation dynamics at fixed field: full inertial dynamics (the real Q0), or the gradient-flow limit b dtheta/dt = tau (Q0 -> 0, no inertia, much cheaper for small Q0)")
     g.add_argument("--qs_state_log", action="store_true", help="save the rest-state angles of every field step to states/<tag>_qs_states.npz (theta[row, needle], rows aligned with the CSV)")
     g.add_argument("--qs_stop_after", type=int, default=0, help="stop after this many field steps (0 = full loop); partial loop, for targeted reruns only")
+    g.add_argument("--qs_kick", type=float, default=1e-4, help="saddle check of hysteresis_qs: after the first rest, kick every needle by N(0, qs_kick) rad and relax again before logging; 0 disables (zero-torque saddles are then logged as rest states)")
     g.add_argument("--qs_od_cfl", type=float, default=0.2, help="overdamped Euler step as a fraction of b / (m B_loc_bound) (stable below 2)")
 
     g = p.add_argument_group("field protocol")

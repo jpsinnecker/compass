@@ -131,7 +131,9 @@ def build_jobs(out_dir: Path, sizes=None, q0_values=None, r_values=None, gpu: bo
 # (Q0 -> 0, "od") and inertial dynamics at several Q0. Steps per loop measured
 # on 6x6 arrays (dB = 0.005 B_ref, tol = 1e-5); QS_SIZE_EXP scales them with N.
 QS_DYNAMICS = [("od", 0.0), ("Q1", 1.0), ("Q3", 3.0), ("Q10", 10.0)]
-QS_STEPS_N6 = {"od": 2.9e6, "Q1": 1.6e6, "Q3": 1.7e6, "Q10": 5.0e6}
+# With the saddle-check kick (--qs_kick 1e-4), measured on honeycomb 6x6:
+# od 2.8e6, Q3 3.6e6, Q10 11.4e6 steps; Q1 interpolated.
+QS_STEPS_N6 = {"od": 2.8e6, "Q1": 2.6e6, "Q3": 3.6e6, "Q10": 11.4e6}
 # Measured growth with N (square 6 -> 16): od ~N^0.46, Q3 ~N^0.1, Q10 ~N^0; Q1
 # assumed in between until measured.
 QS_SIZE_EXP = {"od": 0.46, "Q1": 0.3, "Q3": 0.1, "Q10": 0.0}

@@ -450,11 +450,14 @@ def test_qs_energy_balance_includes_field_jumps(tmp_path):
 
 @pytest.mark.slow
 def test_qs_overdamped_limit_matches_low_Q0_inertial(tmp_path):
-    # In the quasi-static limit, inertial dynamics at small Q0 and the gradient
-    # flow (Q0 -> 0) select the same sequence of minima.
+    # In the quasi-static limit, inertial dynamics at very small Q0 and the
+    # gradient flow (Q0 -> 0) select the same sequence of minima.
     # Needs the validated rest tolerance: a loose one stops early near
-    # instabilities, and differently for the two rest criteria.
-    b = repr(_damping_for_Q0(0.2))
+    # instabilities, and differently for the two rest criteria. Q0 must be
+    # well inside the overdamped limit: at Q0 = 0.2 the residual inertia
+    # already picks a different branch at the exactly symmetric bifurcation
+    # of the 3x3 square array (area -11%), while Q0 = 0.05 coincides.
+    b = repr(_damping_for_Q0(0.05))
     tight = ["--qs_tol_torque", "1e-5", "--qs_tol_omega", "1e-5"]
     rows_i, meta_i = _run(tmp_path, "qs_in", *_QS_COMMON, *tight, "--damping", b)
     rows_o, meta_o = _run(tmp_path, "qs_od", *_QS_COMMON, *tight, "--damping", b, "--qs_dynamics", "overdamped")
@@ -483,3 +486,22 @@ def test_qs_state_log_matches_csv_and_stop_after(tmp_path):
     M = np.cos(st["theta"] - float(st["phi_ext"])).mean(axis=1)
     np.testing.assert_allclose(M, _col(rows, "M_proj"), atol=1e-10)
     np.testing.assert_array_equal(st["theta"][-1], np.load(tmp_path / "states" / "qs_log_final.npz")["theta"])
+
+
+@pytest.mark.parametrize("dynamics", ["overdamped", "inertial"])
+def test_qs_kick_escapes_zero_torque_saddle(tmp_path, dynamics):
+    # Two needles aligned with the field, no initial noise: once the field is
+    # reversed they sit exactly antiparallel to it, with exactly zero torque,
+    # i.e. on a saddle. Without the saddle check the protocol logs that state
+    # as "rest" and never reverses (M_proj stays +1); the kick must make the
+    # pair reverse, with the kick energy booked in the ledger.
+    common = ["--geometry", "square", "--N", "1", "--M", "2", "--noise", "0",
+              "--field_mode", "hysteresis_qs", "--B_max_factor", "2", "--qs_dB_factor", "0.05",
+              "--damping", "1e-7", "--qs_dynamics", dynamics]
+    rows0, _ = _run(tmp_path, f"nokick_{dynamics}", *common, "--qs_kick", "0")
+    rows1, meta1 = _run(tmp_path, f"kick_{dynamics}", *common)
+    assert np.min(_col(rows0, "M_proj")) > 0.999            # stuck on the saddle
+    assert np.min(_col(rows1, "M_proj")) < -0.999           # reverses with the kick
+    assert meta1["quasi_static"]["kick_rad"] == pytest.approx(1e-4)
+    assert meta1["energy_ledger"]["E_kick_total_J"] > 0.0
+    assert meta1["energy_ledger"]["balance_residual_rel"] < 1e-3

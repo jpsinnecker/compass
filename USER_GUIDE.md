@@ -160,13 +160,15 @@ A continuous sweep only approaches the quasi-static loop as $r \to 0$, and for l
 
 1. the field follows the same five branches as `hysteresis` ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$), in steps of $\Delta B$ = `--qs_dB_factor` $\times B_{\text{ref}}$;
 2. after each step the needles evolve **at fixed field** with the real dynamics until rest: $\max_i|\tau_i| \le$ `--qs_tol_torque` $\times m B_{\text{lat}}$ **and** $\max_i|\omega_i| \le$ `--qs_tol_omega` $\times \omega_{\text{lat}}$ (checked every `--qs_check_every` steps);
-3. the rest state is written as **one CSV row per field step**, and the next step follows.
+3. **saddle check:** each needle gets a random kick of `--qs_kick` rad (default $10^{-4}$, reproducible from `--seed`; areas are identical for $10^{-4}$–$10^{-2}$, and smaller kicks relax faster), and the array relaxes again. A true minimum returns to the same state, while a saddle point (zero torque, but unstable) is abandoned;
+4. the rest state is written as **one CSV row per field step**, and the next step follows.
 
 Consequences:
 * In a row, the `flip_field`/`flip_angle` counts and the increase of `E_diss_J` are the **avalanche size and energy dissipated by that field step**, which gives event-resolved statistics directly.
 * The field jump enters the energy ledger exactly ($-\sum_i \mathbf m_i \cdot \Delta\mathbf B$ at fixed angles), and the metadata block `quasi_static` records the step, tolerances, the number of field steps and how many failed to converge (`unconverged_field_steps`, which should be 0).
 * `--qs_dynamics inertial` (default) uses the real $Q_0$, so inertia can still decide where each avalanche ends (overshoot into another basin). `--qs_dynamics overdamped` integrates the gradient flow $b\,\dot\theta = \tau$ instead, which is the $Q_0 \to 0$ limit without inertia. In that case `--damping` only sets the time unit.
 * `--sweep_rate_dimless` and `--t_sim` do not apply. `t_s` is the accumulated relaxation time.
+* **Why the kick is needed:** a zero-torque state can be a saddle. The gradient flow preserves lattice symmetries exactly, so it can stay on a symmetric branch after that branch has become unstable. Without the check, small honeycomb arrays spent ~500 of 3200 field steps on saddles, and the 'inertial effect' of the first quasi-static grid was largely this artefact (`docs/QS_SELECAO_DE_CAMINHO.md`). The kick energy is booked as `E_kick_J` in `energy_ledger`. `--qs_kick 0` disables the check; use it only to reproduce the first grid.
 
 **Validated defaults** (`--qs_dB_factor 0.005`, `--qs_tol_torque 1e-5`, `--qs_tol_omega 1e-5`). A loose tolerance (1e-3) stops early near instabilities, where the dynamics slows down critically, and **inflates the loop by up to 50 %**. With the defaults, the overdamped and $Q_0 = 0.3$ inertial loops agree to 0.1 %, and both match the slowest rate sweeps. The cost is comparable to a slow sweep (≈1.5–5 × 10⁶ steps per loop), because the critical slowing down near instabilities must be resolved either way.
 
@@ -251,6 +253,9 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--qs_check_every <int>`: Integration steps between rest checks (default: `5`).
 * `--qs_max_relax_tau <float>`: Safety cap on the relaxation time per field step, in units of $\tau_{\text{relax}}$ (default: `2000`).
 * `--qs_dynamics {inertial,overdamped}`: Relaxation dynamics at fixed field (default: `inertial`).
+* `--qs_kick <float>`: Saddle check: random kick in rad applied after the first rest, followed by a second relaxation (default: `1e-4`; `0` disables).
+* `--qs_state_log`: Save the rest-state angles of every field step to `states/<tag>_qs_states.npz`.
+* `--qs_stop_after <int>`: Stop after this many field steps (partial loop, for targeted reruns; default `0` = full loop).
 * `--qs_od_cfl <float>`: Euler step of the overdamped mode, as a fraction of $b/(m B_{\text{loc}})$ (default: `0.2`).
 * `--B_ext <float>`: Field amplitude in Tesla; if omitted, `B_max_factor * B_ref` is used (default: `None`).
 * `--B_max_factor <float>`: `B_ext = factor * B_ref` when `--B_ext` is omitted (default: `8.0`).
@@ -466,6 +471,9 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--qs_check_every` | `int` | `5` | Steps between rest checks. |
 | `--qs_max_relax_tau` | `float` | `2000` | Cap on relaxation time per field step (units of $\tau_{\text{relax}}$). |
 | `--qs_dynamics` | `inertial`, `overdamped` | `inertial` | Relaxation dynamics at fixed field. |
+| `--qs_kick` | `float` | `1e-4` | Saddle-check kick (rad); `0` disables. |
+| `--qs_state_log` | flag | off | Save rest-state angles per field step. |
+| `--qs_stop_after` | `int` | `0` | Stop after N field steps (`0` = full loop). |
 | `--qs_od_cfl` | `float` | `0.2` | Euler step of the overdamped mode. |
 | **FORC Protocol** | | | |
 | `--forc_Br_min` | `float` | `None` | Minimum reversal field (T); default $-B_{\max}$. |
