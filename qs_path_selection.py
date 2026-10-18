@@ -123,7 +123,7 @@ def scan_pair(case: str, seed: int, run_dirs, onset_thr: float, div_thr: float, 
     K = ma["derived"]["K"]
     B_ref = ma["derived"]["B_ref_T"]
     qa, qb = step_quantities(da, ma), step_quantities(db, mb)
-    n_up = int((da.branch == "0_to_pos").sum())          # row n_up = rest at +B_max
+    n_up = int((da.branch == "0_to_pos").sum()) - 1      # row n_up = rest at +B_max (row 0 = initial)
     d = K * (db.M_proj.values - da.M_proj.values)
     jump = np.diff(d, prepend=d[0])
     rows = np.arange(n)
@@ -242,7 +242,7 @@ def cmd_rerun(args):
     run_dirs = [Path(p).expanduser() for p in args.run_dirs]
     env = dict(os.environ, OMP_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1",
                OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
-    jobs = [(c, lab) for c in args.cases for lab in PAIR]
+    jobs = [(c, lab) for c in args.cases for lab in (args.labels or PAIR)]
 
     def run(job):
         c, lab = job
@@ -612,6 +612,94 @@ def cmd_map(args):
     print(f"\nwrote {out / 'path_selection_spatial.csv'}, timeline_<case>.csv and figures in {figs}")
 
 
+# ---------------------------------------------------------------- control
+
+def loop_area(thetas, B, phi, row_Bmax):
+    """Loop area per needle [m B_ref] over the closed cycle from the rest state
+    at +B_max to the end: the work of the field jumps at fixed angles,
+    -sum_k M(k-1) (B_k - B_{k-1}), as in the engine's energy ledger (the field
+    does no work during the relaxation at fixed field). B in units of B_ref."""
+    M = np.cos(thetas - phi).sum(axis=1)
+    k = np.arange(row_Bmax + 1, len(B))
+    return float(-(M[k - 1] * (B[k] - B[k - 1])).sum() / thetas.shape[1])
+
+
+def field_path(run):
+    """Applied field (Bx, By, branch) of every CSV row of the full loop (row 0 = initial, B = 0)."""
+    import compass as cs
+    meta = run["meta"]
+    path = cs.build_qs_path(meta["config"]["B_ext"], meta["quasi_static"]["dB_factor_Bref"] * meta["derived"]["B_ref_T"])
+    B = np.array([0.0] + [b for b, _ in path])
+    br = np.array(["0_to_pos"] + [x for _, x in path])
+    return B * math.cos(run["phi"]), B * math.sin(run["phi"]), B, br
+
+
+def kicked_gradient_flow(land, ro, Bx, By, row_Bmax, eps, seed=0):
+    """Full quasi-static loop of the gradient flow from the od rest state at
+    +B_max, with a random kick of eps rad on every needle before each
+    relaxation (so that saddles are left)."""
+    rng = np.random.default_rng(seed)
+    n = len(Bx)
+    th = ro["theta"][row_Bmax].copy()
+    out = np.full((n, th.size), np.nan)
+    out[row_Bmax] = th
+    for r in range(row_Bmax + 1, n):
+        th, _ = land.relax_od(th + eps * rng.standard_normal(th.size), Bx[r], By[r])
+        out[r] = th
+    return out
+
+
+def cmd_control(args):
+    out = Path(args.out_dir).expanduser()
+    run_dirs = [Path(p).expanduser() for p in args.run_dirs]
+    recs = []
+    for case in args.cases:
+        ro = load_rerun(out, case, "od", args.seed)
+        land = Landscape(ro)
+        Bx, By, Bs, branch = field_path(ro)
+        B = Bs / land.B_ref
+        phi = ro["phi"]
+        row_Bmax = int((branch == "0_to_pos").sum()) - 1
+        n = len(B)
+        rec = dict(case=case, K=ro["theta"].shape[1])
+        # campaign areas (full loops) for reference
+        for lab in ("od", "Q1", "Q3", "Q10"):
+            r = find_run(case_tag(case, lab, args.seed), run_dirs)
+            if r is not None:
+                df = pd.read_csv(r[0])
+                k = np.arange(row_Bmax + 1, len(df))
+                Bc = df.B_scalar_T.values / land.B_ref
+                rec[f"area_campaign_{lab}"] = float(-(df.M_proj.values[k - 1] * (Bc[k] - Bc[k - 1])).sum())
+        checked = range(row_Bmax + 1, n, args.stride)
+        for lab in ("od", "Q1", "Q3", "Q10"):
+            try:
+                r = load_rerun(out, case, lab, args.seed)
+            except FileNotFoundError:
+                continue
+            m = len(r["theta"])
+            rows = [i for i in checked if i < m]
+            rec[f"saddle_rows_{lab}"] = int(sum(land.low_modes(r["theta"][i], Bx[i], By[i], 1)[0] < -1e-9 for i in rows))
+            rec[f"rows_checked_{lab}"] = len(rows)
+        for eps in args.eps:
+            for ks in args.kick_seeds:
+                sfx = f"eps{eps:g}" + (f"_k{ks}" if ks else "")
+                th = kicked_gradient_flow(land, ro, Bx, By, row_Bmax, eps, seed=ks)
+                np.savez_compressed(out / "states" / f"{case}_kicked_od_{sfx}.npz", theta=th, B_over_Bref=B)
+                rec[f"area_kicked_od_{sfx}"] = loop_area(th, B, phi, row_Bmax)
+                rec[f"saddle_rows_kicked_od_{sfx}"] = int(sum(land.low_modes(th[i], Bx[i], By[i], 1)[0] < -1e-9
+                                                            for i in checked))
+        rec["rows_checked_kicked"] = len(checked)
+        print(rec, flush=True)
+        recs.append(rec)
+    df = pd.DataFrame(recs)
+    p = out / f"control_kicked_loop{args.tag}.csv"
+    if p.exists() and len(df):
+        old = pd.read_csv(p)
+        df = pd.concat([old[~old.case.isin(df.case)], df], ignore_index=True)
+    df.to_csv(p, index=False)
+    print(f"wrote {p}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -628,6 +716,7 @@ def main():
     r = sub.add_parser("rerun", parents=[common])
     r.add_argument("--stop_after", type=int, default=0, help="field steps to run (0 = full loop)")
     r.add_argument("--jobs", type=int, default=4)
+    r.add_argument("--labels", nargs="+", default=None, help="dynamics to rerun (default: od Q10)")
     r.add_argument("--force", action="store_true")
     r.set_defaults(fn=cmd_rerun)
     m = sub.add_parser("map", parents=[common])
@@ -636,8 +725,14 @@ def main():
     m.add_argument("--control_eps", type=float, nargs="*", default=[1e-3], help="kick amplitudes [rad] of the noisy gradient-flow control (none to skip)")
     m.add_argument("--map_onset", action="store_true", help="also map the onset row (usually no reversal yet)")
     m.set_defaults(fn=cmd_map)
+    c = sub.add_parser("control", parents=[common])
+    c.add_argument("--eps", type=float, nargs="+", default=[1e-3], help="kick amplitudes [rad]")
+    c.add_argument("--stride", type=int, default=1, help="rows between Hessian checks")
+    c.add_argument("--kick_seeds", type=int, nargs="+", default=[0], help="random seeds of the kicks")
+    c.add_argument("--tag", default="", help="suffix of the output CSV (parallel runs)")
+    c.set_defaults(fn=cmd_control)
     args = ap.parse_args()
-    if args.cmd in ("rerun", "map") and not args.cases:
+    if args.cmd in ("rerun", "map", "control") and not args.cases:
         ap.error(f"{args.cmd} needs --cases")
     args.fn(args)
 
