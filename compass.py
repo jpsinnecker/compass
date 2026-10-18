@@ -1415,6 +1415,10 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     meta_path = meta_dir / f"{tag}.json"
     initial_state_path = state_dir / f"{tag}_initial.npz"
     state_path = state_dir / f"{tag}_final.npz"
+    # --qs_state_log: rest-state angles of every logged row (row i of the CSV
+    # is qs_state_rows[i]), for spatial analysis of individual avalanches.
+    qs_state_rows = [] if (args.field_mode == "hysteresis_qs" and getattr(args, "qs_state_log", False)) else None
+    qs_states_path = state_dir / f"{tag}_qs_states.npz"
 
     config = SimulationConfig(
         geometry=args.geometry,
@@ -1687,6 +1691,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             )
             flip_field_acc = 0
             flip_angle_acc = 0
+            if qs_state_rows is not None:
+                qs_state_rows.append(np.array(backend.to_cpu(theta), dtype=np.float64))
             return met.M_proj
 
         log_adaptive_threshold = float(args.log_adaptive)
@@ -1885,6 +1891,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
                         if len(event_buffer) >= 4096:
                             flush_events()
                         qs_index += 1
+                        if getattr(args, "qs_stop_after", 0) > 0 and qs_index >= args.qs_stop_after:
+                            break
                         if args.progress and qs_index % max(1, len(qs_values) // 100) == 0:
                             print(f"\r{100*qs_index/len(qs_values):6.2f}%  field step {qs_index}/{len(qs_values)}  integration step {step}", end="", flush=True)
                         if qs_index >= len(qs_values):
@@ -1950,6 +1958,8 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
             "unconverged_field_steps": qs_unconverged,
             "dynamics": "overdamped gradient flow (Q0 -> 0 limit)" if qs_overdamped else "inertial (real Q0)",
             "integration_steps_total": step,
+            "field_steps_done": qs_index,
+            "stopped_early": bool(getattr(args, "qs_stop_after", 0) > 0 and qs_index < len(qs_values)),
             "note": "one CSV row per field step at rest; flip counters and E_diss increments per row are the per-step avalanche size and dissipation",
         }
     _m_final = compute_metrics(theta, omega, tensor, moment, inertia, f_last.bx, f_last.by, phi, backend)
@@ -1987,6 +1997,17 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         r_nn=geom.r_nn,
         metadata_json=json.dumps(metadata),
     )
+
+    if qs_state_rows is not None:
+        np.savez_compressed(
+            qs_states_path,
+            xs=geom.xs,
+            ys=geom.ys,
+            r_nn=geom.r_nn,
+            theta=np.stack(qs_state_rows),
+            phi_ext=phi,
+        )
+        metadata["qs_states_path"] = str(qs_states_path)
 
     with open(meta_path, "w") as fh:
         json.dump(metadata, fh, indent=2)
@@ -2257,6 +2278,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--qs_check_every", type=int, default=5, help="integration steps between rest checks")
     g.add_argument("--qs_max_relax_tau", type=float, default=2000.0, help="safety cap on relaxation time per field step, in units of tau_relax")
     g.add_argument("--qs_dynamics", choices=["inertial", "overdamped"], default="inertial", help="relaxation dynamics at fixed field: full inertial dynamics (the real Q0), or the gradient-flow limit b dtheta/dt = tau (Q0 -> 0, no inertia, much cheaper for small Q0)")
+    g.add_argument("--qs_state_log", action="store_true", help="save the rest-state angles of every field step to states/<tag>_qs_states.npz (theta[row, needle], rows aligned with the CSV)")
+    g.add_argument("--qs_stop_after", type=int, default=0, help="stop after this many field steps (0 = full loop); partial loop, for targeted reruns only")
     g.add_argument("--qs_od_cfl", type=float, default=0.2, help="overdamped Euler step as a fraction of b / (m B_loc_bound) (stable below 2)")
 
     g = p.add_argument_group("field protocol")
