@@ -1,13 +1,13 @@
 # Cronologia do projeto: do primeiro script ao Relatório V60
 
-Data: 18/10/2026 (revisão 3, com as fontes primárias e a pasta original do Dropbox). Guia reconstruído a partir de sete fontes:
+Data: 18/10/2026 (revisão 4, com as fontes primárias, a pasta original do Dropbox e os dados da IDE Antigravity). Guia reconstruído a partir de sete fontes:
 
 1. **Código arquivado:** 76 versões em `archive/OLD/` e em "simula agulhas/OLD" no Google Drive (`compass_simT*.py`, `compass_simV11–V77.py`), mais `archive/compass.py.bkp` (V79) e `archive/compassV02*.py` / `compassV2_1 (1).py` (V2.x). As mudanças de cada versão foram **extraídas automaticamente**: flags de linha de comando adicionadas e removidas, modos de campo, funções novas e tamanho do código. Nos poucos casos sem registro escrito, foram conferidas por `diff`.
 2. **Registro de versões do código V1–V65** e **narrativa das sessões de junho**, no relatório `relatorio_projeto_V22_EN.tex` (05/07).
 3. **Relatórios e guias de 08–11/07** na raiz da pasta do Drive, com datas de modificação dos arquivos.
 4. **Histórico do git**, de 12/07 em diante.
 5. **Transcrições das sessões de 15–18/06 no claude.ai:** 99 pedidos datados, listados em `docs/history/requests_2026-06_to_07-05.csv`. A fonte completa está em `archive/OLD/compass_sim_conversation.md`, que reúne as mesmas 7 sessões.
-6. **Sessões de 06–10/07 na IDE Antigravity:** log de conversa (`archive/transcripts/antigravity_2026-07/chat_antiIDE.md`, 29 pedidos em `docs/history/requests_antigravity_2026-07.tsv`) e os relatórios de tarefa (`*_walkthrough.md`, `*_task.md`) na mesma pasta.
+6. **Sessões de 04–10/07 na IDE Antigravity** (`~/.gemini/antigravity-ide`, um link para `Dropbox/.antigravity-ide`): **13 conversas do compass, com 184 pedidos datados de 04/07 14:05 a 10/07 07:31** (`docs/history/requests_antigravity_2026-07.csv`). As transcrições completas estão em `archive/transcripts/antigravity_2026-07/conversations/`, ao lado do log `chat_antiIDE.md` e dos relatórios de tarefa (`*_walkthrough.md`, `*_task.md`). A pasta `scratch/texbuild` da IDE guardava as últimas compilações: dela vieram o **Relatório V47** e um rascunho do guia da V78.
 
 7. **A pasta original do Dropbox** (`~/Library/CloudStorage/Dropbox/simula agulhas`), onde o repositório git foi criado em 12/07. O histórico do git é o mesmo do GitHub (30 commits), mas os arquivos apagados nele e os `.zip` de julho devolveram os fontes dos **relatórios V10 e V11**. Também havia arquivos não versionados de 13/07 (seção 2.7).
 
@@ -26,8 +26,8 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | **Git** | commits, PRs #4–#8 e tags (`v2.2`, `v2.3.0`, `v2.4.0`, `report-Vnn`) | Os PRs são a referência mais confiável a partir de 12/07. A política de versões daqui em diante está no `CHANGELOG.md`. |
 
 **Ferramentas e locais de armazenamento por período:**
-- **15/06–05/07:** claude.ai (chat), com os arquivos no Dropbox.
-- **06–10/07:** IDE Antigravity, ainda no Dropbox (`~/Library/CloudStorage/Dropbox/simula agulhas`).
+- **15–18/06 e manhã de 04/07** (até a V44): claude.ai (chat), com os arquivos no Dropbox.
+- **04/07 14:05 a 10/07:** IDE Antigravity, ainda no Dropbox (`~/Library/CloudStorage/Dropbox/simula agulhas`), cobrindo V45–V79, os relatórios V10–V50 e os resumos. Por dia: 04/07 (2 pedidos), 05/07 (55), 06/07 (50), 07/07 (31), 08/07 (12), 09/07 (22), 10/07 (12).
 - **10–11/07:** pasta "simula agulhas" no Google Drive.
 - **12/07 em diante:** repositório git; desde 16/10, Claude Code. O motor tem `__version__` próprio desde a 2.4.0.
 
@@ -104,6 +104,7 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **V43:** halos também na figura de comparação.
 - **V44:** painel de progresso de duas linhas.
 - **V45:** vídeo de histerese com painel duplo (agulhas e curva M×H).
+- **V64:** mudou só os scripts de varredura (imports). O código do simulador é igual ao da V63/V65, que são idênticas fora o número de versão; por isso não há arquivo próprio.
 - **V46–V65 (05/07):** alinhamento da ajuda (V46); `--hyst_autoscale` e tradução dos comentários (V47); ajustes do HUD, mostrador e seta de direção (V49–V58); **`--damping_noise`** (V59); tradução da interface de linha de comando (**V60**), dos gráficos (V61) e dos avisos (V62); constantes pré-calculadas no laço (V63); imports e tradução dos scripts de varredura (V64–V65).
 - **V66 (06/07):** barra horizontal de intensidade do campo no HUD **bidirecional**, crescendo a partir do zero, com marca vermelha em zero; tradução da ajuda de `--damping_noise`. Junto veio o Relatório **V33**, o primeiro `project_report.tex`, derivado do `relatorio_projeto_V22_EN.tex`. A comparação automática de flags não detecta mudanças visuais como essa; a fonte é o relatório de tarefa da Antigravity `df4c3b25`.
 - **V67–V69:** **FORC**. Na V67, `--forc_Br`, `--forc_t_rev` e `--forc_t_sat`. Na V68, a família de curvas (`--forc_n_curves`, `--forc_Br_min`, `--forc_t_ramp_down/up`). Na V69, `--forc_sweep`.
@@ -117,7 +118,14 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **V77 (07/07):** tempo de relógio no log final ("Completed in … sec"), documentado no Relatório **V47**.
 
 ### 2.5 Consolidação e primeira divulgação (08–09/07, V78–V79)
-- **V78:** o arquivo não foi preservado. O `USER_GUIDE.tex` de 09/07 documenta essa versão inteira (parâmetros, modos, exemplos).
+- **V78:** o arquivo não foi preservado. Pelas transcrições da Antigravity, ela trouxe:
+  - caixa de **magnetização projetada M** no HUD dos vídeos de histerese e FORC, entre as caixas de tempo e de campo;
+  - Q em notação científica abaixo de 0,1;
+  - comentários do cabeçalho reorganizados em blocos (propriedades da agulha × parâmetros da simulação);
+  - semente aleatória tirada do relógio em nanossegundos por padrão;
+  - **contagem regressiva de 10 s** com confirmação por tecla antes de iniciar.
+
+  Os guias de 08/07 (rascunho) e de 09/07 documentam a interface completa.
 - **V79:** **valores padrão tirados da agulha real** (relatório de tarefa `44a7391c`): R = 7,5 mm e `needle_frac` = 2/3 (L = 10 mm), razão largura/comprimento de 0,30 (W = 3 mm), espessura de **0,26 mm**, pivô de latão (raio de 1 mm, altura de 2 mm, 8500 kg/m³) e o furo do pivô descontado da massa, de I e de m. Resultado: I ≈ 1,63×10⁻¹⁰ kg·m² e m ≈ 4,9×10⁻³ A·m². Novas flags `--pivot_radius`, `--pivot_thickness`, `--pivot_density` e `--pivot_mass`. É a origem dos 0,26 mm; a reescrita V2 (10/07) voltou ao padrão de 0,4 mm e a um espaçamento de 13 mm, e daí vem a inconsistência de espessura que ainda está pendente.
 - Na Antigravity (29 pedidos, `docs/history/requests_antigravity_2026-07.tsv`): guia detalhado da V78 em Markdown e em LaTeX, revisões do `project_report.tex`, coerência dos scripts de varredura com o novo `compass.py`, barra de progresso por worker, manual das varreduras, gráficos da análise em inglês, **FORC nas varreduras** (relatório de tarefa `4e2c5a1a`) e o caso de estudo do resumo do LAW3M.
 - Resumos para o **LAW3M 2026** (`Abstract.tex` de 08/07; `LAW3M2026_compass_needle_abstract*.tex` de 09/07), manual das varreduras (`damping_sweep_manual.tex`) e guia do usuário.
@@ -168,14 +176,14 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 | Histórico detalhado de 12/07 em diante | `git log` |
 | Versões anteriores ao git, como commits datados | branch `history/pre-git` (seção 4) |
 | Pedidos de junho (99) | `docs/history/requests_2026-06_to_07-05.csv` |
-| Sessões da Antigravity (julho) | `archive/transcripts/antigravity_2026-07/` (log de conversa e relatórios de tarefa); pedidos em `docs/history/requests_antigravity_2026-07.tsv` |
+| Sessões da Antigravity (04–10/07) | `archive/transcripts/antigravity_2026-07/` (13 transcrições, log de conversa e relatórios de tarefa); 184 pedidos datados em `docs/history/requests_antigravity_2026-07.csv` |
 | Política de versões e mudanças | `CHANGELOG.md` |
 
 ---
 
 ## 4. Como navegar pelo histórico no git
 
-A branch `history/pre-git` tem **um commit por versão arquivada** (107 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
+A branch `history/pre-git` tem **um commit por versão arquivada** (109 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
 
 ```bash
 git log --oneline history/pre-git
@@ -191,8 +199,8 @@ git show report-V22-en:docs/report.tex
 
 **Tags:**
 - código: `code-T1`…`code-T10`, `code-V11`…`code-V79`, `code-V2.0`, `code-V2.0.2`, `code-V2.1`;
-- relatórios: `report-V10-pt`, `report-V11-pt`, `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V51`, `report-V51b`, `report-V52`;
-- guias e resumos: `guide-V78`, `guide-V2.0.2`, `abstract-LAW3M2026`;
+- relatórios: `report-V10-pt`, `report-V11-pt`, `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V47`, `report-V51`, `report-V51b`, `report-V52`;
+- guias e resumos: `guide-V78-draft`, `guide-V78`, `guide-V2.0.2`, `abstract-LAW3M2026`;
 - período do git: `code-v2.1.0-canonical`, `v2.2` (sua tag de julho), `report-V53`, `phase1-done`, `v2.3.0`, `report-V60`, `qs-saddle-fix`, `v2.4.0`.
 
 Para ver tudo como uma única linha contínua (só localmente, sem alterar o GitHub):
@@ -223,7 +231,9 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 
 ## 6. O que ainda falta
 
-- **Arquivos ausentes:** V57, V64 (só o script de congelamento) e V78 (descrita pelo guia). Também os arquivos individuais dos Relatórios V33–V50 e o fonte do V09 (só existe o PDF). A pasta original do Dropbox e o histórico do git dela foram verificados em 18/10 e não os contêm. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
-- As conversas brutas da Antigravity (`~/.gemini/antigravity-ide/conversations`, 274 MB em formato binário) não foram decodificadas. Os relatórios de tarefa e o log `antiIDE` cobrem o essencial.
+- **Código sem arquivo:** V57 (o mostrador com seta grossa, que é a V58 sem o escalonamento proporcional) e V78 (descrita em detalhe acima). A V64 é igual à V63/V65 no simulador.
+- **Relatórios sem arquivo:** V33–V46 e V48–V50, além do fonte do V09 (só existe o PDF). O V47 foi recuperado.
+- **Já verificados (18/10):** a pasta original do Dropbox, o histórico do git dela e a pasta `~/.gemini/antigravity-ide`, que só guarda cópias da última compilação. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
+- As conversas em formato binário da Antigravity (`conversations/`, 274 MB) não foram decodificadas, mas as transcrições JSONL equivalentes (`brain/*/transcript_full.jsonl`) foram lidas e arquivadas.
 - O pedido de 05/07, que registrou a tradução para o inglês, aparece no relatório V22, mas não nas transcrições exportadas.
 

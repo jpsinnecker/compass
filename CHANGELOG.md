@@ -61,7 +61,7 @@ Summarized in `docs/CRONOLOGIA.md`. Every archived version is a commit on `histo
 | Version | Date | Note |
 |---|---|---|
 | V01–V32 | 04–05/07 | `relatorio_projeto_V09…V22` files (Portuguese and English) |
-| V33–V50 | 06–09/07 | `project_report.tex` in the Antigravity sessions (documents code V66–V79); individual files not preserved |
+| V33–V50 | 06–09/07 | `project_report.tex` in the Antigravity sessions (documents code V66–V79); only V47 survived (tag `report-V47`) |
 | V51, V52 | 10/07 | rewritten around the V2 branch (tags `report-V51`, `report-V52` on `history/pre-git`) |
 | V53 | 12/07 | git, canonical engine (tag `report-V53`) |
 | V60 | 17/10 | restructured as a methods-and-results report (tag `report-V60`); Results III under revision |
