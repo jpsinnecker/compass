@@ -1,5 +1,14 @@
 # Auditoria do projeto "simula agulhas" e roteiro para artigo
 
+> ## Status em 18/10/2026
+> Este documento registra a auditoria de 16/10 e o roteiro original. Desde então:
+> - **Fase 1 concluída** (PRs #4 e #5, em `main`): soma dipolar completa, dt pela cota do campo local, Q₀ intrínseco, livro-caixa de energia e taxa adimensional r. Todos os itens da seção 2.1 a 2.4 e o livro-caixa (2.6) estão corrigidos e cobertos por testes.
+> - **Fase 2 (histerese dinâmica) concluída** (branch `fase2/dynamic-hysteresis`, PR #7 aberto): 690 ciclos com taxa controlada (6×6 a 64×64). Para Q₀ ≤ 1, as curvas colapsam com a taxa em unidades viscosas; em taxa finita, a inércia estreita o laço em 20–50 %; por varredura, o limite quase-estático não é alcançado para N ≥ 24.
+> - **Novo protocolo quase-estático por eventos** (`--field_mode hysteresis_qs`, com fluxo gradiente como referência Q₀ → 0). A primeira grade (120 laços) foi **invalidada**: o critério de repouso aceitava pontos de sela, e o fluxo gradiente ficava preso em ramos simétricos instáveis (`docs/QS_SELECAO_DE_CAMINHO.md`). O critério agora inclui um chute de 10⁻⁴ rad seguido de nova relaxação. A **grade corrigida está rodando** (início em 18/10, ~12 h).
+> - **Resultado provisório:** no limite quase-estático, o efeito da inércia sobre o laço é pequeno na maioria dos casos. Os efeitos de 15–43 % da primeira grade eram, em boa parte, artefato. Há seleção de caminho inercial genuína em alguns casos (honeycomb 24×24, ~−5 %; triangular 32×32, ~−18 %, robusto a três realizações do chute).
+> - **Consequência para o roteiro:** a Fase 3 (memória e RPM, seção 3, linha A) continua sendo o caminho de maior impacto, agora com um mecanismo concreto: seleção de caminho perto de bifurcações. Ela precisa de tratamento estatístico (conjuntos de perturbações ou desordem fraca para cada Q₀), porque perturbações de 10⁻⁴ rad também decidem caminhos ali.
+> - **Relatório:** `docs/project_report.tex` (V60) foi reestruturado, mas a seção de resultados III e o resumo serão reescritos com a grade corrigida.
+
 Data: 16/10/2026. A auditoria foi feita primeiro na cópia do Google Drive (`compassV2_1.py`, de 11/07) e depois rechecada contra o `compass.py` canônico deste repositório (commit `cb14300`, de 13/07).
 Os achados de física das seções 2.1 a 2.4 continuam válidos no `compass.py` canônico: o código de cutoff, dt, Q e B_eff é o mesmo.
 Este documento complementa `docs/AUDIT.md`, que trata da organização do código; aqui o foco é a validade física e o roteiro para o artigo.

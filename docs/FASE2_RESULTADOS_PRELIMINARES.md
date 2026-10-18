@@ -1,5 +1,9 @@
 # Fase 2: histerese dinâmica — resultados preliminares
 
+> **Aviso (18/10/2026): parcialmente superado.** As seções 1 e 2 (campanha de varredura) continuam válidas e foram incorporadas ao relatório V60. A seção 3 errou em dois pontos:
+> - O protocolo quase-estático por eventos **não** é mais barato que as varreduras lentas. A desaceleração crítica perto das instabilidades precisa ser resolvida nos dois casos, e na prática ele custa o mesmo ou mais.
+> - O critério de repouso proposto (só torque e velocidade) aceitava pontos de sela. A versão atual acrescenta um chute seguido de nova relaxação (`--qs_kick`; ver `docs/QS_SELECAO_DE_CAMINHO.md` e o `USER_GUIDE.md`, §4b).
+
 Data: 17/10/2026. Branch `fase2/dynamic-hysteresis`. Scripts: `fase2_campaign.py`, `fase2_analysis.py`.
 Dados (fora do git): `~/compass_runs/fase2` (Mac, metade 1), `~/compass_runs/fase2_mumax` (mumax, metade 2), `~/compass_runs/fase2_analysis` (tabelas e figuras).
 A extensão para redes grandes (48×48 e 64×64, GPU da mumax) ainda está rodando e **não** entra aqui.

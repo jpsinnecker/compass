@@ -87,8 +87,8 @@ The physics tests check the dipolar tensor against a direct pair sum, torque $= 
 Summary of `docs/AUDIT_PHYSICS_ROADMAP.md`:
 
 1. **Phase 1 – numerical corrections.** Full sum, dt, $Q_0$, energy ledger, dimensionless rate. Implemented in PRs #4 and #5.
-2. **Phase 2 – dynamic hysteresis.** Map $A(r, Q_0)$ for the three geometries and several sizes. Extract the quasi-static limit $A_0(Q_0)$ and the rate exponent.
-3. **Phase 3 – memory.** Test whether return-point memory degrades with inertia (subloops/FORC at quasi-static rate).
+2. **Phase 2 – dynamic hysteresis and quasi-static limit.** Rate sweeps done (690 cycles, $N=6$–64): overdamped collapse, inertial narrowing at finite rate. The event-driven quasi-static protocol (`--field_mode hysteresis_qs`) is implemented; its first grid was invalidated by a saddle-point artefact, and the corrected grid (saddle check by kick-and-relax) is running. PR #7, branch `fase2/dynamic-hysteresis`.
+3. **Phase 3 – memory.** Test whether return-point memory degrades with inertia (subloops/FORC at quasi-static rate), starting from the inertial path-selection events found near bifurcations (`docs/QS_SELECAO_DE_CAMINHO.md`); they require ensembles of perturbations or weak disorder.
 4. **Phase 4 – robustness.** Dumbbell model, Coulomb friction as controlled disorder, size and shape.
 5. **Phase 5 – tabletop experiment.** Calibrate $I$, $m$, $b$ and friction on real needles, and compare loops and memory.
 
