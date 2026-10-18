@@ -1,6 +1,6 @@
 # Cronologia do projeto: do primeiro script ao Relatório V60
 
-Data: 18/10/2026 (revisão 6, com as fontes primárias, a pasta original do Dropbox, os dados da IDE Antigravity, o histórico local de arquivos do editor e o pacote `OLD/ALLfiles`). Guia reconstruído a partir de nove fontes:
+Data: 18/10/2026 (revisão 7, com as fontes primárias, a pasta original do Dropbox, os dados da IDE Antigravity, o histórico local de arquivos do editor, o pacote `OLD/ALLfiles` e a reconstrução das V55–V57). Guia reconstruído a partir de nove fontes:
 
 1. **Código arquivado:** 76 versões em `archive/OLD/` e em "simula agulhas/OLD" no Google Drive (`compass_simT*.py`, `compass_simV11–V77.py`), mais `archive/compass.py.bkp` (V79) e `archive/compassV02*.py` / `compassV2_1 (1).py` (V2.x). As mudanças de cada versão foram **extraídas automaticamente**: flags de linha de comando adicionadas e removidas, modos de campo, funções novas e tamanho do código. Nos poucos casos sem registro escrito, foram conferidas por `diff`.
 2. **Registro de versões do código V1–V65** e **narrativa das sessões de junho**, no relatório `relatorio_projeto_V22_EN.tex` (05/07).
@@ -110,6 +110,7 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **V44:** painel de progresso de duas linhas.
 - **V45:** vídeo de histerese com painel duplo (agulhas e curva M×H).
 - **V64:** mudou só os scripts de varredura (imports). O código do simulador é igual ao da V63/V65, que são idênticas fora o número de versão; por isso não há arquivo próprio.
+- **V55–V58 e os scripts `freeze_vNN.py` (05/07, tarde):** a V55 (15:25) e a V56 (15:32, comprimento mínimo de 0,35 R da seta do mostrador) foram criadas normalmente. Às 15:42 você pediu para voltar à V55 e desconsiderar a V56; a Antigravity então editou **no lugar** os arquivos já congelados `compass_simV55.py` e `compass_simV56.py` (raio do mostrador +30 %, seta centrada) e, às 16:26, aplicou a seta grossa da V57 ao `compass_simV56.py`. A **V57** (16:31) nunca virou arquivo: o sandbox bloqueou o `cp` para o Dropbox, o agente escreveu um `freeze_v57.py` na pasta dele e a sessão terminou com erro antes de rodá-lo. A partir da V58 (19:52), toda versão foi congelada por um `freeze_vNN.py` de 12 linhas (`archive/OLD/freeze_v58.py` … `freeze_v77.py`), que só copia o `compass.py`. As três versões originais foram reconstruídas pelas edições registradas na transcrição `3a8ccbb7`: as da V55 e da V56 são idênticas, byte a byte, ao conteúdo completo gravado na criação (transcrição `551fff93`), o que valida o método; a V57 é a V58 com a única edição V57→V58 desfeita. Estão em `archive/OLD/reconstructed/` (com um README do método) e nas tags `code-V55`, `code-V56` e `code-V57`. Os arquivos editados no lugar continuam em `archive/OLD/`, sem alteração.
 - **V46–V65 (05/07):** alinhamento da ajuda (V46); `--hyst_autoscale` e tradução dos comentários (V47); ajustes do HUD, mostrador e seta de direção (V49–V58); **`--damping_noise`** (V59); tradução da interface de linha de comando (**V60**), dos gráficos (V61) e dos avisos (V62); constantes pré-calculadas no laço (V63); imports e tradução dos scripts de varredura (V64–V65).
 - **V66 (06/07):** barra horizontal de intensidade do campo no HUD **bidirecional**, crescendo a partir do zero, com marca vermelha em zero; tradução da ajuda de `--damping_noise`. Junto veio o Relatório **V33**, o primeiro `project_report.tex`, derivado do `relatorio_projeto_V22_EN.tex`. A comparação automática de flags não detecta mudanças visuais como essa; a fonte é o relatório de tarefa da Antigravity `df4c3b25`.
 - **V67–V69:** **FORC**. Na V67, `--forc_Br`, `--forc_t_rev` e `--forc_t_sat`. Na V68, a família de curvas (`--forc_n_curves`, `--forc_Br_min`, `--forc_t_ramp_down/up`). Na V69, `--forc_sweep`.
@@ -182,6 +183,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 | Versões anteriores ao git, como commits datados | branch `history/pre-git` (seção 4) |
 | Pedidos de junho (99) | `docs/history/requests_2026-06_to_07-05.csv` |
 | Sessões da Antigravity (04–10/07) | `archive/transcripts/antigravity_2026-07/` (13 transcrições, log de conversa e relatórios de tarefa); 184 pedidos datados em `docs/history/requests_antigravity_2026-07.csv` |
+| V55 e V56 originais e V57 reconstruídas | `archive/OLD/reconstructed/` (com o método no README) |
 | Primeiras versões dos scripts de campanha | `archive/OLD/campaign_early/` |
 | Política de versões e mudanças | `CHANGELOG.md` |
 
@@ -189,7 +191,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 
 ## 4. Como navegar pelo histórico no git
 
-A branch `history/pre-git` tem **um commit por versão arquivada** (123 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
+A branch `history/pre-git` tem **um commit por versão arquivada** (124 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
 
 ```bash
 git log --oneline history/pre-git
@@ -238,11 +240,11 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 ## 6. O que ainda falta
 
 **Não houve salto de numeração** (exceto o salto deliberado do relatório, de V53 para V60). As versões sem arquivo existiram; os arquivos é que se perderam:
-- **Código V57:** o registro de versões do relatório V22 (`archive/OLD/relatorio_projeto_V22_EN.tex`, tabela de versões) descreve a sequência V56 (comprimento mínimo da seta do mostrador), **V57** (seta fina trocada por uma seta grossa preenchida, `FancyArrow`) e V58 (a mesma seta, escalonada pela intensidade do campo). A V58 substituiu o arquivo logo em seguida.
+- **Código V57:** o registro de versões do relatório V22 descreve a sequência V56 (comprimento mínimo da seta), **V57** (seta grossa preenchida, `FancyArrow`) e V58 (a mesma seta, escalonada pela intensidade do campo). A transcrição `3a8ccbb7` mostra por que não havia arquivo: o congelamento falhou (seção 2.4). A V57 foi reconstruída.
 - **Relatórios V33–V46:** a tabela de histórico do relatório V47 (`git show report-V47:docs/report.tex`) tem uma linha datada para cada um, de V33 (06/07, documenta a V66) a V46 (07/07, documenta o `--demag_delay`). Perderam-se porque, desde 06/07, a Antigravity editava sempre o mesmo `project_report.tex`, e cada revisão sobrescrevia a anterior; o V47 sobreviveu só na pasta de compilação da IDE.
 - **Relatórios V48–V50:** evidência indireta. O V51 foi reescrito e já não tem a tabela de histórico, mas os pedidos de 07–08/07 na Antigravity pedem para atualizar o relatório a cada versão do código (por exemplo, 08/07 07:32: "change the actual version number in the code and update the report"), o que corresponde às V78 e V79 e fecha a sequência até o V51 (10/07).
 
-- **Código sem arquivo:** só a V57 (o mostrador com seta grossa, que é a V58 sem o escalonamento proporcional). A V64 é igual à V63/V65 no simulador. A V78 foi recuperada.
+- **Código sem arquivo:** nenhum. A V57 foi reconstruída (e as V55 e V56 originais restauradas). A V64 é igual à V63/V65 no simulador. A V78 foi recuperada.
 - **Relatórios sem arquivo:** V33–V46 e V48–V50. O V47 e os V01–V09 foram recuperados.
 - **Já verificados (18/10):** a pasta original do Dropbox e o histórico do git dela; `~/.gemini/antigravity-ide`, que é o mesmo que `~/Dropbox/.antigravity-ide`; `~/.antigravity`, `~/.antigravity-ide` e `Application Support/Antigravity`, que só têm a instalação, as extensões e históricos de outros arquivos; o histórico local de arquivos da 'Antigravity IDE', de onde veio a V78; e `OLD/ALLfiles`, de onde vieram os relatórios V01–V09. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
 - As conversas em formato binário da Antigravity (`conversations/`, 274 MB) não foram decodificadas, mas as transcrições JSONL equivalentes (`brain/*/transcript_full.jsonl`) foram lidas e arquivadas.

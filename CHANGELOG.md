@@ -54,6 +54,7 @@ Summarized in `docs/CRONOLOGIA.md`. Every archived version is a commit on `histo
 - **V79** (09/07): physical needle geometry (0.26 mm, pivot).
 - **V78** (08/07): M HUD box, time-based seed, 10 s countdown (recovered from the editor's local history).
 - **V67–V77** (06–07/07): FORC and demagnetization.
+- **V55–V58** (05/07): V57 reconstructed (never saved; the freeze failed) and the original V55/V56 restored (the archived files were edited in place), in `archive/OLD/reconstructed/`. Snapshots from V58 on were made by `freeze_vNN.py` helpers.
 - **V40** (04/07): precomputed dipolar tensor.
 - **Campaign scripts** (≤ 05/07): earliest surviving `damping_sweep*.py`, `damping_sweep_analysis.py`, `sweep_damping_hysteresis.py` in `archive/OLD/campaign_early/`.
 - **V20** (17/06): formal version record begins.
