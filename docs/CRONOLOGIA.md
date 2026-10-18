@@ -24,7 +24,7 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | Linha | Numeração | Exemplo de ambiguidade |
 |---|---|---|
 | **Código do simulador** | T1–T10 → V11–V79 → V2.0.1, V2.0.2, V2.1 → `compass.py` 2.1.0 com correções (git) | "**V60**" do código é uma versão de **05/07**: a tradução da interface de linha de comando para o inglês. |
-| **Relatório** | numeração **contínua**: V01–V32 (04–05/07, arquivos `relatorio_projeto_V09`…`V22`) → V33–V50 (06–09/07, `project_report.tex` nas sessões da Antigravity; o V33 documentou o código V66 e o V47, a V77) → **V51, V52** (10/07) → **V53** (12/07) → **V60** (17/10) | O **Relatório V60** não tem relação com o código V60. Não existiram V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Os arquivos V33–V50 não foram preservados individualmente. |
+| **Relatório** | numeração **contínua**: V01–V32 (04–05/07, arquivos `relatorio_projeto_V09`…`V22`) → V33–V50 (06–09/07, `project_report.tex` nas sessões da Antigravity; o V33 documentou o código V66 e o V47, a V77) → **V51, V52** (10/07) → **V53** (12/07) → **V60** (17/10) | O **Relatório V60** não tem relação com o código V60. Não existiram V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Dos arquivos V33–V50, só o V47 foi preservado. |
 | **Git** | commits, PRs #4–#8 e tags (`v2.2`, `v2.3.0`, `v2.4.0`, `report-Vnn`) | Os PRs são a referência mais confiável a partir de 12/07. A política de versões daqui em diante está no `CHANGELOG.md`. |
 
 **Ferramentas e locais de armazenamento por período:**
@@ -129,7 +129,7 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 
   O diff V77 → V78 tem +417/−158 linhas. Os guias de 08/07 (rascunho) e de 09/07 documentam a interface completa.
 - **V79:** **valores padrão tirados da agulha real** (relatório de tarefa `44a7391c`): R = 7,5 mm e `needle_frac` = 2/3 (L = 10 mm), razão largura/comprimento de 0,30 (W = 3 mm), espessura de **0,26 mm**, pivô de latão (raio de 1 mm, altura de 2 mm, 8500 kg/m³) e o furo do pivô descontado da massa, de I e de m. Resultado: I ≈ 1,63×10⁻¹⁰ kg·m² e m ≈ 4,9×10⁻³ A·m². Novas flags `--pivot_radius`, `--pivot_thickness`, `--pivot_density` e `--pivot_mass`. É a origem dos 0,26 mm; a reescrita V2 (10/07) voltou ao padrão de 0,4 mm e a um espaçamento de 13 mm, e daí vem a inconsistência de espessura que ainda está pendente.
-- Na Antigravity (29 pedidos, `docs/history/requests_antigravity_2026-07.tsv`): guia detalhado da V78 em Markdown e em LaTeX, revisões do `project_report.tex`, coerência dos scripts de varredura com o novo `compass.py`, barra de progresso por worker, manual das varreduras, gráficos da análise em inglês, **FORC nas varreduras** (relatório de tarefa `4e2c5a1a`) e o caso de estudo do resumo do LAW3M.
+- Na Antigravity (pedidos de 08–10/07 em `docs/history/requests_antigravity_2026-07.csv`): guia detalhado da V78 em Markdown e em LaTeX, revisões do `project_report.tex`, coerência dos scripts de varredura com o novo `compass.py`, barra de progresso por worker, manual das varreduras, gráficos da análise em inglês, **FORC nas varreduras** (relatório de tarefa `4e2c5a1a`) e o caso de estudo do resumo do LAW3M.
 - Resumos para o **LAW3M 2026** (`Abstract.tex` de 08/07; `LAW3M2026_compass_needle_abstract*.tex` de 09/07), manual das varreduras (`damping_sweep_manual.tex`) e guia do usuário.
 - `calc_defaults_temp.py` usa a espessura de 0,26 mm, origem da inconsistência com os 0,4 mm do simulador que ainda está pendente.
 
@@ -174,7 +174,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 | Relatórios de julho (V09–V22, internos V01–V32) | `archive/OLD/relatorio_projeto_*` (git) e Drive/OLD |
 | Relatórios V51–V53 | `archive/project_report_V51_compassV2.*`, `archive/project_report.*` (V51/V52) e o histórico do git de `docs/project_report.tex` (V53) |
 | Relatório atual (V60) | `docs/project_report.tex` e `docs/project_report.pdf` |
-| Transcrição das conversas de junho | `archive/OLD/compass_sim_conversation.md` (2,1 MB; não usada aqui, mas é a fonte primária das sessões de 15–18/06) |
+| Transcrição das conversas de junho | `archive/OLD/compass_sim_conversation.md` (2,1 MB; fonte primária das sessões de 15–18/06, resumida na seção 5) |
 | Histórico detalhado de 12/07 em diante | `git log` |
 | Versões anteriores ao git, como commits datados | branch `history/pre-git` (seção 4) |
 | Pedidos de junho (99) | `docs/history/requests_2026-06_to_07-05.csv` |
@@ -237,5 +237,5 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 - **Relatórios sem arquivo:** V33–V46 e V48–V50, além do fonte do V09 (só existe o PDF). O V47 foi recuperado.
 - **Já verificados (18/10):** a pasta original do Dropbox e o histórico do git dela; `~/.gemini/antigravity-ide`, que é o mesmo que `~/Dropbox/.antigravity-ide`; `~/.antigravity`, `~/.antigravity-ide` e `Application Support/Antigravity`, que só têm a instalação, as extensões e históricos de outros arquivos; e o histórico local de arquivos da 'Antigravity IDE', de onde veio a V78. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
 - As conversas em formato binário da Antigravity (`conversations/`, 274 MB) não foram decodificadas, mas as transcrições JSONL equivalentes (`brain/*/transcript_full.jsonl`) foram lidas e arquivadas.
-- O pedido de 05/07, que registrou a tradução para o inglês, aparece no relatório V22, mas não nas transcrições exportadas.
+- A tradução para o inglês começou em 05/07 09:34, com o pedido de criar o `compass_sim_ingV01.py` a partir da V46 (conversa `304910a1` da Antigravity).
 
