@@ -1,5 +1,7 @@
 # Auditoria do relatório científico (`docs/project_report.tex`)
 
+> **Status (17/10/2026):** a reestruturação proposta foi executada no Report V60, com resultados da Fase 2 e do protocolo quase-estático. As três referências marcadas em vermelho no PDF (`menniti2025`, `taniguchi2025`, `concha2017`) ainda precisam ser verificadas.
+
 Data: 17/10/2026. Versão auditada: Report V53, com as notas de outubro (24 páginas, compila sem erros a partir de `docs/`).
 O manual de uso passou a ter fonte única em `USER_GUIDE.md` (PDF em `docs/USER_GUIDE.pdf`). Esta auditoria trata só do relatório.
 
