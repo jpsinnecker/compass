@@ -55,13 +55,14 @@ Summarized in `docs/CRONOLOGIA.md`. Every archived version is a commit on `histo
 - **V78** (08/07): M HUD box, time-based seed, 10 s countdown (recovered from the editor's local history).
 - **V67–V77** (06–07/07): FORC and demagnetization.
 - **V40** (04/07): precomputed dipolar tensor.
+- **Campaign scripts** (≤ 05/07): earliest surviving `damping_sweep*.py`, `damping_sweep_analysis.py`, `sweep_damping_hysteresis.py` in `archive/OLD/campaign_early/`.
 - **V20** (17/06): formal version record begins.
 - **T1** (15/06): first script.
 
 ## Scientific report
 | Version | Date | Note |
 |---|---|---|
-| V01–V32 | 04–05/07 | `relatorio_projeto_V09…V22` files (Portuguese and English) |
+| V01–V32 | 04–05/07 | `relatorio_projeto_V01…V22` files (Portuguese, then English from V12); V01–V09 recovered from `OLD/ALLfiles` (tags `report-V01-pt` … `report-V09-pt`) |
 | V33–V50 | 06–09/07 | `project_report.tex` in the Antigravity sessions (documents code V66–V79); only V47 survived (tag `report-V47`) |
 | V51, V52 | 10/07 | rewritten around the V2 branch (tags `report-V51`, `report-V52` on `history/pre-git`) |
 | V53 | 12/07 | git, canonical engine (tag `report-V53`) |

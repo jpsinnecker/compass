@@ -1,6 +1,6 @@
 # Cronologia do projeto: do primeiro script ao Relatório V60
 
-Data: 18/10/2026 (revisão 5, com as fontes primárias, a pasta original do Dropbox, os dados da IDE Antigravity e o histórico local de arquivos do editor). Guia reconstruído a partir de sete fontes:
+Data: 18/10/2026 (revisão 6, com as fontes primárias, a pasta original do Dropbox, os dados da IDE Antigravity, o histórico local de arquivos do editor e o pacote `OLD/ALLfiles`). Guia reconstruído a partir de nove fontes:
 
 1. **Código arquivado:** 76 versões em `archive/OLD/` e em "simula agulhas/OLD" no Google Drive (`compass_simT*.py`, `compass_simV11–V77.py`), mais `archive/compass.py.bkp` (V79) e `archive/compassV02*.py` / `compassV2_1 (1).py` (V2.x). As mudanças de cada versão foram **extraídas automaticamente**: flags de linha de comando adicionadas e removidas, modos de campo, funções novas e tamanho do código. Nos poucos casos sem registro escrito, foram conferidas por `diff`.
 2. **Registro de versões do código V1–V65** e **narrativa das sessões de junho**, no relatório `relatorio_projeto_V22_EN.tex` (05/07).
@@ -13,6 +13,8 @@ Data: 18/10/2026 (revisão 5, com as fontes primárias, a pasta original do Drop
 
 8. **Histórico local de arquivos do editor** (`~/Library/Application Support/Antigravity IDE/User/History`): duas cópias salvas do `compass.py`, de 05/07 21:31 (idêntica à V62) e de **08/07 07:56, que é a V78**, agora em `archive/compass_simV78.py`.
 
+9. **O pacote `OLD/ALLfiles`** (`ALLfiles.zip`, montado em 06/07, no Drive): os **fontes dos relatórios V01–V09** de 04/07, que não tinham arquivo (com os PDFs V01–V04), e as **primeiras versões dos scripts de campanha** (`damping_sweep.py`, `damping_sweepV02.py`, `damping_sweep_analysis.py`, `sweep_damping_hysteresis.py`), ainda em português e importando `compass_sim`. Estão em `archive/OLD/relatorio_projeto_V01…V11.tex` e `archive/OLD/campaign_early/`. As figuras e os vídeos de junho do pacote ficaram fora do git (são resultados).
+
 **Como navegar:** cada versão arquivada é um commit da branch `history/pre-git`, com a data original e uma tag. Ver a seção 4.
 
 As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação é inferência, isso está indicado.
@@ -24,7 +26,7 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | Linha | Numeração | Exemplo de ambiguidade |
 |---|---|---|
 | **Código do simulador** | T1–T10 → V11–V79 → V2.0.1, V2.0.2, V2.1 → `compass.py` 2.1.0 com correções (git) | "**V60**" do código é uma versão de **05/07**: a tradução da interface de linha de comando para o inglês. |
-| **Relatório** | numeração **contínua**: V01–V32 (04–05/07, arquivos `relatorio_projeto_V09`…`V22`) → V33–V50 (06–09/07, `project_report.tex` nas sessões da Antigravity; o V33 documentou o código V66 e o V47, a V77) → **V51, V52** (10/07) → **V53** (12/07) → **V60** (17/10) | O **Relatório V60** não tem relação com o código V60. Não existiram V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Dos arquivos V33–V50, só o V47 foi preservado. |
+| **Relatório** | numeração **contínua**: V01–V32 (04–05/07, arquivos `relatorio_projeto_V01`…`V22`) → V33–V50 (06–09/07, `project_report.tex` nas sessões da Antigravity; o V33 documentou o código V66 e o V47, a V77) → **V51, V52** (10/07) → **V53** (12/07) → **V60** (17/10) | O **Relatório V60** não tem relação com o código V60. Não existiram V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Dos arquivos V33–V50, só o V47 foi preservado. |
 | **Git** | commits, PRs #4–#8 e tags (`v2.2`, `v2.3.0`, `v2.4.0`, `report-Vnn`) | Os PRs são a referência mais confiável a partir de 12/07. A política de versões daqui em diante está no `CHANGELOG.md`. |
 
 **Ferramentas e locais de armazenamento por período:**
@@ -44,7 +46,7 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | **16–17/06** | V11–V39 | Registro formal de versões a partir da V20. CSV, PBC, GPU (CuPy), I e m automáticos pela geometria, renderização vetorizada (17–30×), domínios magnéticos, `--make_images`. |
 | **18/06** | — | Revisão de literatura e estratégia de publicação (relatório V22, Fase 6). |
 | **24/06** | `compass_sim_gpu.py/.ipynb` | Variante para GPU, em notebook. |
-| **04/07** | V40–V44 | Tensor dipolar pré-calculado (35–45×), novos protocolos (histerese log, pulso temporizado, degraus), `--t_sim_full`, painel de progresso. Relatórios internos V01–V09. |
+| **04/07** | V40–V44 | Tensor dipolar pré-calculado (35–45×), novos protocolos (histerese log, pulso temporizado, degraus), `--t_sim_full`, painel de progresso. Relatórios V01–V09, um por mudança do código (fontes recuperados do `ALLfiles`). |
 | **05/07** | V45–V65 | Vídeo com painel duplo M×H; tradução para o inglês (V47–V65, com queda de 3945 para 2430 linhas); interface (HUD); `--damping_noise` (V59); ajustes dos scripts de varredura. Relatórios V10–V32 (arquivos V12–V22). |
 | **06–07/07** | V66–V77 | Barra de campo bidirecional no HUD (V66); **FORC** (V67–V71, com taxa constante na V71); **desmagnetização** (V70–V76: rotacional, `--demag_temp`, `--demag_delay`); tempo de execução no log (V77). Relatórios V33–V47. Sessões na Antigravity. |
 | **08–09/07** | V78–V79 | **Geometria física da agulha real** (V79: R = 7,5 mm, espessura de 0,26 mm, pivô de latão com o furo descontado de I e m). Guia do usuário da V78, resumos para o LAW3M 2026, manual de varreduras, FORC nas varreduras. |
@@ -97,9 +99,10 @@ Já no primeiro arquivo há integração por velocity Verlet e `--inertia`. Duas
 - **V38:** **domínios magnéticos** (`--halo_mode`, `--domain_tol`, union-find), mais tarde usados como medida.
 - **V39:** `--make_images` (3× mais rápido em redes pequenas).
 
-Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `damping_sweep_analysis.py`) e o estudo piloto de amortecimento.
+Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `damping_sweep_analysis.py`) e o estudo piloto de amortecimento. As versões mais antigas que sobreviveram, em português e importando `compass_sim`, estão em `archive/OLD/campaign_early/`; são anteriores à V64 (05/07), que passou os scripts a importar `compass.py`.
 
 ### 2.4 Fase 6: de ferramenta a pesquisa (18/06 e 04–07/07, V40–V77)
+- **Relatórios V01–V09 (04/07, 08:21–13:44):** o primeiro relatório de projeto, em português, nasceu nessa manhã e foi revisado a cada passo. O V01 tinha 31 kB; o V02 acrescentou a tabela de parâmetros da V39; o V03, o roteiro de estudos e as melhorias propostas; o V04 documentou a V40 e o `damping_sweepV02`; o V05, exemplos de uso; o V06–V09 documentaram as V41–V44. As figuras incluídas já eram `area_vs_Q.png` e `tau_vs_Q.png`, as mesmas que a auditoria de outubro mostrou serem dominadas pela taxa.
 - **V40 (04/07):** **tensor dipolar pré-calculado**, com ganho medido de 35–45× por corrida. O `damping_sweepV02.py` ganhou paralelização e retomada.
 - **V41:** histerese com espaçamento log (`--hyst_spacing`, `--hyst_log_k`); pulso com `--field_delay`, `--t_pulse` e `--torque_tol`; modos `step_pos` e `step_neg`.
 - **V42:** `--t_sim_full`.
@@ -171,7 +174,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 |---|---|
 | Código T1–V77 | `archive/OLD/compass_sim*.py` (git) e "simula agulhas/OLD" (Drive) |
 | V79, V2.0.1, V2.0.2, V2.1 | `archive/compass.py.bkp`, `archive/compassV02.py`, `archive/compassV02_corrected.py`, `archive/compassV2_1 (1).py` |
-| Relatórios de julho (V09–V22, internos V01–V32) | `archive/OLD/relatorio_projeto_*` (git) e Drive/OLD |
+| Relatórios de julho (V01–V32; arquivos V01–V22) | `archive/OLD/relatorio_projeto_*` (git); V01–V09 também em Drive/OLD/ALLfiles (zip com figuras) |
 | Relatórios V51–V53 | `archive/project_report_V51_compassV2.*`, `archive/project_report.*` (V51/V52) e o histórico do git de `docs/project_report.tex` (V53) |
 | Relatório atual (V60) | `docs/project_report.tex` e `docs/project_report.pdf` |
 | Transcrição das conversas de junho | `archive/OLD/compass_sim_conversation.md` (2,1 MB; fonte primária das sessões de 15–18/06, resumida na seção 5) |
@@ -179,13 +182,14 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 | Versões anteriores ao git, como commits datados | branch `history/pre-git` (seção 4) |
 | Pedidos de junho (99) | `docs/history/requests_2026-06_to_07-05.csv` |
 | Sessões da Antigravity (04–10/07) | `archive/transcripts/antigravity_2026-07/` (13 transcrições, log de conversa e relatórios de tarefa); 184 pedidos datados em `docs/history/requests_antigravity_2026-07.csv` |
+| Primeiras versões dos scripts de campanha | `archive/OLD/campaign_early/` |
 | Política de versões e mudanças | `CHANGELOG.md` |
 
 ---
 
 ## 4. Como navegar pelo histórico no git
 
-A branch `history/pre-git` tem **um commit por versão arquivada** (110 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
+A branch `history/pre-git` tem **um commit por versão arquivada** (123 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
 
 ```bash
 git log --oneline history/pre-git
@@ -201,7 +205,7 @@ git show report-V22-en:docs/report.tex
 
 **Tags:**
 - código: `code-T1`…`code-T10`, `code-V11`…`code-V79`, `code-V2.0`, `code-V2.0.2`, `code-V2.1`;
-- relatórios: `report-V10-pt`, `report-V11-pt`, `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V47`, `report-V51`, `report-V51b`, `report-V52`;
+- relatórios: `report-V01-pt` … `report-V11-pt`, `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V47`, `report-V51`, `report-V51b`, `report-V52`;
 - guias e resumos: `guide-V78-draft`, `guide-V78`, `guide-V2.0.2`, `abstract-LAW3M2026`;
 - período do git: `code-v2.1.0-canonical`, `v2.2` (sua tag de julho), `report-V53`, `phase1-done`, `v2.3.0`, `report-V60`, `qs-saddle-fix`, `v2.4.0`.
 
@@ -234,8 +238,8 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 ## 6. O que ainda falta
 
 - **Código sem arquivo:** só a V57 (o mostrador com seta grossa, que é a V58 sem o escalonamento proporcional). A V64 é igual à V63/V65 no simulador. A V78 foi recuperada.
-- **Relatórios sem arquivo:** V33–V46 e V48–V50, além do fonte do V09 (só existe o PDF). O V47 foi recuperado.
-- **Já verificados (18/10):** a pasta original do Dropbox e o histórico do git dela; `~/.gemini/antigravity-ide`, que é o mesmo que `~/Dropbox/.antigravity-ide`; `~/.antigravity`, `~/.antigravity-ide` e `Application Support/Antigravity`, que só têm a instalação, as extensões e históricos de outros arquivos; e o histórico local de arquivos da 'Antigravity IDE', de onde veio a V78. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
+- **Relatórios sem arquivo:** V33–V46 e V48–V50. O V47 e os V01–V09 foram recuperados.
+- **Já verificados (18/10):** a pasta original do Dropbox e o histórico do git dela; `~/.gemini/antigravity-ide`, que é o mesmo que `~/Dropbox/.antigravity-ide`; `~/.antigravity`, `~/.antigravity-ide` e `Application Support/Antigravity`, que só têm a instalação, as extensões e históricos de outros arquivos; o histórico local de arquivos da 'Antigravity IDE', de onde veio a V78; e `OLD/ALLfiles`, de onde vieram os relatórios V01–V09. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
 - As conversas em formato binário da Antigravity (`conversations/`, 274 MB) não foram decodificadas, mas as transcrições JSONL equivalentes (`brain/*/transcript_full.jsonl`) foram lidas e arquivadas.
 - A tradução para o inglês começou em 05/07 09:34, com o pedido de criar o `compass_sim_ingV01.py` a partir da V46 (conversa `304910a1` da Antigravity).
 
