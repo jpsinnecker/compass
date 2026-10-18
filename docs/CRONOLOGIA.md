@@ -237,6 +237,11 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 
 ## 6. O que ainda falta
 
+**Não houve salto de numeração** (exceto o salto deliberado do relatório, de V53 para V60). As versões sem arquivo existiram; os arquivos é que se perderam:
+- **Código V57:** o registro de versões do relatório V22 (`archive/OLD/relatorio_projeto_V22_EN.tex`, tabela de versões) descreve a sequência V56 (comprimento mínimo da seta do mostrador), **V57** (seta fina trocada por uma seta grossa preenchida, `FancyArrow`) e V58 (a mesma seta, escalonada pela intensidade do campo). A V58 substituiu o arquivo logo em seguida.
+- **Relatórios V33–V46:** a tabela de histórico do relatório V47 (`git show report-V47:docs/report.tex`) tem uma linha datada para cada um, de V33 (06/07, documenta a V66) a V46 (07/07, documenta o `--demag_delay`). Perderam-se porque, desde 06/07, a Antigravity editava sempre o mesmo `project_report.tex`, e cada revisão sobrescrevia a anterior; o V47 sobreviveu só na pasta de compilação da IDE.
+- **Relatórios V48–V50:** evidência indireta. O V51 foi reescrito e já não tem a tabela de histórico, mas os pedidos de 07–08/07 na Antigravity pedem para atualizar o relatório a cada versão do código (por exemplo, 08/07 07:32: "change the actual version number in the code and update the report"), o que corresponde às V78 e V79 e fecha a sequência até o V51 (10/07).
+
 - **Código sem arquivo:** só a V57 (o mostrador com seta grossa, que é a V58 sem o escalonamento proporcional). A V64 é igual à V63/V65 no simulador. A V78 foi recuperada.
 - **Relatórios sem arquivo:** V33–V46 e V48–V50. O V47 e os V01–V09 foram recuperados.
 - **Já verificados (18/10):** a pasta original do Dropbox e o histórico do git dela; `~/.gemini/antigravity-ide`, que é o mesmo que `~/Dropbox/.antigravity-ide`; `~/.antigravity`, `~/.antigravity-ide` e `Application Support/Antigravity`, que só têm a instalação, as extensões e históricos de outros arquivos; o histórico local de arquivos da 'Antigravity IDE', de onde veio a V78; e `OLD/ALLfiles`, de onde vieram os relatórios V01–V09. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
