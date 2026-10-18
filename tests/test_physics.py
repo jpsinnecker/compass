@@ -468,3 +468,18 @@ def test_qs_overdamped_limit_matches_low_Q0_inertial(tmp_path):
 def test_qs_rejects_sweep_rate(tmp_path):
     with pytest.raises(SystemExit):
         _run(tmp_path, "qs_bad", *_QS_COMMON, "--sweep_rate_dimless", "0.01")
+
+
+def test_qs_state_log_matches_csv_and_stop_after(tmp_path):
+    # --qs_state_log stores one rest state per CSV row; --qs_stop_after
+    # truncates the loop without changing the rows that are computed.
+    b = repr(_damping_for_Q0(3.0))
+    rows_full, _ = _run(tmp_path, "qs_full", *_QS_COMMON, "--damping", b)
+    rows, meta = _run(tmp_path, "qs_log", *_QS_COMMON, "--damping", b, "--qs_state_log", "--qs_stop_after", "7")
+    assert len(rows) == 8 and meta["quasi_static"]["stopped_early"]
+    assert [r["M_proj"] for r in rows] == [r["M_proj"] for r in rows_full[:8]]
+    st = np.load(tmp_path / "states" / "qs_log_qs_states.npz")
+    assert st["theta"].shape == (8, meta["derived"]["K"])
+    M = np.cos(st["theta"] - float(st["phi_ext"])).mean(axis=1)
+    np.testing.assert_allclose(M, _col(rows, "M_proj"), atol=1e-10)
+    np.testing.assert_array_equal(st["theta"][-1], np.load(tmp_path / "states" / "qs_log_final.npz")["theta"])
