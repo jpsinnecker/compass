@@ -3,6 +3,8 @@
 > **Status (17/10/2026):** a reestruturação proposta foi executada no Report V60, com resultados da Fase 2 e do protocolo quase-estático. As três referências marcadas em vermelho no PDF (`menniti2025`, `taniguchi2025`, `concha2017`) ainda precisam ser verificadas.
 >
 > **Status (18/10/2026):** a seção de resultados III do V60, o resumo e parte da discussão estão **errados** e serão reescritos com a grade quase-estática corrigida. Eles afirmam efeitos inerciais de 15–43 %, que eram em boa parte artefato de pontos de sela; afirmam que Q₀ = 1 coincide com o fluxo gradiente nas honeycomb pequenas; e tratam as avalanches maiores que K como assinatura de overshoot, quando na verdade são a relaxação do estado inicial (`docs/QS_SELECAO_DE_CAMINHO.md`). Introdução, modelo, métodos, validação e resultados I e II continuam válidos.
+>
+> **Status (18/10/2026, noite):** corrigido no Report V61. A seção de resultados III, o resumo, a discussão e a legenda da Fig. QS3 foram reescritos com a grade quase-estática corrigida (`~/compass_runs/fase2_qs2*`).
 
 Data: 17/10/2026. Versão auditada: Report V53, com as notas de outubro (24 páginas, compila sem erros a partir de `docs/`).
 O manual de uso passou a ter fonte única em `USER_GUIDE.md` (PDF em `docs/USER_GUIDE.pdf`). Esta auditoria trata só do relatório.

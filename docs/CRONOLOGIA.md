@@ -55,7 +55,7 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | **12/07** | git (`ad865d7`…`cb14300`) | Repositório criado; auditoria de código; `config.yaml`; testes de regressão; motor único `compass.py`; janela lenta na histerese; Relatório V53. |
 | **16/10** | git, PRs #4–#6 | **Auditoria física** e **Fase 1**: soma completa, dt pela cota do campo local, Q₀ intrínseco, livro-caixa de energia, taxa adimensional r, testes físicos, README, licença MIT. |
 | **16–17/10** | git, PR #7 (aberto) | **Fase 2**: 690 ciclos com taxa controlada (Mac + mumax + GPU); protocolo quase-estático por eventos; manual com PDF gerado; **Relatório V60**. |
-| **18/10** | git, PR #8 + `21d8ec2` | Descoberta do **artefato de pontos de sela** na primeira grade quase-estática; correção por chute e nova relaxação; grade corrigida em execução. |
+| **18/10** | git, PR #8 + `21d8ec2` | Descoberta do **artefato de pontos de sela** na primeira grade quase-estática; correção por chute e nova relaxação; grade corrigida (QS2, 120 laços) e **Relatório V61**. |
 
 ---
 
@@ -165,7 +165,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 - **Campanha com taxa controlada** (`fase2_campaign.py`), com divisão entre Mac e mumax e as redes grandes na GPU RTX 3090: 690 ciclos. Para Q₀ ≤ 1 há colapso com a taxa em unidades viscosas; em taxa finita, a inércia estreita o laço em 20–50 %.
 - **Protocolo quase-estático por eventos** (`--field_mode hysteresis_qs`, `6312d4e`) e fluxo gradiente como referência Q₀ → 0. Manual com fonte única e PDF gerado por pandoc (`0d82bcf`).
 - **Relatório V60** (`c06e880`, 17/10): reestruturado como relatório de métodos e resultados, com três seções de resultados. Sem comandos nem tabela de flags, que ficam no manual.
-- **18/10 (PR #8):** a análise de seleção de caminho mostrou que boa parte do "efeito inercial" da primeira grade quase-estática era **artefato de pontos de sela**: o fluxo gradiente preserva a simetria da rede e fica no ramo instável. Em `21d8ec2`, o critério de repouso passou a exigir um **chute de 10⁻⁴ rad e nova relaxação**. A grade corrigida está em execução, e as seções de resultados III e o resumo do V60 serão reescritos com ela.
+- **18/10 (PR #8):** a análise de seleção de caminho mostrou que boa parte do "efeito inercial" da primeira grade quase-estática era **artefato de pontos de sela**: o fluxo gradiente preserva a simetria da rede e fica no ramo instável. Em `21d8ec2`, o critério de repouso passou a exigir um **chute de 10⁻⁴ rad e nova relaxação**. A grade corrigida (QS2: 120 laços, Mac + mumax, cerca de 9 h) terminou no mesmo dia, e o **Relatório V61** reescreveu com ela a seção de resultados III, o resumo e a discussão: até 16×16 a inércia não muda o laço quase-estático; em 24×24 e 32×32 ela o estreita em 9–21 % na maioria dos casos.
 
 ---
 

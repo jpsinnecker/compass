@@ -13,7 +13,7 @@ the branch `history/pre-git`.
   * **PATCH:** fixes that do not change the numbers of a correct run.
 
   Bump the version in the same commit as the change, and tag the commit `vX.Y.Z` once it is on `main`.
-* **Scientific report:** `Report Vnn` (`docs/project_report.tex`), numbered continuously since July (V01–V53, then V60). The next revision is V61. Tag `report-Vnn`.
+* **Scientific report:** `Report Vnn` (`docs/project_report.tex`), numbered continuously since July (V01–V53, then V60, V61). The next revision is V62. Tag `report-Vnn`.
 * **Pre-git versions** keep their historical names (T1–T10, V11–V79, V2.0, V2.0.2, V2.1), with tags `code-T1` … `code-V2.1` on `history/pre-git`.
 * **Do not confuse** "code V60" (05/07/2026, CLI translated to English) with "Report V60" (17/10/2026).
 
@@ -27,7 +27,7 @@ the branch `history/pre-git`.
 ### Fixed
 - The QS rest criterion accepted zero-torque saddles, so the gradient flow stayed on unstable symmetric branches. The first QS grid (made without the kick) is invalid for comparing dynamics (`docs/QS_SELECAO_DE_CAMINHO.md`).
 ### Docs
-- User manual with a single Markdown source and a pandoc-built PDF; Report V60 restructured (its Results III are being rewritten); `docs/CRONOLOGIA.md`.
+- User manual with a single Markdown source and a pandoc-built PDF; Report V60 restructured, Report V61 with Results III from the corrected quasi-static grid; `docs/CRONOLOGIA.md`.
 
 ## [2.3.0] – 2026-10-16 (Phase 1; PRs #4–#6, on `main`; tag `phase1-done`)
 ### Changed (results change)
@@ -67,4 +67,5 @@ Summarized in `docs/CRONOLOGIA.md`. Every archived version is a commit on `histo
 | V33–V50 | 06–09/07 | `project_report.tex` in the Antigravity sessions (documents code V66–V79); only V47 survived (tag `report-V47`) |
 | V51, V52 | 10/07 | rewritten around the V2 branch (tags `report-V51`, `report-V52` on `history/pre-git`) |
 | V53 | 12/07 | git, canonical engine (tag `report-V53`) |
-| V60 | 17/10 | restructured as a methods-and-results report (tag `report-V60`); Results III under revision |
+| V60 | 17/10 | restructured as a methods-and-results report (tag `report-V60`); its Results III contained saddle artefacts |
+| V61 | 18/10 | Results III, abstract and discussion rewritten with the corrected quasi-static grid (tag `report-V61`) |

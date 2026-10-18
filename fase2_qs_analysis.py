@@ -132,7 +132,10 @@ def figures(summ, events, fig_dir):
     plt.close(fig)
 
     # Fig Q3: CCDF of per-step avalanche size s (> 0), largest N, per dynamics.
+    # The first branch (0 -> +B_max) starts from the random initial state and is
+    # excluded: its first steps relax the whole array, not one field increment.
     if not events.empty:
+        events = events[events.branch != "0_to_pos"]
         nmax = events.N.max()
         fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharey=True)
         for ax, g in zip(axes, GEOM_ORDER):

@@ -111,7 +111,7 @@ exceção marginal no od em 24×24, λ = −0,007).
   avalanche de 150 agulhas que a Q10 (50 na borda), que o od só faz dois passos depois. Áreas: od 0,437, Q10 0,317,
   od com ruído 0,389. Portanto cerca de 11 pontos dos −27 % vêm da referência sem ruído, e cerca de −18 % (Q10 em
   relação ao od com ruído) seriam inerciais. Como o caminho depende do chute, esse número ainda precisa da dispersão
-  entre sementes do chute (em execução; ver §8).
+  entre sementes do chute (ver §8). A grade corrigida (QS2, 18/10) deu −18,3 % para a Q10 em relação ao fluxo gradiente com chute, com as duas sementes idênticas.
 
 ### Resumo dos casos
 
