@@ -55,6 +55,12 @@ python3 tests/generate_reference.py             # regenerate regression referenc
 - Any claim about the effect of Q on hysteresis must be made at the quasi-static limit (rate → 0) or
   as an explicit function of the dimensionless sweep rate.
 
+## Versions
+- Engine version is `__version__` in `compass.py` (semver, recorded in run metadata). Bump it in the same
+  commit as any change of physics, defaults, protocols or output format, and add a `CHANGELOG.md` entry.
+- Report versions continue as `Report Vnn` (current V60, next V61). Code "V60" (July) is not Report V60.
+- Pre-git history: branch `history/pre-git`, tags `code-T1`…`code-V2.1`, `report-*`; narrative in `docs/CRONOLOGIA.md`.
+
 ## Workflow
 - Branch per phase/fix (`fase1/...`). Small commits. Run `pytest` before committing.
 - Campaign outputs go outside the repo (e.g. `~/compass_runs/`). Never commit CSV/MP4/ZIP results.

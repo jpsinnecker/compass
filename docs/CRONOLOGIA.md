@@ -1,11 +1,15 @@
 # Cronologia do projeto: do primeiro script ao Relatório V60
 
-Data: 18/10/2026. Guia reconstruído a partir de quatro fontes:
+Data: 18/10/2026 (revisão 2, com as fontes primárias). Guia reconstruído a partir de seis fontes:
 
 1. **Código arquivado:** 76 versões em `archive/OLD/` e em "simula agulhas/OLD" no Google Drive (`compass_simT*.py`, `compass_simV11–V77.py`), mais `archive/compass.py.bkp` (V79) e `archive/compassV02*.py` / `compassV2_1 (1).py` (V2.x). As mudanças de cada versão foram **extraídas automaticamente**: flags de linha de comando adicionadas e removidas, modos de campo, funções novas e tamanho do código. Nos poucos casos sem registro escrito, foram conferidas por `diff`.
 2. **Registro de versões do código V1–V65** e **narrativa das sessões de junho**, no relatório `relatorio_projeto_V22_EN.tex` (05/07).
 3. **Relatórios e guias de 08–11/07** na raiz da pasta do Drive, com datas de modificação dos arquivos.
 4. **Histórico do git**, de 12/07 em diante.
+5. **Transcrições das sessões de 15–18/06 no claude.ai:** 99 pedidos datados, listados em `docs/history/requests_2026-06_to_07-05.csv`. A fonte completa está em `archive/OLD/compass_sim_conversation.md`, que reúne as mesmas 7 sessões.
+6. **Sessões de 06–10/07 na IDE Antigravity:** log de conversa (`archive/transcripts/antigravity_2026-07/chat_antiIDE.md`, 29 pedidos em `docs/history/requests_antigravity_2026-07.tsv`) e os relatórios de tarefa (`*_walkthrough.md`, `*_task.md`) na mesma pasta.
+
+**Como navegar:** cada versão arquivada é um commit da branch `history/pre-git`, com a data original e uma tag. Ver a seção 4.
 
 As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação é inferência, isso está indicado.
 
@@ -16,8 +20,14 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | Linha | Numeração | Exemplo de ambiguidade |
 |---|---|---|
 | **Código do simulador** | T1–T10 → V11–V79 → V2.0.1, V2.0.2, V2.1 → `compass.py` 2.1.0 com correções (git) | "**V60**" do código é uma versão de **05/07**: a tradução da interface de linha de comando para o inglês. |
-| **Relatório** | arquivos `relatorio_projeto_V09`…`V22` (04–05/07, com versões internas V01–V32 na tabela do próprio relatório) → `project_report` **V51, V52, V53** (10–12/07) → **V60** (17/10) | O **Relatório V60** atual não tem relação com o código V60. Não existiram relatórios V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Entre o relatório interno V32 (05/07) e o V51 (10/07) não há arquivos intermediários; a numeração foi provavelmente avançada para casar com a linha do código. |
-| **Git** | commits e PRs #4–#8 | Os PRs são a referência mais confiável a partir de 12/07. |
+| **Relatório** | numeração **contínua**: V01–V32 (04–05/07, arquivos `relatorio_projeto_V09`…`V22`) → V33–V50 (06–09/07, `project_report.tex` nas sessões da Antigravity; o V33 documentou o código V66 e o V47, a V77) → **V51, V52** (10/07) → **V53** (12/07) → **V60** (17/10) | O **Relatório V60** não tem relação com o código V60. Não existiram V54–V59: o salto de V53 para V60 marcou a reestruturação de outubro. Os arquivos V33–V50 não foram preservados individualmente. |
+| **Git** | commits, PRs #4–#8 e tags (`v2.2`, `v2.3.0`, `v2.4.0`, `report-Vnn`) | Os PRs são a referência mais confiável a partir de 12/07. A política de versões daqui em diante está no `CHANGELOG.md`. |
+
+**Ferramentas e locais de armazenamento por período:**
+- **15/06–05/07:** claude.ai (chat), com os arquivos no Dropbox.
+- **06–10/07:** IDE Antigravity, ainda no Dropbox (`~/Library/CloudStorage/Dropbox/simula agulhas`).
+- **10–11/07:** pasta "simula agulhas" no Google Drive.
+- **12/07 em diante:** repositório git; desde 16/10, Claude Code. O motor tem `__version__` próprio desde a 2.4.0.
 
 ---
 
@@ -32,8 +42,8 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | **24/06** | `compass_sim_gpu.py/.ipynb` | Variante para GPU, em notebook. |
 | **04/07** | V40–V44 | Tensor dipolar pré-calculado (35–45×), novos protocolos (histerese log, pulso temporizado, degraus), `--t_sim_full`, painel de progresso. Relatórios internos V01–V09. |
 | **05/07** | V45–V65 | Vídeo com painel duplo M×H; tradução para o inglês (V47–V65, com queda de 3945 para 2430 linhas); interface (HUD); `--damping_noise` (V59); ajustes dos scripts de varredura. Relatórios V10–V32 (arquivos V12–V22). |
-| **06–07/07** | V66–V77 | **FORC** (V67–V71, com taxa constante na V71); **desmagnetização** (V70–V76: rotacional, `--demag_temp`, `--demag_delay`); tempo de execução no log (V77). |
-| **08–09/07** | V78–V79 | Correção do pivô em I e m (`--pivot_*`). Resumos para o LAW3M 2026; manual de varreduras; guia do usuário. |
+| **06–07/07** | V66–V77 | Barra de campo bidirecional no HUD (V66); **FORC** (V67–V71, com taxa constante na V71); **desmagnetização** (V70–V76: rotacional, `--demag_temp`, `--demag_delay`); tempo de execução no log (V77). Relatórios V33–V47. Sessões na Antigravity. |
+| **08–09/07** | V78–V79 | **Geometria física da agulha real** (V79: R = 7,5 mm, espessura de 0,26 mm, pivô de latão com o furo descontado de I e m). Guia do usuário da V78, resumos para o LAW3M 2026, manual de varreduras, FORC nas varreduras. |
 | **10/07** | V2.0.1 → V2.0.2 | **Ramo de pesquisa reescrito** (1292 linhas): cutoff explícito, observáveis S1/S2, contadores de flips, energias, metadados JSON, estados NPZ, PNGs automáticos. Relatórios V51 e V52; `damping_sweepV03.py`. |
 | **11/07** | V2.1 | Contadores de avalanche robustos a oscilação (Schmitt + dwell), monitor de estabilidade, `--event_log`. |
 | **12/07** | git (`ad865d7`…`cb14300`) | Repositório criado; auditoria de código; `config.yaml`; testes de regressão; motor único `compass.py`; janela lenta na histerese; Relatório V53. |
@@ -93,7 +103,7 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **V44:** painel de progresso de duas linhas.
 - **V45:** vídeo de histerese com painel duplo (agulhas e curva M×H).
 - **V46–V65 (05/07):** alinhamento da ajuda (V46); `--hyst_autoscale` e tradução dos comentários (V47); ajustes do HUD, mostrador e seta de direção (V49–V58); **`--damping_noise`** (V59); tradução da interface de linha de comando (**V60**), dos gráficos (V61) e dos avisos (V62); constantes pré-calculadas no laço (V63); imports e tradução dos scripts de varredura (V64–V65).
-- **V66 (06/07):** só ajustes de formatação (alinhamento da ajuda e da assinatura de funções).
+- **V66 (06/07):** barra horizontal de intensidade do campo no HUD **bidirecional**, crescendo a partir do zero, com marca vermelha em zero; tradução da ajuda de `--damping_noise`. Junto veio o Relatório **V33**, o primeiro `project_report.tex`, derivado do `relatorio_projeto_V22_EN.tex`. A comparação automática de flags não detecta mudanças visuais como essa; a fonte é o relatório de tarefa da Antigravity `df4c3b25`.
 - **V67–V69:** **FORC**. Na V67, `--forc_Br`, `--forc_t_rev` e `--forc_t_sat`. Na V68, a família de curvas (`--forc_n_curves`, `--forc_Br_min`, `--forc_t_ramp_down/up`). Na V69, `--forc_sweep`.
 - **V70:** **desmagnetização** (`--demag`, `--demag_cycles`, `--demag_freq`).
 - **V71:** FORC com **taxa constante** (`--forc_rate`), em resposta à "armadilha da taxa variável" documentada em `FORC.md`.
@@ -102,10 +112,12 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **V74:** `--demag_temp` (opção de recozimento térmico).
 - **V75:** barra de progresso com etapas ("demag" × "integrando").
 - **V76:** `--demag_delay`.
-- **V77 (07/07):** tempo de relógio no log final.
+- **V77 (07/07):** tempo de relógio no log final ("Completed in … sec"), documentado no Relatório **V47**.
 
 ### 2.5 Consolidação e primeira divulgação (08–09/07, V78–V79)
-- **V79:** correção do pivô no momento de inércia e no volume magnético (`--pivot_radius`, `--pivot_thickness`, `--pivot_density`, `--pivot_mass`). A V78 não foi preservada como arquivo separado.
+- **V78:** o arquivo não foi preservado. O `USER_GUIDE.tex` de 09/07 documenta essa versão inteira (parâmetros, modos, exemplos).
+- **V79:** **valores padrão tirados da agulha real** (relatório de tarefa `44a7391c`): R = 7,5 mm e `needle_frac` = 2/3 (L = 10 mm), razão largura/comprimento de 0,30 (W = 3 mm), espessura de **0,26 mm**, pivô de latão (raio de 1 mm, altura de 2 mm, 8500 kg/m³) e o furo do pivô descontado da massa, de I e de m. Resultado: I ≈ 1,63×10⁻¹⁰ kg·m² e m ≈ 4,9×10⁻³ A·m². Novas flags `--pivot_radius`, `--pivot_thickness`, `--pivot_density` e `--pivot_mass`. É a origem dos 0,26 mm; a reescrita V2 (10/07) voltou ao padrão de 0,4 mm e a um espaçamento de 13 mm, e daí vem a inconsistência de espessura que ainda está pendente.
+- Na Antigravity (29 pedidos, `docs/history/requests_antigravity_2026-07.tsv`): guia detalhado da V78 em Markdown e em LaTeX, revisões do `project_report.tex`, coerência dos scripts de varredura com o novo `compass.py`, barra de progresso por worker, manual das varreduras, gráficos da análise em inglês, **FORC nas varreduras** (relatório de tarefa `4e2c5a1a`) e o caso de estudo do resumo do LAW3M.
 - Resumos para o **LAW3M 2026** (`Abstract.tex` de 08/07; `LAW3M2026_compass_needle_abstract*.tex` de 09/07), manual das varreduras (`damping_sweep_manual.tex`) e guia do usuário.
 - `calc_defaults_temp.py` usa a espessura de 0,26 mm, origem da inconsistência com os 0,4 mm do simulador que ainda está pendente.
 
@@ -152,3 +164,64 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 | Relatório atual (V60) | `docs/project_report.tex` e `docs/project_report.pdf` |
 | Transcrição das conversas de junho | `archive/OLD/compass_sim_conversation.md` (2,1 MB; não usada aqui, mas é a fonte primária das sessões de 15–18/06) |
 | Histórico detalhado de 12/07 em diante | `git log` |
+| Versões anteriores ao git, como commits datados | branch `history/pre-git` (seção 4) |
+| Pedidos de junho (99) | `docs/history/requests_2026-06_to_07-05.csv` |
+| Sessões da Antigravity (julho) | `archive/transcripts/antigravity_2026-07/` (log de conversa e relatórios de tarefa); pedidos em `docs/history/requests_antigravity_2026-07.tsv` |
+| Política de versões e mudanças | `CHANGELOG.md` |
+
+---
+
+## 4. Como navegar pelo histórico no git
+
+A branch `history/pre-git` tem **um commit por versão arquivada** (105 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
+
+```bash
+git log --oneline history/pre-git
+```
+
+```bash
+git diff code-V40 code-V41 -- compass.py
+```
+
+```bash
+git show report-V22-en:docs/report.tex
+```
+
+**Tags:**
+- código: `code-T1`…`code-T10`, `code-V11`…`code-V79`, `code-V2.0`, `code-V2.0.2`, `code-V2.1`;
+- relatórios: `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V51`, `report-V51b`, `report-V52`;
+- guias e resumos: `guide-V78`, `guide-V2.0.2`, `abstract-LAW3M2026`;
+- período do git: `code-v2.1.0-canonical`, `v2.2` (sua tag de julho), `report-V53`, `phase1-done`, `v2.3.0`, `report-V60`, `qs-saddle-fix`, `v2.4.0`.
+
+Para ver tudo como uma única linha contínua (só localmente, sem alterar o GitHub):
+
+```bash
+git replace --graft ad865d7 history/pre-git
+```
+
+---
+
+## 5. Sessões de junho (claude.ai): pedidos por sessão
+
+Horário de Brasília. Os nomes dos arquivos de transcrição são as datas de exportação, não as das sessões.
+
+| Sessão (arquivo) | Pedidos | Período | Conteúdo principal |
+|---|---|---|---|
+| compass-needle-simulation | 13 | 15/06 16:56 → 17:56 | Pedido inicial ("simular uma rede de agulhas… buscar o equilíbrio… vista por cima"), agulha em losango azul e branca, parâmetros da rede, honeycomb, campo externo, vídeo, unidades SI. |
+| compass-sim-pbc-feature | 22 | 15/06 18:06 → 16/06 07:45 | Indicação do campo na imagem, numeração de vídeos, interrupção, Q, honeycomb corrigida, PBC. |
+| compass-sim-gpu-perf | 21 | 16/06 07:52 → 17/06 07:02 | `t_sim` como tempo físico, modos de campo, histerese em 5 segmentos, CSV, GPU. |
+| compass-sim-gpu-ctrlc | 22 | 17/06 07:12 → 13:34 | PBC no campo dipolar, registro formal de versões (V20), GPU vetorizada, Ctrl+C e Ctrl+I, inércia automática. |
+| compass-sim-gpu-domains | 9 | 17/06 13:39 → 20:08 | Renderização vetorizada (V35), momento automático (V37), domínios (V38). |
+| compass-sim-publication-strategy | 5 | 17/06 20:11 → 21:18 | `--make_images` (V39), primeiros scripts de campanha. |
+| compass-sim-english-translation | 7 | 17/06 21:50 → 18/06 05:55 | Revisão de literatura e de arXiv, nichos de publicação, revistas. |
+
+A lista completa, com data e hora de cada pedido, está em `docs/history/requests_2026-06_to_07-05.csv`.
+
+---
+
+## 6. O que ainda falta
+
+- **Arquivos ausentes:** V57, V64 (só o script de congelamento) e V78 (descrita pelo guia). Também os arquivos individuais dos Relatórios V33–V50.
+- As conversas brutas da Antigravity (`~/.gemini/antigravity-ide/conversations`, 274 MB em formato binário) não foram decodificadas. Os relatórios de tarefa e o log `antiIDE` cobrem o essencial.
+- O pedido de 05/07, que registrou a tradução para o inglês, aparece no relatório V22, mas não nas transcrições exportadas.
+

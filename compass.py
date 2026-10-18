@@ -128,6 +128,10 @@ CFG = load_config()
 # directly.
 # =============================================================================
 
+# Engine version (semantic versioning; see CHANGELOG.md). Bump it in the same
+# commit as any change of physics, defaults, protocols or output format.
+__version__ = "2.4.0"
+
 MU0_OVER_4PI = CFG.physics.constants.mu0_over_4pi  # T m / A
 STEEL_DENSITY_DEFAULT = CFG.physics.compass_engine.steel_density  # kg/m^3
 STEEL_MS_SATURATION_DEFAULT = CFG.physics.compass_engine.steel_ms_saturation  # A/m, approximately Bsat=2.0 T / mu0
@@ -1535,7 +1539,7 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
 
     metadata = {
         "program": "compass.py",
-        "version": "2.1.0",
+        "version": __version__,
         "source_file_timestamp": SOURCE_FILE_TIMESTAMP,
         "created_unix_time": time.time(),
         "created_datetime_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
