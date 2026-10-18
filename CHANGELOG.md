@@ -52,6 +52,7 @@ Summarized in `docs/CRONOLOGIA.md`. Every archived version is a commit on `histo
 - **V2.1** (11/07): ringing-proof flip counters, stability monitor, `--event_log`.
 - **V2.0.2 / V2.0** (10/07): research branch rewritten from scratch.
 - **V79** (09/07): physical needle geometry (0.26 mm, pivot).
+- **V78** (08/07): M HUD box, time-based seed, 10 s countdown (recovered from the editor's local history).
 - **V67–V77** (06–07/07): FORC and demagnetization.
 - **V40** (04/07): precomputed dipolar tensor.
 - **V20** (17/06): formal version record begins.
