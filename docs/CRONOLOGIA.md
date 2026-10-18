@@ -1,6 +1,6 @@
 # Cronologia do projeto: do primeiro script ao Relatório V60
 
-Data: 18/10/2026 (revisão 2, com as fontes primárias). Guia reconstruído a partir de seis fontes:
+Data: 18/10/2026 (revisão 3, com as fontes primárias e a pasta original do Dropbox). Guia reconstruído a partir de sete fontes:
 
 1. **Código arquivado:** 76 versões em `archive/OLD/` e em "simula agulhas/OLD" no Google Drive (`compass_simT*.py`, `compass_simV11–V77.py`), mais `archive/compass.py.bkp` (V79) e `archive/compassV02*.py` / `compassV2_1 (1).py` (V2.x). As mudanças de cada versão foram **extraídas automaticamente**: flags de linha de comando adicionadas e removidas, modos de campo, funções novas e tamanho do código. Nos poucos casos sem registro escrito, foram conferidas por `diff`.
 2. **Registro de versões do código V1–V65** e **narrativa das sessões de junho**, no relatório `relatorio_projeto_V22_EN.tex` (05/07).
@@ -8,6 +8,8 @@ Data: 18/10/2026 (revisão 2, com as fontes primárias). Guia reconstruído a pa
 4. **Histórico do git**, de 12/07 em diante.
 5. **Transcrições das sessões de 15–18/06 no claude.ai:** 99 pedidos datados, listados em `docs/history/requests_2026-06_to_07-05.csv`. A fonte completa está em `archive/OLD/compass_sim_conversation.md`, que reúne as mesmas 7 sessões.
 6. **Sessões de 06–10/07 na IDE Antigravity:** log de conversa (`archive/transcripts/antigravity_2026-07/chat_antiIDE.md`, 29 pedidos em `docs/history/requests_antigravity_2026-07.tsv`) e os relatórios de tarefa (`*_walkthrough.md`, `*_task.md`) na mesma pasta.
+
+7. **A pasta original do Dropbox** (`~/Library/CloudStorage/Dropbox/simula agulhas`), onde o repositório git foi criado em 12/07. O histórico do git é o mesmo do GitHub (30 commits), mas os arquivos apagados nele e os `.zip` de julho devolveram os fontes dos **relatórios V10 e V11**. Também havia arquivos não versionados de 13/07 (seção 2.7).
 
 **Como navegar:** cada versão arquivada é um commit da branch `history/pre-git`, com a data original e uma tag. Ver a seção 4.
 
@@ -133,7 +135,7 @@ Nesse período também nasceram os scripts de campanha (`damping_sweep.py`, `dam
 - **Relatórios:** `project_report_V51_compassV2.tex` (10/07, 08h36) reorganizou o relatório em torno dos objetivos acadêmicos; o **V52** (10/07, 12h19) alinhou-o à V2.0.2. Guias do usuário V2.0.2. `damping_sweepV03.py` compatível com a V2.
 
 ### 2.7 Repositório git e auditoria de código (12/07)
-Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), parâmetros extraídos para `config.yaml`, testes de regressão e arquivamento das linhagens mortas em `archive/`. **A V2.1 virou o `compass.py` canônico** (`9a2cc63`). Ganhou ainda log adaptativo e janela de varredura lenta na histerese (`--log_adaptive`, `--hyst_slow_window`, `--hyst_slow_factor`). O `USER_GUIDE.md` foi reescrito, e o **Relatório V53** saiu na mesma data.
+Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), parâmetros extraídos para `config.yaml`, testes de regressão e arquivamento das linhagens mortas em `archive/`. **A V2.1 virou o `compass.py` canônico** (`9a2cc63`). Ganhou ainda log adaptativo e janela de varredura lenta na histerese (`--log_adaptive`, `--hyst_slow_window`, `--hyst_slow_factor`). O `USER_GUIDE.md` foi reescrito, e o **Relatório V53** saiu na mesma data. Em **13/07**, uma tentativa de auditoria automática do código com um agente da Antigravity (`agy.py`, modelo Gemini) produziu um resumo curto (`audit_summary.json`). Os dois estão em `archive/2026-07-13_antigravity_agent_audit/`.
 
 ### 2.8 Auditoria física e Fase 1 (16/10; PRs #4, #5 e #6, em `main`)
 - **Auditoria** (`docs/AUDIT_PHYSICS_ROADMAP.md`). O cutoff enviesava o campo em 15–17 %; o dt estava sub-resolvido (erro de energia de 1,4–1,8 %); Q dependia do protocolo (fator √8); a área do laço era dominada pela taxa (∝ taxa^~0,6). As figuras antigas de "área × Q" e "expoente × Q" não mediam o que diziam.
@@ -173,7 +175,7 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 
 ## 4. Como navegar pelo histórico no git
 
-A branch `history/pre-git` tem **um commit por versão arquivada** (105 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
+A branch `history/pre-git` tem **um commit por versão arquivada** (107 commits, de 15/06 a 11/07), com a data original. O código fica sempre em `compass.py`, e o nome original do arquivo aparece na mensagem de cada commit. Os relatórios ficam em `docs/report.tex`, os guias em `docs/user_guide.tex` e os resumos em `docs/abstract.tex`. Datas aproximadas (V28, V79, V2.0 e versões salvas de novo depois da seguinte) estão marcadas na mensagem do commit.
 
 ```bash
 git log --oneline history/pre-git
@@ -189,7 +191,7 @@ git show report-V22-en:docs/report.tex
 
 **Tags:**
 - código: `code-T1`…`code-T10`, `code-V11`…`code-V79`, `code-V2.0`, `code-V2.0.2`, `code-V2.1`;
-- relatórios: `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V51`, `report-V51b`, `report-V52`;
+- relatórios: `report-V10-pt`, `report-V11-pt`, `report-V12-pt`, `report-V12-en` … `report-V22-en`, `report-V51`, `report-V51b`, `report-V52`;
 - guias e resumos: `guide-V78`, `guide-V2.0.2`, `abstract-LAW3M2026`;
 - período do git: `code-v2.1.0-canonical`, `v2.2` (sua tag de julho), `report-V53`, `phase1-done`, `v2.3.0`, `report-V60`, `qs-saddle-fix`, `v2.4.0`.
 
@@ -221,7 +223,7 @@ A lista completa, com data e hora de cada pedido, está em `docs/history/request
 
 ## 6. O que ainda falta
 
-- **Arquivos ausentes:** V57, V64 (só o script de congelamento) e V78 (descrita pelo guia). Também os arquivos individuais dos Relatórios V33–V50.
+- **Arquivos ausentes:** V57, V64 (só o script de congelamento) e V78 (descrita pelo guia). Também os arquivos individuais dos Relatórios V33–V50 e o fonte do V09 (só existe o PDF). A pasta original do Dropbox e o histórico do git dela foram verificados em 18/10 e não os contêm. Ainda poderiam estar no histórico de versões do próprio Dropbox (pelo site; depende do prazo de retenção do plano), no MacBook usado em julho ou num backup do NAS ou do Time Machine.
 - As conversas brutas da Antigravity (`~/.gemini/antigravity-ide/conversations`, 274 MB em formato binário) não foram decodificadas. Os relatórios de tarefa e o log `antiIDE` cobrem o essencial.
 - O pedido de 05/07, que registrou a tradução para o inglês, aparece no relatório V22, mas não nas transcrições exportadas.
 
