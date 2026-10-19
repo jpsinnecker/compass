@@ -28,6 +28,7 @@ Each change is covered by a test in `tests/test_physics.py` (see §11).
 2. [Lattice Geometry Options](#2-lattice-geometry-options)
 3. [External Field Modes (`--field_mode`)](#3-external-field-modes---field_mode)
 4. [Demagnetization Modes](#4-demagnetization-modes)
+4b. [Event-Driven Quasi-Static Loop](#4b-event-driven-quasi-static-loop---field_mode-hysteresis_qs)
 5. [System Requirements & Acceleration](#5-system-requirements--acceleration)
 6. [Command Line Parameters Reference](#6-command-line-parameters-reference)
 7. [Output Files & Data Formats](#7-output-files--data-formats)
@@ -62,7 +63,7 @@ There is no stochastic thermal-torque term in the dynamics: the model is purely 
 If `--moment`/`--inertia` are not supplied explicitly, they are derived from a **rhombus-shaped** blade geometry (not a rectangular sheet):
 * **Blade area**: $A = 0.5 \cdot L \cdot W$, where $L$ = `--needle_len` and $W$ = `--needle_width` (independent of lattice spacing by default; see `--use_legacy_size_from_R` below for the legacy convention).
 * **Moment of inertia**: $I = \frac{1}{24}\, m_{\text{blade}} (L^2+W^2)$ for the solid blade about its center, with an optional pivot-hole subtraction and pivot-cylinder addition (`--pivot_radius`, `--pivot_thickness`, `--pivot_density`, or an explicit `--pivot_mass` override).
-* **Magnetic moment**: $m = M_s \cdot A_{\text{net}} \cdot t$, where $t$ = `--needle_thickness`, $A_{\text{net}}$ subtracts the pivot-hole area if any, and $M_s$ = `--steel_Ms` (or `B_{\text{sat}}/\mu_0$ if `--steel_Bsat` is given instead).
+* **Magnetic moment**: $m = M_s \cdot A_{\text{net}} \cdot t$, where $t$ = `--needle_thickness`, $A_{\text{net}}$ subtracts the pivot-hole area if any, and $M_s$ = `--steel_Ms` (or $B_{\text{sat}}/\mu_0$ if `--steel_Bsat` is given instead).
 
 Two needle-thickness defaults coexist: `compass.py` uses `--needle_thickness 0.0004` (0.4 mm), while `damping_sweepV03.py` (via `config.yaml`, section `damping_sweep`) and `calc_defaults_temp.py` use 0.26 mm, as do the project report and the needle drawing. This has not yet been reconciled against the real needle. Always pass `--needle_thickness` explicitly in production runs, and check the value recorded in the metadata.
 
@@ -118,12 +119,13 @@ In all three cases the nearest-neighbor distance $r_{nn}$ is computed directly f
 
 ## 3. External Field Modes (`--field_mode`)
 
-You can control how the external magnetic field $B_{\text{ext}}(t)$ changes over time using `--field_mode`. The full choice set is: `static`, `hysteresis`, `forc`, `sine`, `step_up`/`step_pos`, `step_down`/`step_neg`, `pulse`, `demag_rot`, `demag_linear`.
+You can control how the external magnetic field $B_{\text{ext}}(t)$ changes over time using `--field_mode`. The full choice set is: `static`, `hysteresis`, `hysteresis_qs`, `forc`, `sine`, `step_up`/`step_pos`, `step_down`/`step_neg`, `pulse`, `demag_rot`, `demag_linear`.
 
 | Mode | Description | Key Parameters |
 | :--- | :--- | :--- |
 | `static` | Applies a constant field $B_{\text{ext}}$ in a fixed direction for the whole run. | `--B_ext` (or `--B_max_factor` if `--B_ext` omitted), `--phi_ext_deg` |
 | `hysteresis` | Sweeps the field through a full five-segment cycle: $0 \rightarrow +B_{\max} \rightarrow 0 \rightarrow -B_{\max} \rightarrow 0 \rightarrow +B_{\max}$, each segment taking `--t_sim`/5 by default. Spacing within each segment can be linear or logarithmic, and an optional slow-sweep window can locally divide the rate. | `--B_ext`, `--phi_ext_deg`, `--hyst_spacing`, `--hyst_log_k`, `--hyst_slow_window`, `--hyst_slow_factor` |
+| `hysteresis_qs` | **Event-driven quasi-static** five-branch loop: the field advances in steps of `--qs_dB_factor` $\times B_{\text{ref}}$ and, after each step, the dynamics runs at fixed field until rest. No sweep rate: this is the $r \to 0$ limit directly (see §4b). | `--qs_dB_factor`, `--qs_tol_torque`, `--qs_tol_omega`, `--qs_dynamics` |
 | `forc` | First-Order Reversal Curves: repeated cycles of hold-at-saturation, ramp down to a reversal field $B_r$ (varying per curve down to `--forc_Br_min`), then ramp back up to $+B_{\max}$. | `--forc_n_curves`, `--forc_Br_min`, `--forc_t_sat`, `--forc_t_ramp_down`, `--forc_t_ramp_up`, `--forc_rate` |
 | `sine` | A sinusoidal external field: $B_{\text{ext}}(t) = B_{\max}\sin(2\pi f t)$. | `--B_ext`, `--field_freq` |
 | `step_up` / `step_pos` | Field is $0$ until `--field_delay`, then steps to $+B_{\max}$ and stays there. | `--B_ext`, `--field_delay` |
@@ -149,6 +151,31 @@ where $T_{\text{demag}} = $ `--demag_cycles` / `--demag_freq`. Rotational demagn
 The field decays linearly to zero along the fixed direction set by `--phi_ext_deg`, without rotating. Simpler than `demag_rot`, but does not sweep through all in-plane directions.
 
 After either mode completes, `--t_relax_after` extra seconds of zero-field relaxation are appended automatically (this is folded into the mode's own total simulated time; `--t_sim` is ignored for these two modes, exactly as for `forc`).
+
+---
+
+## 4b. Event-Driven Quasi-Static Loop (`--field_mode hysteresis_qs`)
+
+A continuous sweep only approaches the quasi-static loop as $r \to 0$, and for large arrays this limit was not reached even at $r = 10^{-3}$ (see `docs/FASE2_RESULTADOS_PRELIMINARES.md`). `hysteresis_qs` computes that limit directly:
+
+1. the field follows the same five branches as `hysteresis` ($0 \to +B_{\max} \to 0 \to -B_{\max} \to 0 \to +B_{\max}$), in steps of $\Delta B$ = `--qs_dB_factor` $\times B_{\text{ref}}$;
+2. after each step the needles evolve **at fixed field** with the real dynamics until rest: $\max_i|\tau_i| \le$ `--qs_tol_torque` $\times m B_{\text{lat}}$ **and** $\max_i|\omega_i| \le$ `--qs_tol_omega` $\times \omega_{\text{lat}}$ (checked every `--qs_check_every` steps);
+3. **saddle check:** each needle gets a random kick of `--qs_kick` rad (default $10^{-4}$, reproducible from `--seed`; areas are identical for $10^{-4}$–$10^{-2}$, and smaller kicks relax faster), and the array relaxes again. A true minimum returns to the same state, while a saddle point (zero torque, but unstable) is abandoned;
+4. the rest state is written as **one CSV row per field step**, and the next step follows.
+
+Consequences:
+* In a row, the `flip_field`/`flip_angle` counts and the increase of `E_diss_J` are the **avalanche size and energy dissipated by that field step**, which gives event-resolved statistics directly.
+* The field jump enters the energy ledger exactly ($-\sum_i \mathbf m_i \cdot \Delta\mathbf B$ at fixed angles), and the metadata block `quasi_static` records the step, tolerances, the number of field steps and how many failed to converge (`unconverged_field_steps`, which should be 0).
+* `--qs_dynamics inertial` (default) uses the real $Q_0$, so inertia can still decide where each avalanche ends (overshoot into another basin). `--qs_dynamics overdamped` integrates the gradient flow $b\,\dot\theta = \tau$ instead, which is the $Q_0 \to 0$ limit without inertia. In that case `--damping` only sets the time unit.
+* `--sweep_rate_dimless` and `--t_sim` do not apply. `t_s` is the accumulated relaxation time.
+* **Why the kick is needed:** a zero-torque state can be a saddle. The gradient flow preserves lattice symmetries exactly, so it can stay on a symmetric branch after that branch has become unstable. Without the check, small honeycomb arrays spent ~500 of 3200 field steps on saddles, and the 'inertial effect' of the first quasi-static grid was largely this artefact (`docs/QS_SELECAO_DE_CAMINHO.md`). The kick energy is booked as `E_kick_J` in `energy_ledger`. `--qs_kick 0` disables the check; use it only to reproduce the first grid.
+
+**Validated defaults** (`--qs_dB_factor 0.005`, `--qs_tol_torque 1e-5`, `--qs_tol_omega 1e-5`). A loose tolerance (1e-3) stops early near instabilities, where the dynamics slows down critically, and **inflates the loop by up to 50 %**. With the defaults, the overdamped and $Q_0 = 0.3$ inertial loops agree to 0.1 %, and both match the slowest rate sweeps. The cost is comparable to a slow sweep (≈1.5–5 × 10⁶ steps per loop), because the critical slowing down near instabilities must be resolved either way.
+
+```bash
+python3 compass.py --geometry square --N 16 --M 16 --field_mode hysteresis_qs \
+    --B_max_factor 4 --damping 1e-7 --out_dir ~/compass_runs/qs_demo --tag sq16_qs
+```
 
 ---
 
@@ -220,7 +247,16 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--float32`: Use float32 tensor/state instead of float64 (default: off; double precision preferred for final results).
 
 ### External field
-* `--field_mode {static,hysteresis,forc,sine,step_up,step_pos,step_down,step_neg,pulse,demag_rot,demag_linear}` (default: `static`).
+* `--field_mode {static,hysteresis,hysteresis_qs,forc,sine,step_up,step_pos,step_down,step_neg,pulse,demag_rot,demag_linear}` (default: `static`).
+* `--qs_dB_factor <float>`: Field step of `hysteresis_qs`, in units of $B_{\text{ref}}$ (default: `0.005`).
+* `--qs_tol_torque <float>`, `--qs_tol_omega <float>`: Rest criteria of `hysteresis_qs`, as fractions of $m B_{\text{lat}}$ and $\omega_{\text{lat}}$ (default: `1e-5` each).
+* `--qs_check_every <int>`: Integration steps between rest checks (default: `5`).
+* `--qs_max_relax_tau <float>`: Safety cap on the relaxation time per field step, in units of $\tau_{\text{relax}}$ (default: `2000`).
+* `--qs_dynamics {inertial,overdamped}`: Relaxation dynamics at fixed field (default: `inertial`).
+* `--qs_kick <float>`: Saddle check: random kick in rad applied after the first rest, followed by a second relaxation (default: `1e-4`; `0` disables).
+* `--qs_state_log`: Save the rest-state angles of every field step to `states/<tag>_qs_states.npz`.
+* `--qs_stop_after <int>`: Stop after this many field steps (partial loop, for targeted reruns; default `0` = full loop).
+* `--qs_od_cfl <float>`: Euler step of the overdamped mode, as a fraction of $b/(m B_{\text{loc}})$ (default: `0.2`).
 * `--B_ext <float>`: Field amplitude in Tesla; if omitted, `B_max_factor * B_ref` is used (default: `None`).
 * `--B_max_factor <float>`: `B_ext = factor * B_ref` when `--B_ext` is omitted (default: `8.0`).
 * `--phi_ext_deg <float>`: Field direction in degrees relative to $+x$ (default: `0.0`).
@@ -429,6 +465,16 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--hyst_log_k` | `float` | `5.0` | Log-spacing concentration. |
 | `--hyst_slow_window` | `"B_lo,B_hi"` | `None` | Slow-sweep window (T), both branches. |
 | `--hyst_slow_factor` | `float` | `1.0` | Sweep-rate divisor inside the window. |
+| `--qs_dB_factor` | `float` | `0.005` | Field step of `hysteresis_qs` (units of $B_{\text{ref}}$). |
+| `--qs_tol_torque` | `float` | `1e-5` | Rest criterion on torque (fraction of $m B_{\text{lat}}$). |
+| `--qs_tol_omega` | `float` | `1e-5` | Rest criterion on angular velocity (fraction of $\omega_{\text{lat}}$). |
+| `--qs_check_every` | `int` | `5` | Steps between rest checks. |
+| `--qs_max_relax_tau` | `float` | `2000` | Cap on relaxation time per field step (units of $\tau_{\text{relax}}$). |
+| `--qs_dynamics` | `inertial`, `overdamped` | `inertial` | Relaxation dynamics at fixed field. |
+| `--qs_kick` | `float` | `1e-4` | Saddle-check kick (rad); `0` disables. |
+| `--qs_state_log` | flag | off | Save rest-state angles per field step. |
+| `--qs_stop_after` | `int` | `0` | Stop after N field steps (`0` = full loop). |
+| `--qs_od_cfl` | `float` | `0.2` | Euler step of the overdamped mode. |
 | **FORC Protocol** | | | |
 | `--forc_Br_min` | `float` | `None` | Minimum reversal field (T); default $-B_{\max}$. |
 | `--forc_n_curves` | `int` | `30` | Number of minor reversal curves. |

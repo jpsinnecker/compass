@@ -1,0 +1,5 @@
+- [x] Update `plot_state` signature to accept `ax=None`
+- [x] In `plot_state`, handle figure creation only if `ax is None`
+- [x] Update `_save_frame` to create subplots for hysteresis mode
+- [x] Plot `hysteresis_log` dynamically in the right subplot
+- [x] Verify the change by running a short hysteresis simulation (Skipped due to python environment issue)

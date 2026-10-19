@@ -393,3 +393,115 @@ def test_loop_area_converges_in_the_quasi_static_limit(tmp_path):
     a_fast, a_mid, a_slow = areas
     assert a_fast > a_mid > a_slow > 0.0
     assert abs(a_mid - a_slow) < 0.3 * abs(a_fast - a_mid), f"no convergence: areas {areas}"
+
+
+# ----------------------------------------------------------------------------
+# event-driven quasi-static loop (--field_mode hysteresis_qs)
+# ----------------------------------------------------------------------------
+
+_QS_N = 3
+_QS_COMMON = ["--geometry", "square", "--N", str(_QS_N), "--M", str(_QS_N), "--field_mode", "hysteresis_qs",
+              "--B_max_factor", "2.5", "--qs_dB_factor", "0.05", "--qs_tol_torque", "1e-4", "--qs_tol_omega", "1e-4"]
+
+
+def _damping_for_Q0(Q0, N=_QS_N, geometry="square"):
+    geom = _lattice(N, geometry)
+    backend = compass.select_backend(False)
+    tensor = _tensor(geom, FULL_CUTOFF_SHELLS)
+    moment = compass.compute_moment_from_geometry(geom.needle_len, geom.needle_width, compass.NEEDLE_THICKNESS_DEFAULT)
+    inertia = compass.compute_inertia_from_geometry(geom.needle_len, geom.needle_width, compass.NEEDLE_THICKNESS_DEFAULT)
+    B_lat = moment * compass.lattice_field_per_moment(tensor, backend)
+    return math.sqrt(moment * B_lat * inertia) / Q0
+
+
+def _qs_area(rows, meta):
+    i_top = max(i for i, r in enumerate(rows) if r["branch"] == "0_to_pos")
+    W = _col(rows, "W_field_J")
+    norm = meta["derived"]["K"] * meta["config"]["moment"] * meta["derived"]["B_ref_T"]
+    return (W[-1] - W[i_top]) / norm
+
+
+def test_qs_path_shape():
+    path = compass.build_qs_path(3.0, 1.0)
+    assert [b for b, _ in path] == [1, 2, 3, 2, 1, 0, -1, -2, -3, -2, -1, 0, 1, 2, 3]
+    assert path[0][1] == "0_to_pos" and path[-1][1] == "0_to_pos_final"
+
+
+def test_qs_logs_rest_states_that_are_equilibria(tmp_path):
+    rows, meta = _run(tmp_path, "qs_eq", *_QS_COMMON, "--damping", repr(_damping_for_Q0(3.0)))
+    qs = meta["quasi_static"]
+    assert qs["unconverged_field_steps"] == 0
+    assert len(rows) == qs["n_field_steps"] + 1            # initial row + one per field step
+    # The final state, re-evaluated independently, is a mechanical equilibrium.
+    st = np.load(tmp_path / "states" / "qs_eq_final.npz")
+    geom = _lattice(_QS_N)
+    Bx, By = _field(_tensor(geom, FULL_CUTOFF_SHELLS), meta["config"]["moment"], st["theta"])
+    bx = float(rows[-1]["Bx_T"]); by = float(rows[-1]["By_T"])
+    m = meta["config"]["moment"]
+    torque = m * np.cos(st["theta"]) * (By + by) - m * np.sin(st["theta"]) * (Bx + bx)
+    assert np.max(np.abs(torque)) <= qs["tol_torque_Nm"] * 1.0001
+    assert np.max(np.abs(st["omega"])) <= qs["tol_omega_rad_s"] * 1.0001
+
+
+def test_qs_energy_balance_includes_field_jumps(tmp_path):
+    _, meta = _run(tmp_path, "qs_bal", *_QS_COMMON, "--damping", repr(_damping_for_Q0(3.0)))
+    assert meta["energy_ledger"]["balance_residual_rel"] < 2e-3
+
+
+@pytest.mark.slow
+def test_qs_overdamped_limit_matches_low_Q0_inertial(tmp_path):
+    # In the quasi-static limit, inertial dynamics at very small Q0 and the
+    # gradient flow (Q0 -> 0) select the same sequence of minima.
+    # Needs the validated rest tolerance: a loose one stops early near
+    # instabilities, and differently for the two rest criteria. Q0 must be
+    # well inside the overdamped limit: at Q0 = 0.2 the residual inertia
+    # already picks a different branch at the exactly symmetric bifurcation
+    # of the 3x3 square array (area -11%), while Q0 = 0.05 coincides.
+    b = repr(_damping_for_Q0(0.05))
+    tight = ["--qs_tol_torque", "1e-5", "--qs_tol_omega", "1e-5"]
+    rows_i, meta_i = _run(tmp_path, "qs_in", *_QS_COMMON, *tight, "--damping", b)
+    rows_o, meta_o = _run(tmp_path, "qs_od", *_QS_COMMON, *tight, "--damping", b, "--qs_dynamics", "overdamped")
+    assert meta_o["quasi_static"]["unconverged_field_steps"] == 0
+    a_i, a_o = _qs_area(rows_i, meta_i), _qs_area(rows_o, meta_o)
+    assert a_o == pytest.approx(a_i, rel=0.03)
+    M_i, M_o = _col(rows_i, "M_proj"), _col(rows_o, "M_proj")
+    assert np.max(np.abs(M_i - M_o)) < 0.05
+
+
+def test_qs_rejects_sweep_rate(tmp_path):
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "qs_bad", *_QS_COMMON, "--sweep_rate_dimless", "0.01")
+
+
+def test_qs_state_log_matches_csv_and_stop_after(tmp_path):
+    # --qs_state_log stores one rest state per CSV row; --qs_stop_after
+    # truncates the loop without changing the rows that are computed.
+    b = repr(_damping_for_Q0(3.0))
+    rows_full, _ = _run(tmp_path, "qs_full", *_QS_COMMON, "--damping", b)
+    rows, meta = _run(tmp_path, "qs_log", *_QS_COMMON, "--damping", b, "--qs_state_log", "--qs_stop_after", "7")
+    assert len(rows) == 8 and meta["quasi_static"]["stopped_early"]
+    assert [r["M_proj"] for r in rows] == [r["M_proj"] for r in rows_full[:8]]
+    st = np.load(tmp_path / "states" / "qs_log_qs_states.npz")
+    assert st["theta"].shape == (8, meta["derived"]["K"])
+    M = np.cos(st["theta"] - float(st["phi_ext"])).mean(axis=1)
+    np.testing.assert_allclose(M, _col(rows, "M_proj"), atol=1e-10)
+    np.testing.assert_array_equal(st["theta"][-1], np.load(tmp_path / "states" / "qs_log_final.npz")["theta"])
+
+
+@pytest.mark.parametrize("dynamics", ["overdamped", "inertial"])
+def test_qs_kick_escapes_zero_torque_saddle(tmp_path, dynamics):
+    # Two needles aligned with the field, no initial noise: once the field is
+    # reversed they sit exactly antiparallel to it, with exactly zero torque,
+    # i.e. on a saddle. Without the saddle check the protocol logs that state
+    # as "rest" and never reverses (M_proj stays +1); the kick must make the
+    # pair reverse, with the kick energy booked in the ledger.
+    common = ["--geometry", "square", "--N", "1", "--M", "2", "--noise", "0",
+              "--field_mode", "hysteresis_qs", "--B_max_factor", "2", "--qs_dB_factor", "0.05",
+              "--damping", "1e-7", "--qs_dynamics", dynamics]
+    rows0, _ = _run(tmp_path, f"nokick_{dynamics}", *common, "--qs_kick", "0")
+    rows1, meta1 = _run(tmp_path, f"kick_{dynamics}", *common)
+    assert np.min(_col(rows0, "M_proj")) > 0.999            # stuck on the saddle
+    assert np.min(_col(rows1, "M_proj")) < -0.999           # reverses with the kick
+    assert meta1["quasi_static"]["kick_rad"] == pytest.approx(1e-4)
+    assert meta1["energy_ledger"]["E_kick_total_J"] > 0.0
+    assert meta1["energy_ledger"]["balance_residual_rel"] < 1e-3

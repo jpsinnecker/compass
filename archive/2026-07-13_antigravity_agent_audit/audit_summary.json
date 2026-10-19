@@ -1,0 +1,24 @@
+{
+  "audit_summary": {
+    "compass.py": {
+      "finding": "High complexity O(N*N) in dipolar field calculations if not for the precomputed tensor optimization. Efficiency is good due to precomputation, but memory usage grows with N^2.",
+      "optimization": "Consider sparse matrix representation if lattice sizes become extremely large to keep memory usage in check."
+    },
+    "damping_sweep_analysis.py": {
+      "finding": "Uses pandas and matplotlib which can be memory-intensive for large datasets. Avalanche detection relies on looping segments which is efficient, but MLE fitting can be slow over thousands of runs.",
+      "optimization": "Batch the MLE fitting process; ensure `numexpr` is used if pandas operations are bottlenecked."
+    },
+    "avalanche_processor.py": {
+      "finding": "Uses efficient cell binning (O(K)) for neighbor list generation, which is optimal for sparse spatial analysis.",
+      "optimization": "Looks solid; the union-find implementation uses path compression, keeping clustering nearly linear."
+    },
+    "damping_sweep.py": {
+      "finding": "Driver script; creates a large number of runs. The main inefficiency is sequential execution of independent simulations.",
+      "optimization": "Parallelize the simulation stages using multiprocessing or a job queue to utilize multi-core CPU/GPU architectures."
+    },
+    "compass_generate_images.py": {
+      "finding": "Uses matplotlib's default rendering which can be slow for many plots. Filesystem operations are linear.",
+      "optimization": "Consider using parallel processing for image generation to speed up post-processing of large campaign directories."
+    }
+  }
+}

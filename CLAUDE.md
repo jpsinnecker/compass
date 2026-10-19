@@ -41,6 +41,10 @@ python3 tests/generate_reference.py             # regenerate regression referenc
      actually used in every hysteresis/FORC run. Loop area still depends strongly on r; quote A at r → 0.
   5. FIXED: CSV columns `W_field_J`, `E_diss_J` (cumulative) and metadata `energy_ledger`; ΔE_total = W − D
      to O(dt²) and loop area = W over a closed cycle, both tested.
+- Quasi-static protocol (`--field_mode hysteresis_qs`): a zero-torque state can be a SADDLE. The rest
+  criterion therefore includes a kick-and-relax check (`--qs_kick`, default 1e-4 rad). Never compare
+  dynamics on QS runs made with `--qs_kick 0` (the first QS grid): the gradient flow stays on symmetric
+  saddles (`docs/QS_SELECAO_DE_CAMINHO.md`).
 - Any change to physics defaults changes the regression references. Regenerate them in the
   same commit and say so in the commit message.
 
@@ -50,6 +54,12 @@ python3 tests/generate_reference.py             # regenerate regression referenc
 - Never claim avalanche exponents or "universality classes" from these system sizes.
 - Any claim about the effect of Q on hysteresis must be made at the quasi-static limit (rate → 0) or
   as an explicit function of the dimensionless sweep rate.
+
+## Versions
+- Engine version is `__version__` in `compass.py` (semver, recorded in run metadata). Bump it in the same
+  commit as any change of physics, defaults, protocols or output format, and add a `CHANGELOG.md` entry.
+- Report versions continue as `Report Vnn` (current V61, next V62). Code "V60" (July) is not Report V60.
+- Pre-git history: branch `history/pre-git`, tags `code-T1`…`code-V2.1`, `report-*`; narrative in `docs/CRONOLOGIA.md`.
 
 ## Workflow
 - Branch per phase/fix (`fase1/...`). Small commits. Run `pytest` before committing.

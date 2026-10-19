@@ -1,0 +1,7 @@
+- [x] Modify `compass.py` to version V66 and implement bidirectional field intensity bar
+- [x] Create `freeze_v66.py` and run it to snapshot `compass_simV66.py`
+- [x] Create and modify `project_report.tex` from `relatorio_projeto_V22_EN.tex`
+- [x] Modify `build_report.sh` to target `project_report`
+- [x] Run Python syntax check and generate verification plots
+- [x] Compile the report to PDF and verify the output
+- [x] Create `walkthrough.md` to document the completed work
