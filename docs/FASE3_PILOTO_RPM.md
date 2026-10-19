@@ -1,6 +1,6 @@
 # Fase 3: piloto de memória de ponto de retorno (RPM)
 
-Data: 19/10/2026. Branch `fase3/qs-subloops` (motor 2.5.0). Status: **desenho**; o script da campanha e a análise ainda não foram escritos, e nada foi rodado.
+Data: 19/10/2026. Branch `fase3/qs-subloops` (motor 2.5.0). Status: script pronto (`fase3_pilot.py`: `run` e `analyze`), testado em 6×6; piloto lançado em 19/10 na mumax (`~/compass_runs/fase3_pilot`).
 
 ## 1. Pergunta
 
@@ -50,7 +50,11 @@ Para cada condição, `rpm.py` dá a fração de agulhas em estado diferente (e 
 
 **Cuidado:** os chutes de 10⁻⁴ rad também decidem caminhos perto de bifurcações (`docs/QS_SELECAO_DE_CAMINHO.md`). Uma violação no fluxo gradiente não é efeito de inércia; o controle existe para isso.
 
-## 5. A fazer antes de lançar
+## 5. Como rodar
 
-1. Script da campanha (reaproveitando a divisão Mac/mumax e o ajuste de Q₀ do `fase2_campaign.py`).
-2. Análise que gera a tabela da seção 4 a partir do `rpm.py`.
+```bash
+python3 fase3_pilot.py run --out_dir ~/compass_runs/fase3_pilot --workers 7
+python3 fase3_pilot.py analyze --run_dirs ~/compass_runs/fase3_pilot
+```
+
+A análise grava `rpm_pilot.csv` (uma linha por geometria, dinâmica e semente) e imprime quantas sementes violam cada teste. Teste em 6×6 (fluxo gradiente, semente 0): nenhuma violação nas três geometrias, como esperado em rede pequena.
