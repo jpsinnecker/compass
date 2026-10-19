@@ -1,4 +1,4 @@
-# Cronologia do projeto: do primeiro script ao Relatório V60
+# Cronologia do projeto: do primeiro script à Fase 3
 
 Data: 18/10/2026 (revisão 7, com as fontes primárias, a pasta original do Dropbox, os dados da IDE Antigravity, o histórico local de arquivos do editor, o pacote `OLD/ALLfiles` e a reconstrução das V55–V57). Guia reconstruído a partir de nove fontes:
 
@@ -56,6 +56,7 @@ As datas vêm da modificação dos arquivos ou dos commits. Onde uma afirmação
 | **16/10** | git, PRs #4–#6 | **Auditoria física** e **Fase 1**: soma completa, dt pela cota do campo local, Q₀ intrínseco, livro-caixa de energia, taxa adimensional r, testes físicos, README, licença MIT. |
 | **16–17/10** | git, PR #7 (aberto) | **Fase 2**: 690 ciclos com taxa controlada (Mac + mumax + GPU); protocolo quase-estático por eventos; manual com PDF gerado; **Relatório V60**. |
 | **18/10** | git, PR #8 + `21d8ec2` | Descoberta do **artefato de pontos de sela** na primeira grade quase-estática; correção por chute e nova relaxação; grade corrigida (QS2, 120 laços) e **Relatório V61**. |
+| **19/10** | git, PRs #7 (merge), #9 e branch `fase3/qs-subloops` | Merge da Fase 2 em `main`; **protocolo de bancada** para medir I, m, b e atrito de uma agulha real (`docs/BANCADA.md`, `bench_fit.py`; Fase 5); início da **Fase 3**: programas de campo quase-estáticos com subloops (`--qs_program`, motor 2.5.0), métricas de memória de ponto de retorno (`rpm.py`) e desenho do piloto em 24×24 (`docs/FASE3_PILOTO_RPM.md`). |
 
 ---
 
@@ -166,6 +167,11 @@ Repositório criado (`ad865d7`), com auditoria de código (`docs/AUDIT.md`), par
 - **Protocolo quase-estático por eventos** (`--field_mode hysteresis_qs`, `6312d4e`) e fluxo gradiente como referência Q₀ → 0. Manual com fonte única e PDF gerado por pandoc (`0d82bcf`).
 - **Relatório V60** (`c06e880`, 17/10): reestruturado como relatório de métodos e resultados, com três seções de resultados. Sem comandos nem tabela de flags, que ficam no manual.
 - **18/10 (PR #8):** a análise de seleção de caminho mostrou que boa parte do "efeito inercial" da primeira grade quase-estática era **artefato de pontos de sela**: o fluxo gradiente preserva a simetria da rede e fica no ramo instável. Em `21d8ec2`, o critério de repouso passou a exigir um **chute de 10⁻⁴ rad e nova relaxação**. A grade corrigida (QS2: 120 laços, Mac + mumax, cerca de 9 h) terminou no mesmo dia, e o **Relatório V61** reescreveu com ela a seção de resultados III, o resumo e a discussão: até 16×16 a inércia não muda o laço quase-estático; em 24×24 e 32×32 ela o estreita em 9–21 % na maioria dos casos.
+
+### 2.10 Bancada e início da Fase 3 (19/10; PR #9 e branch `fase3/qs-subloops`)
+- **Merge da Fase 2** em `main` (PR #7, `d6e6d34`), depois da leitura do Relatório V61.
+- **Protocolo de bancada** (Fase 5, PR #9): como medir o momento de inércia (geometria e massa adicionada), a razão m/I (frequência em função do campo das bobinas de Helmholtz), o momento m (campo do dipolo), o amortecimento viscoso e o atrito dinâmico (ajuste da equação de movimento completa a um decaimento livre) e o atrito estático (banda morta e rotação lenta do campo). Análise em `bench_fit.py`, validada só com dados sintéticos.
+- **Fase 3:** o modo quase-estático passou a aceitar um caminho de campo livre, com pontos de virada atingidos exatamente (`--qs_program`, motor 2.5.0), e `rpm.py` compara o estado em cada retorno com o da primeira passagem. O piloto em 24×24 (60 corridas, fluxo gradiente e Q₀ = 10, 5 sementes) está desenhado em `docs/FASE3_PILOTO_RPM.md` e ainda não foi rodado.
 
 ---
 
