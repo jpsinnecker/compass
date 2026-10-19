@@ -101,7 +101,7 @@ import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -130,7 +130,7 @@ CFG = load_config()
 
 # Engine version (semantic versioning; see CHANGELOG.md). Bump it in the same
 # commit as any change of physics, defaults, protocols or output format.
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 MU0_OVER_4PI = CFG.physics.constants.mu0_over_4pi  # T m / A
 STEEL_DENSITY_DEFAULT = CFG.physics.compass_engine.steel_density  # kg/m^3
@@ -535,6 +535,36 @@ def build_qs_path(Bmax: float, dB: float) -> List[Tuple[float, str]]:
     path += [(-B * k / n, "neg_to_0") for k in range(n - 1, -1, -1)]
     path += [(B * k / n, "0_to_pos_final") for k in range(1, n + 1)]
     return path
+
+
+def build_qs_program_path(turning_points: Sequence[float], dB: float) -> List[Tuple[float, str]]:
+    """
+    Field values of a quasi-static field program (--qs_program): starting from
+    B = 0, straight legs to each turning point in turn, in equal steps of about
+    dB with exact endpoints. Leg k is labelled "Lkk_up" or "Lkk_down". The
+    turning points are reached exactly, so the rest states there can be
+    compared between passages (return-point memory).
+    """
+    path: List[Tuple[float, str]] = []
+    B_cur = 0.0
+    for k, B_tp in enumerate(turning_points, start=1):
+        span = B_tp - B_cur
+        if span == 0.0:
+            raise ValueError(f"qs_program: turning point {k} repeats the previous field")
+        n = max(1, int(round(abs(span) / max(dB, 1e-300))))
+        label = f"L{k:02d}_{'up' if span > 0 else 'down'}"
+        path += [(B_cur + span * j / n, label) for j in range(1, n)]
+        path.append((float(B_tp), label))
+        B_cur = float(B_tp)
+    return path
+
+
+def parse_qs_program(text: str) -> List[float]:
+    """'4, -0.3, 0.2, -0.3' -> [4.0, -0.3, 0.2, -0.3] (units of B_ref)."""
+    vals = [float(v) for v in text.replace(";", ",").split(",") if v.strip()]
+    if not vals:
+        raise ValueError("qs_program: no turning points")
+    return vals
 
 
 def dimless_sweep_rate(rate_T_per_s: float, tau_relax: float, B_ref: float) -> float:
@@ -1296,6 +1326,12 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
     # T_loc = 2 pi / omega_loc_bound, omega_loc*dt <= 2 pi * dt_factor holds
     # for every configuration and every applied field the protocol can reach.
     B_applied_max = abs(B_ext)
+    qs_program_T = None
+    if getattr(args, "qs_program", None) and args.field_mode != "hysteresis_qs":
+        raise SystemExit("--qs_program applies only to --field_mode hysteresis_qs")
+    if args.field_mode == "hysteresis_qs" and getattr(args, "qs_program", None):
+        qs_program_T = [v * B_ref for v in parse_qs_program(args.qs_program)]
+        B_applied_max = max(B_applied_max, max(abs(v) for v in qs_program_T))
     if forc_schedule is not None and forc_schedule.Br:
         B_applied_max = max(B_applied_max, max(abs(b) for b in forc_schedule.Br))
     B_loc_bound = moment * local_field_bound_per_moment(tensor, backend) + B_applied_max
@@ -1762,7 +1798,10 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         # keep the original fixed-length loop (same numbers bit for bit).
         qs_mode = args.field_mode == "hysteresis_qs"
         if qs_mode:
-            qs_values = build_qs_path(B_ext, args.qs_dB_factor * B_ref)
+            if qs_program_T is not None:
+                qs_values = build_qs_program_path(qs_program_T, args.qs_dB_factor * B_ref)
+            else:
+                qs_values = build_qs_path(B_ext, args.qs_dB_factor * B_ref)
             qs_tol_om = args.qs_tol_omega * omega_lat
             qs_tol_tau = args.qs_tol_torque * moment * B_lat
             qs_check = max(1, int(args.qs_check_every))
@@ -1977,7 +2016,11 @@ def run_simulation(args) -> Tuple[Path, Path, Path]:
         metadata["derived"]["n_steps"] = step
         metadata["quasi_static"] = {
             "protocol": "event-driven quasi-static loop: field step, relax at fixed field to rest, log rest state",
-            "dB_T": abs(B_ext) / max(1, int(round(abs(B_ext) / max(args.qs_dB_factor * B_ref, 1e-300)))),
+            "dB_T": (args.qs_dB_factor * B_ref if qs_program_T is not None else
+                     abs(B_ext) / max(1, int(round(abs(B_ext) / max(args.qs_dB_factor * B_ref, 1e-300))))),
+            "program_Bref": (parse_qs_program(args.qs_program) if qs_program_T is not None else None),
+            "program_note": ("legs from 0 to each turning point (units of B_ref), branch labels Lkk_up/Lkk_down; "
+                             "null = standard five-branch loop to +-B_ext"),
             "dB_factor_Bref": args.qs_dB_factor,
             "n_field_steps": len(qs_values),
             "tol_torque_Nm": qs_tol_tau,
@@ -2315,6 +2358,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--qs_state_log", action="store_true", help="save the rest-state angles of every field step to states/<tag>_qs_states.npz (theta[row, needle], rows aligned with the CSV)")
     g.add_argument("--qs_stop_after", type=int, default=0, help="stop after this many field steps (0 = full loop); partial loop, for targeted reruns only")
     g.add_argument("--qs_kick", type=float, default=1e-4, help="saddle check of hysteresis_qs: after the first rest, kick every needle by N(0, qs_kick) rad and relax again before logging; 0 disables (zero-torque saddles are then logged as rest states)")
+    g.add_argument("--qs_program", type=str, default=None, help="field program instead of the five-branch loop: comma-separated turning points in units of B_ref, visited in order from B = 0 (e.g. '4,-0.3,0.2,-0.3' saturates, descends to -0.3, makes a minor excursion to +0.2 and returns); for return-point-memory tests")
     g.add_argument("--qs_od_cfl", type=float, default=0.2, help="overdamped Euler step as a fraction of b / (m B_loc_bound) (stable below 2)")
 
     g = p.add_argument_group("field protocol")

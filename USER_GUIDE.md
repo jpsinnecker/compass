@@ -177,6 +177,16 @@ python3 compass.py --geometry square --N 16 --M 16 --field_mode hysteresis_qs \
     --B_max_factor 4 --damping 1e-7 --out_dir ~/compass_runs/qs_demo --tag sq16_qs
 ```
 
+**Field programs and return-point memory** (`--qs_program`). Instead of the five-branch loop, the field can follow any sequence of turning points (units of $B_{\text{ref}}$), visited in order from $B = 0$ in steps of `--qs_dB_factor`. Each turning point is reached exactly, and leg $k$ is labelled `Lkk_up` or `Lkk_down` in the `branch` column. With `--qs_state_log`, `rpm.py` compares the rest state at every return to an earlier turning point with the state at the first passage (wrapped rms angle, fraction of needles reversed in only one of the two states, $\Delta M$), and can compare a leg with a leg of a reference run at equal fields (outer branch after a minor loop). Use turning points that are multiples of `--qs_dB_factor`, so that legs share the field grid.
+
+```bash
+# saturate, descend to -0.3 B_ref, minor excursion to +0.2, return, continue to -4
+python3 compass.py --geometry triangular --N 24 --M 24 --field_mode hysteresis_qs \
+    --qs_program "4,-0.3,0.2,-0.3,-4" --qs_state_log --damping 1e-7 \
+    --out_dir ~/compass_runs/rpm_demo --tag tri24_rpm
+python3 rpm.py ~/compass_runs/rpm_demo --tag tri24_rpm
+```
+
 ---
 
 ## 5. System Requirements & Acceleration
@@ -256,6 +266,7 @@ This table mirrors `compass.py`'s `build_parser()` argument groups directly. Som
 * `--qs_kick <float>`: Saddle check: random kick in rad applied after the first rest, followed by a second relaxation (default: `1e-4`; `0` disables).
 * `--qs_state_log`: Save the rest-state angles of every field step to `states/<tag>_qs_states.npz`.
 * `--qs_stop_after <int>`: Stop after this many field steps (partial loop, for targeted reruns; default `0` = full loop).
+* `--qs_program <list>`: Field program instead of the five-branch loop: comma-separated turning points in units of $B_{\text{ref}}$, visited in order from $B = 0$ (e.g. `"4,-0.3,0.2,-0.3,-4"`). Overrides `--B_ext`/`--B_max_factor` for the field path (default: off).
 * `--qs_od_cfl <float>`: Euler step of the overdamped mode, as a fraction of $b/(m B_{\text{loc}})$ (default: `0.2`).
 * `--B_ext <float>`: Field amplitude in Tesla; if omitted, `B_max_factor * B_ref` is used (default: `None`).
 * `--B_max_factor <float>`: `B_ext = factor * B_ref` when `--B_ext` is omitted (default: `8.0`).
@@ -474,6 +485,7 @@ Notable flags: `--n_workers N` runs N campaign entries in parallel (separate pro
 | `--qs_kick` | `float` | `1e-4` | Saddle-check kick (rad); `0` disables. |
 | `--qs_state_log` | flag | off | Save rest-state angles per field step. |
 | `--qs_stop_after` | `int` | `0` | Stop after N field steps (`0` = full loop). |
+| `--qs_program` | `str` | off | Turning points in units of $B_{\text{ref}}$ (field program, RPM tests). |
 | `--qs_od_cfl` | `float` | `0.2` | Euler step of the overdamped mode. |
 | **FORC Protocol** | | | |
 | `--forc_Br_min` | `float` | `None` | Minimum reversal field (T); default $-B_{\max}$. |

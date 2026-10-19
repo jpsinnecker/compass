@@ -8,6 +8,7 @@ and roadmap, in Portuguese) and `docs/AUDIT.md` (code organization) before large
 - `compass.py` — the only simulation engine. `import compass as cs` everywhere.
 - `config.yaml` + `sim_config.py` — all defaults; CLI flags override them.
 - `damping_sweepV03.py`, `damping_sweep_analysis.py`, `avalanche_processor.py` — campaign/analysis.
+- `fase2_campaign.py`, `fase2_analysis.py`, `fase2_qs_analysis.py` — Phase-2 grids; `rpm.py` — return-point-memory metrics for `--qs_program` runs (Phase 3).
 - `tests/` — `test_reference_runs.py` (regression, frozen numbers), `test_hysteresis_protocol.py`,
   `test_physics.py` (physical validity; known defects are `xfail(strict=True)`).
 - `archive/` — dead code. Never import from or edit it.

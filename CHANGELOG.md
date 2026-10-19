@@ -17,6 +17,12 @@ the branch `history/pre-git`.
 * **Pre-git versions** keep their historical names (T1–T10, V11–V79, V2.0, V2.0.2, V2.1), with tags `code-T1` … `code-V2.1` on `history/pre-git`.
 * **Do not confuse** "code V60" (05/07/2026, CLI translated to English) with "Report V60" (17/10/2026).
 
+## [2.5.0] – 2026-10-19 (branch `fase3/qs-subloops`, Phase 3)
+### Added
+- `--qs_program`: quasi-static field program (turning points in units of B_ref, legs `Lkk_up`/`Lkk_down`, turning points reached exactly) for minor loops and return-point-memory (RPM) tests. Defaults unchanged; the five-branch loop is reproduced when written as a program.
+- `rpm.py`: RPM metrics from the per-step state log (state at each return versus first passage; leg versus reference leg at equal fields).
+- Tests: `tests/test_qs_program.py`.
+
 ## [2.4.0] – 2026-10-18 (branch `fase2/dynamic-hysteresis`, PR #7)
 ### Added
 - Event-driven quasi-static loop `--field_mode hysteresis_qs`: field steps of `--qs_dB_factor`·B_ref, relaxation at fixed field until rest, one CSV row per step (per-step avalanche size and dissipation). The field jump is booked exactly in the energy ledger.
