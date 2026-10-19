@@ -17,6 +17,10 @@ the branch `history/pre-git`.
 * **Pre-git versions** keep their historical names (T1–T10, V11–V79, V2.0, V2.0.2, V2.1), with tags `code-T1` … `code-V2.1` on `history/pre-git`.
 * **Do not confuse** "code V60" (05/07/2026, CLI translated to English) with "Report V60" (17/10/2026).
 
+## [Unreleased] (branch `fase5/bench-protocol`)
+### Added
+- Bench protocol for a single real needle (`docs/BANCADA.md`, in Portuguese) and its analysis script `bench_fit.py`: I from geometry or added inertia, m/I from frequency versus field, m from the dipole field, viscous damping and Coulomb friction from a fit of the full equation of motion to a free decay, static friction from the dead band. Tests with synthetic data in `tests/test_bench_fit.py`. The engine is unchanged.
+
 ## [2.4.0] – 2026-10-18 (branch `fase2/dynamic-hysteresis`, PR #7)
 ### Added
 - Event-driven quasi-static loop `--field_mode hysteresis_qs`: field steps of `--qs_dB_factor`·B_ref, relaxation at fixed field until rest, one CSV row per step (per-step avalanche size and dissipation). The field jump is booked exactly in the energy ledger.
