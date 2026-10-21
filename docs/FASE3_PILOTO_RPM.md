@@ -1,6 +1,6 @@
 # Fase 3: piloto de memória de ponto de retorno (RPM)
 
-Data: 19/10/2026. Branch `fase3/qs-subloops` (motor 2.5.0). Status: script pronto (`fase3_pilot.py`: `run` e `analyze`), testado em 6×6; piloto lançado em 19/10 na mumax (`~/compass_runs/fase3_pilot`).
+Data: 19/10/2026. Branch `fase3/qs-subloops` (motor 2.5.0). Status: script pronto (`fase3_pilot.py`: `run` e `analyze`), testado em 6×6; piloto rodado na mumax em 19–20/10 (60 corridas, 22,3 h, sem erros; `~/compass_runs/fase3_pilot`). **Resultado: nenhuma violação de RPM** (seção 6).
 
 ## 1. Pergunta
 
@@ -58,3 +58,30 @@ python3 fase3_pilot.py analyze --run_dirs ~/compass_runs/fase3_pilot
 ```
 
 A análise grava `rpm_pilot.csv` (uma linha por geometria, dinâmica e semente) e imprime quantas sementes violam cada teste. Teste em 6×6 (fluxo gradiente, semente 0): nenhuma violação nas três geometrias, como esperado em rede pequena.
+
+## 6. Resultado (21/10/2026)
+
+**Nenhuma das 30 combinações (3 geometrias × 2 dinâmicas × 5 sementes) viola a RPM em nenhum dos três testes.** Ao voltar a A, o estado é o mesmo da primeira passagem (diferença rms de 3×10⁻⁶ a 2×10⁻⁵ rad, no nível da tolerância de repouso, e nenhuma agulha em estado diferente), e o ramo externo depois dos desvios coincide com o da corrida de referência em todos os 760–780 campos comparados.
+
+Os desvios não foram triviais (semente 0, fração de agulhas que viraram durante o desvio e voltaram):
+
+| geometria | dinâmica | M em A | desvio pequeno | desvio grande |
+|---|---|---|---|---|
+| quadrada | fluxo gradiente | −0,085 | 37 % | 67 % |
+| quadrada | Q₀ = 10 | −0,015 | 6 % | 44 % |
+| triangular | fluxo gradiente | −0,46 | 0,3 % | 50 % |
+| triangular | Q₀ = 10 | −0,46 | 0,3 % | 50 % |
+| honeycomb | fluxo gradiente | −0,18 | 2 % | 19 % |
+| honeycomb | Q₀ = 10 | −0,18 | 2 % | 19 % |
+
+Na quadrada, as duas dinâmicas chegam a A em estados diferentes (M = −0,085 contra −0,015): a inércia muda o caminho, como no V61. Mas cada dinâmica tem memória perfeita do seu próprio caminho.
+
+**Leitura:** é o terceiro cenário da seção 4. Nessas condições a memória de ponto de retorno é robusta, apesar da frustração dipolar (que viola a hipótese de *no-passing* do teorema de Sethna) e da inércia. O desvio pequeno da triangular quase não virou agulhas (2 de 576) e é um teste fraco.
+
+**Limites do piloto:** um único ponto A por geometria, desvios dentro do primeiro ramo descendente, só N = 24, só Q₀ = 10 contra o fluxo gradiente, sem desordem congelada.
+
+**Opções para continuar:**
+1. Desvios que atravessem a região em que a inércia seleciona caminhos no V61 (por exemplo, desvios a partir de vários pontos A ao longo de todo o ramo, ou subloops aninhados).
+2. N = 32, onde o efeito inercial no laço é maior (até −21 %).
+3. Desordem fraca (`--damping_noise`) e Q₀ = 3.
+4. Tratar a robustez da RPM como resultado: memória exata num sistema frustrado e inercial, com contraste à literatura de no-passing.
