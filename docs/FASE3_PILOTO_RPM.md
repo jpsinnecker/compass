@@ -85,3 +85,19 @@ Na quadrada, as duas dinâmicas chegam a A em estados diferentes (M = −0,085 c
 2. N = 32, onde o efeito inercial no laço é maior (até −21 %).
 3. Desordem fraca (`--damping_noise`) e Q₀ = 3.
 4. Tratar a robustez da RPM como resultado: memória exata num sistema frustrado e inercial, com contraste à literatura de no-passing.
+
+## 7. Teste de estresse (desenho, 21/10/2026)
+
+Script: `fase3_stress.py` (`run`, `analyze`). Objetivo: tentar quebrar a RPM onde ela é mais frágil.
+
+- **Programa:** 7 a 8 pontos de virada A espalhados por todo o ramo de descida (M de cerca de +0,75 a −0,75 nos laços QS2, incluindo os campos em que a inércia selecionou caminhos), cada um com um desvio A → A+D → A, e um subloop aninhado no ponto do meio (A → A+D → A+D/2 → A+D → A). D = 0,30 (quadrada), 0,20 (triangular), 0,15 (honeycomb).
+- **Teste:** cada retorno ao ponto em que um subloop começou é comparado com o estado ali antes do subloop (`rpm_returns(match="last")`); a análise registra também quantas agulhas o subloop virou, para separar testes triviais.
+- **Grade:** N = 6, 10, 16, 24 (fluxo gradiente, Q₀ = 3 e 10) e N = 32 (fluxo gradiente e Q₀ = 10), sementes 0 e 1: 84 corridas, cerca de 22 a 28 retornos por corrida.
+- **Custo:** a estimativa do script subestimou o piloto em cerca de 7×; com essa correção, ≈ 240 h de CPU, cerca de 30 h na mumax (8 processos).
+
+**Primeira observação (teste em 6×6, honeycomb, fluxo gradiente, semente 0):** a volta a A = −0,105 B_ref, depois de um desvio que virou 11 % das agulhas, terminou com **30 % das agulhas em estado diferente**. A análise detecta violações, e a frustração sozinha pode quebrar a memória numa rede pequena e simétrica. A grade dirá se isso persiste com o tamanho e se a inércia muda a frequência.
+
+```bash
+python3 fase3_stress.py run --out_dir ~/compass_runs/fase3_stress --workers 8
+python3 fase3_stress.py analyze --run_dirs ~/compass_runs/fase3_stress
+```

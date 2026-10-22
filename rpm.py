@@ -78,12 +78,18 @@ def turning_points(run: QSRun) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def rpm_returns(run: QSRun, tol: float = 1e-9) -> pd.DataFrame:
-    """Compare every turning point with the first earlier turning point at the same field."""
+def rpm_returns(run: QSRun, tol: float = 1e-9, match: str = "first") -> pd.DataFrame:
+    """Compare every turning point with an earlier turning point at the same field.
+
+    match="first": the first earlier one; match="last": the most recent one
+    (the start of the minor loop that has just closed, for programs with
+    several excursions).
+    """
     tp = turning_points(run)
     out = []
     for j in range(len(tp)):
-        for i in range(j):
+        order = range(j) if match == "first" else range(j - 1, -1, -1)
+        for i in order:
             if abs(tp.B_Bref[i] - tp.B_Bref[j]) <= tol * max(1.0, abs(tp.B_Bref[i])):
                 d = state_distance(run.theta[tp.row[j]], run.theta[tp.row[i]], run.phi_ext)
                 out.append(dict(B_Bref=tp.B_Bref[j], first_leg=int(tp.leg[i]), return_leg=int(tp.leg[j]), **d))
