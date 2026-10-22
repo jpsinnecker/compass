@@ -2,6 +2,8 @@
 
 Data: 21/10/2026. Base: Relatório V61 (resultados I–III), piloto de RPM da Fase 3 (`docs/FASE3_PILOTO_RPM.md`) e o teste de estresse em execução. O texto do artigo será em inglês; este roteiro é para o autor.
 
+**Rascunho:** `docs/paper_B/paper_B.tex` (REVTeX, PRE, duas colunas; PDF ao lado). Seções I–V redigidas em 22/10 a partir do V61; VI (memória), VII (discussão) e o apêndice sobre selas estão marcados em vermelho, à espera do teste de estresse.
+
 ## 1. Afirmação central
 
 > Em redes dipolares de rotores inerciais, a inércia controla a histerese **dinâmica** e, em redes grandes, **seleciona o ramo** do laço quase-estático; a memória de ponto de retorno é preservada [a confirmar pelo teste de estresse].
